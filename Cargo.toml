@@ -1,0 +1,22 @@
+[package]
+name = "hoplite"
+version = "0.1.0"
+edition = "2021"
+license = "EPL-2.0"
+rust-version = "1.78"
+description = "Hara application server for Nginx"
+
+[workspace]
+members = [".", "runtime"]
+default-members = ["."]
+resolver = "2"
+
+[features]
+default = ["bytecode-vm"]
+bytecode-vm = ["hara-wasm/bytecode-vm"]
+embedded-nginx = []
+
+[dependencies]
+hara-wasm = { path = "../hara.lang/rust", features = ["bytecode-vm"] }
+rustyline = "14.0.0"
+home = "=0.5.9"

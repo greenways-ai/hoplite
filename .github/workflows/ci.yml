@@ -1,0 +1,31 @@
+name: Hoplite
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: hoplite
+      - uses: actions/checkout@v4
+        with:
+          repository: hara-lang/hara
+          path: hara.lang
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --manifest-path hoplite/Cargo.toml --workspace
+
+  nginx-module:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: hoplite
+      - uses: actions/checkout@v4
+        with:
+          repository: hara-lang/hara
+          path: hara.lang
+      - run: docker build -f hoplite/docker/Dockerfile -t hoplite-ci .
