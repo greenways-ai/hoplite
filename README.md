@@ -1,6 +1,6 @@
 # Hoplite
 
-[Hoplite](https://github.com/hara-lang/hoplite) is a Hara application server
+[Hoplite](https://github.com/greenways-ai/hoplite) is a Hara application server
 for Nginx. It embeds the [Hara](https://github.com/hara-lang/hara) runtime in
 each worker and maps asynchronous Nginx operations onto Hara promises and
 coroutine suspension.
@@ -11,7 +11,7 @@ Hoplite currently uses a sibling Hara checkout:
 
 ```bash
 git clone https://github.com/hara-lang/hara.git hara.lang
-git clone https://github.com/hara-lang/hoplite.git hoplite
+git clone https://github.com/greenways-ai/hoplite.git hoplite
 cd hoplite
 cargo test --workspace
 cargo run -- eval '(+ 19 23)'
