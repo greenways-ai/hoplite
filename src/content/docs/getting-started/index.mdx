@@ -1,0 +1,36 @@
+---
+title: Introduction
+description: What Hoplite is, what it builds, and where to begin.
+sidebar:
+  order: 1
+---
+
+<span class="doc-badge doc-badge--caution">Pre-release</span> <span class="doc-badge doc-badge--note">macOS-first</span>
+
+Hoplite is a Hara application server built into Nginx. An application is an immutable resource tree, each operation points to a Hara Var, and each Nginx worker resolves and compiles its handlers once at startup.
+
+```text
+request → nginx → HTA value → cached Hara handler → HTA response → nginx
+```
+
+<div class="doc-card-grid">
+  <article class="doc-card"><h3>Application as data</h3><p>Routes and operations are declarative values that can be validated before serving traffic.</p></article>
+  <article class="doc-card"><h3>Worker-local runtime</h3><p>Each Nginx worker owns one Hoplite runtime, its values, fibers, promises, and compiled handlers.</p></article>
+  <article class="doc-card"><h3>Capability-bound host</h3><p>Hara code calls explicitly installed host services rather than reaching ambient system APIs.</p></article>
+  <article class="doc-card"><h3>Operational surface</h3><p>One executable checks, builds, serves, reloads, inspects, installs, and stops applications.</p></article>
+</div>
+
+## Current scope
+
+The packaged executable currently targets macOS. Linux is exercised by CI and Docker, but the first tagged release and final bytecode bootstrap integration are still in preparation. Treat all interfaces as pre-release.
+
+## Follow the quickstart
+
+1. [Install Hoplite](/getting-started/installation/).
+2. [Define your first application](/getting-started/first-application/).
+3. [Configure its Hara project profile](/getting-started/project-configuration/).
+4. [Use the development workflow](/getting-started/development-workflow/).
+
+:::note[Hara prerequisite]
+Hoplite applications are written in HAL and evaluated by Hara. The source-build workflow expects sibling checkouts of `hara.lang` and `hoplite`.
+:::

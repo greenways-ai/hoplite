@@ -1,0 +1,28 @@
+---
+title: Host capabilities
+description: How Hoplite exposes Nginx and development services to Hara code.
+---
+
+Hara code calls native services through `std.native.Host/call`. The project declares the capabilities it expects:
+
+```clojure
+:project/capabilities #{:host/nginx}
+```
+
+## Nginx host
+
+The Nginx host provides request-time operations. Asynchronous handlers can await supported host calls without blocking the worker:
+
+```clojure
+(std.native.Host/call "nginx" "sleep" [25])
+```
+
+## Development host
+
+<span class="doc-badge doc-badge--note">Development</span>
+
+The interactive console installs the `hoplite.dev` host. Its public HAL functions call the host with methods such as `start`, `stop`, `restart`, `status`, `list-all`, and `logs`.
+
+## Boundary rule
+
+The host service name and operation are explicit in the call. Hoplite does not treat arbitrary shell commands or undeclared server definitions as console capabilities.

@@ -1,0 +1,15 @@
+<section class="home-section home-architecture">
+  <header><p class="technical-kicker">01 · Request path</p><h2>From the edge to your code.</h2><p>One narrow route through the system, with each boundary visible and inspectable.</p></header>
+  <div class="request-flow" aria-label="Request passes through Nginx, HTA values, and a cached Hara handler">
+    <span><small>ARRIVE</small><b>HTTP</b><em>request</em></span><i>→</i>
+    <span><small>GUARD</small><b>Nginx</b><em>host</em></span><i>→</i>
+    <span class="request-flow__core"><small>TRANSLATE</small><b>HTA</b><em>value</em></span><i>→</i>
+    <span><small>RESOLVE</small><b>Hara</b><em>handler</em></span><i>→</i>
+    <span><small>RETURN</small><b>HTA</b><em>response</em></span>
+  </div>
+  <a class="technical-link" href="/concepts/runtime-model/">Understand the worker-local runtime →</a>
+</section>
+<figure class="mosaic-feature">
+  <img src="/images/hoplite-threshold.webp" width="1536" height="1024" loading="lazy" alt="A mosaic shield bearer guarding a luminous architectural threshold" />
+  <figcaption>Capability-bound hosts keep the network boundary explicit.</figcaption>
+</figure>

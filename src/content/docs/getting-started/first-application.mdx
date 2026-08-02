@@ -1,0 +1,54 @@
+---
+title: Your first application
+description: Define and run a minimal Hoplite resource application.
+---
+
+
+1. Create `app.hal` and require `hoplite.core`.
+
+   ```clojure
+   (ns example.app
+     (:require [hoplite.core :as h]))
+   ```
+
+2. Define a handler that accepts a request value and returns a response map.
+
+   ```clojure
+   (defn hello
+     [request]
+     {:status 200
+      :headers {"content-type" "text/plain; charset=utf-8"}
+      :body "Hello from Hoplite\n"})
+   ```
+
+3. Declare the application and its resource operation.
+
+   ```clojure
+   (def app
+     (h/app
+       {:name "example"
+        :resources
+        [["/hello"
+          {:get {:name :hello
+                 :summary "Return a greeting"
+                 :handler #'hello}}]]}))
+   ```
+
+4. Add the [project profile](/getting-started/project-configuration/), then check and serve it.
+
+   ```sh
+   hoplite serve check .
+   hoplite serve foreground .
+   curl -i http://localhost:8080/hello
+   ```
+
+
+## Why the Var is quoted
+
+`#'hello` stores the handler Var in declarative application data. Calling `hello` would execute it while the application is being defined. Hoplite resolves the Var and compiles the handler call during worker startup.
+
+## Resource shape
+
+A resource is a vector whose first item is an absolute path and whose optional map contains HTTP method operations. Child resource vectors may follow the operation map. Supported operation keys are `:get`, `:post`, `:put`, `:patch`, `:delete`, `:head`, and `:options`.
+
+Each operation requires `:handler`. `:name` and `:summary` are optional metadata used by generated interface descriptions.

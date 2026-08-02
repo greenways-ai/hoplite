@@ -1,0 +1,40 @@
+---
+title: Multiple applications
+description: Host several declared Hoplite applications through one advanced configuration.
+---
+
+<span class="doc-badge doc-badge--caution">Advanced</span> <span class="doc-badge doc-badge--danger">Internal interface</span>
+
+The normal `hoplite.core/app` interface describes one router. `hoplite.internal/config` places several declared applications into one Nginx configuration.
+
+```clojure
+(ns example.host
+  (:require [example.api :as api]
+            [example.admin :as admin]
+            [hoplite.internal :as internal]))
+
+(def config
+  (internal/config
+    {:worker-processes 4
+     :apps [{:id :api
+             :app #'api/app
+             :port 8080
+             :hostnames ["api.example.test"]}
+            {:id :admin
+             :app #'admin/app
+             :port 8081
+             :hostnames ["admin.example.test"]}]}))
+```
+
+Point the selected profile's `:profile/main` at `example.host/config`.
+
+## Instance fields
+
+| Field | Required | Behavior |
+| --- | --- | --- |
+| `:app` | Yes | Var or value evaluating to `hoplite.core/app` |
+| `:id` | No | Overrides the application's host-facing name |
+| `:port` | No | First defaults to the profile port; later apps increment it |
+| `:hostnames` | No | Nginx `server_name` values for the instance |
+
+Application IDs must be unique. Two applications without hostnames cannot share a port because both would be default servers.

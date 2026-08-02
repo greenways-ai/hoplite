@@ -2,3 +2,9 @@
 **/target/
 /.hoplite/
 .DS_Store
+node_modules/
+dist/
+.astro/
+
+# Local Netlify folder
+.netlify

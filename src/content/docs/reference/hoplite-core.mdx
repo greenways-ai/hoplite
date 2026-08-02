@@ -1,0 +1,57 @@
+---
+title: hoplite.core
+description: Public constructors for Hoplite applications, responses, streams, middleware, and services.
+---
+
+## `app`
+
+<span class="doc-badge doc-badge--success">Public</span>
+
+```clojure
+(app definition)
+```
+
+Defines one immutable resource application. A map is tagged with `:hoplite/type :application`; another value becomes the application's catch-all `:handler`.
+
+## `response`
+
+<span class="doc-badge doc-badge--success">Public</span>
+
+```clojure
+(response definition)
+(response status body)
+```
+
+Constructs a logical response value. Response maps may also be returned directly. The one-argument arity tags the definition; the two-argument arity creates a response containing `:status` and `:body`.
+
+## `stream`
+
+<span class="doc-badge doc-badge--caution">Experimental</span>
+
+```clojure
+(stream source)
+```
+
+Marks a coroutine or producer as a backpressured response stream by returning `{:hoplite/type :stream :source source}`.
+
+## `middleware`
+
+<span class="doc-badge doc-badge--caution">Experimental</span>
+
+```clojure
+(middleware definition)
+```
+
+Tags a lifecycle middleware definition. The documented lifecycle phases are request, response, error, and close; the complete host integration remains pre-release.
+
+## `service`
+
+<span class="doc-badge doc-badge--caution">Experimental</span>
+
+```clojure
+(service definition)
+```
+
+Tags a managed application service definition.
+
+**Source:** [`lib/src/hoplite/core.hal`](https://github.com/greenways-ai/hoplite/blob/main/lib/src/hoplite/core.hal)

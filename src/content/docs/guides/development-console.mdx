@@ -1,0 +1,37 @@
+---
+title: Development console
+description: Start, inspect, restart, and stop declared applications from the Hara REPL.
+---
+
+<span class="doc-badge doc-badge--note">Development only</span>
+
+Running `hoplite` with no arguments opens a Hara REPL with project namespaces and `hoplite.dev` installed.
+
+```clojure
+(ns user
+  (:require [example.app :as app]
+            [hoplite.dev :as dev]))
+
+(dev/start #'app/app {:project "." :profile :server})
+(dev/list-all)
+(dev/status #'app/app)
+(dev/logs #'app/app {:bytes 4096})
+(dev/restart #'app/app)
+(dev/stop #'app/app)
+```
+
+## Identity and safety
+
+The console identifies a server by its declared application Var. That Var must be the selected profile main. The console does not execute arbitrary server definitions or shell commands, and one console can track applications from multiple projects.
+
+## Options
+
+`start` and `restart` accept an options map:
+
+| Key | Meaning |
+| --- | --- |
+| `:project` | Project directory; defaults according to the console environment |
+| `:profile` | Project profile name |
+| `:mode` | Use `"prod"` for production settings; other values remain development mode |
+
+`logs` accepts `:bytes` to control the tail length. See the complete [`hoplite.dev` reference](/reference/hoplite-dev/).

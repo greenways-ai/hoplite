@@ -1,0 +1,60 @@
+---
+title: CLI reference
+description: Every current Hoplite command, serve action, and option.
+---
+
+<span class="doc-badge doc-badge--caution">Pre-release interface</span>
+
+## Top-level commands
+
+| Command | Purpose |
+| --- | --- |
+| `hoplite` | Open the development console |
+| `hoplite version` | Print the Hoplite version |
+| `hoplite eval EXPR` | Evaluate one Hara expression |
+| `hoplite run FILE` | Run a HAL source file |
+| `hoplite serve …` | Check, build, or operate an application project |
+
+## Serve syntax
+
+```text
+hoplite serve [--profile NAME] [--mode dev|prod] [PROJECT]
+hoplite serve <foreground|install|uninstall|status|reload|stop|build|check>
+              [--profile NAME] [--mode dev|prod] [PROJECT]
+```
+
+With no explicit serve action, `hoplite serve` performs `start`.
+
+## Serve actions
+
+| Action | Behavior |
+| --- | --- |
+| `start` | Build as needed and start the embedded Nginx process |
+| `foreground` | Run Nginx in the foreground |
+| `install` | Install a macOS LaunchAgent |
+| `uninstall` | Remove the macOS LaunchAgent |
+| `status` | Report whether the project process is running |
+| `reload` | Ask Nginx to reload the built configuration |
+| `stop` | Stop the project process |
+| `build` | Generate application and Nginx build output |
+| `check` | Load and validate the selected application without serving |
+
+## Options
+
+| Option | Values | Default |
+| --- | --- | --- |
+| `--profile NAME` | A key from `:project/profiles` | `:project/default-profile` |
+| `--mode MODE` | `dev` or `prod` | `dev` |
+| `PROJECT` | Project directory | Current project context |
+
+Unexpected arguments, missing option values, and modes other than `dev` or `prod` are rejected.
+
+## Environment
+
+| Variable | Purpose |
+| --- | --- |
+| `HOPLITE_NGINX` | Select an external development Nginx executable instead of the embedded binary |
+
+Use `HOPLITE_NGINX` deliberately; normal installations should use the embedded host.
+
+**Source:** [`src/main.rs`](https://github.com/greenways-ai/hoplite/blob/main/src/main.rs)

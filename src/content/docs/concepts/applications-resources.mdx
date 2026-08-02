@@ -1,0 +1,45 @@
+---
+title: Applications and resources
+description: How Hoplite represents applications, resources, operations, and handlers.
+---
+
+<span class="doc-badge doc-badge--success">Public</span>
+
+`hoplite.core/app` tags a map as an application. The map is immutable application data, not an imperative server builder.
+
+```clojure
+(h/app {:name "catalog"
+        :resources [...]})
+```
+
+Passing a callable instead of a map creates a catch-all application with one `ANY /*path` route:
+
+```clojure
+(h/app #'handler)
+```
+
+## Resource trees
+
+Resources are nested vectors. Paths must be empty or begin with `/`; child paths are joined to their parent.
+
+```clojure
+["/users"
+ {:get {:handler #'list-users}}
+ ["/:id"
+  {:get {:handler #'get-user}
+   :delete {:handler #'delete-user}}]]
+```
+
+At build time, Hoplite flattens the tree into method/path/handler records. An application with no operations is rejected.
+
+## Operation fields
+
+| Field | Required | Purpose |
+| --- | --- | --- |
+| `:handler` | Yes | Callable or Var resolved for the route |
+| `:name` | No | Stable operation name |
+| `:summary` | No | Human-readable description used by OpenAPI output |
+
+## Validation
+
+Hoplite rejects relative resource paths, operations without handlers, non-callable handlers, empty applications, duplicate application IDs, and ambiguous default applications sharing a port.

@@ -1,0 +1,12 @@
+<script is:inline>
+  (() => {
+    const item = document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("gw-theme="));
+    const stored = item?.slice(9) || localStorage.getItem("gw-theme") || "auto";
+    const preference = ["auto", "light", "dark"].includes(stored) ? stored : "auto";
+    const resolved = preference === "auto" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : preference;
+    document.documentElement.dataset.theme = resolved;
+    document.documentElement.dataset.themePreference = preference;
+    document.documentElement.dataset.project = "hoplite";
+  })();
+</script>
+<script>import "@greenways-ai/visual-language/theme.js";</script>

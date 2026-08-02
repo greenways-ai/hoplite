@@ -1,0 +1,19 @@
+---
+import ThemedArtwork from "@greenways-ai/visual-language/ThemedArtwork.astro";
+const install = "git clone https://github.com/greenways-ai/hoplite.git";
+---
+<section class="hoplite-hero">
+  <ThemedArtwork class="hoplite-hero__art" light="/images/hoplite-squad-day.webp" dark="/images/hoplite-squad-night.webp" lightAlt="A Hoplite squad training and helping citizens reinforce a sunlit civic gateway" darkAlt="The same squad coordinating a counterattack against an abstract breach at the gateway at night" position="center" />
+  <div class="hoplite-hero__veil"></div>
+  <div class="hoplite-hero__copy">
+    <p class="technical-kicker"><i></i> Open foundation · pre-release</p>
+    <h1>The guarded gateway.</h1>
+    <p>Hoplite is a Hara application server built into Nginx. Applications are immutable resource trees; each worker resolves and compiles its route handlers once during startup.</p>
+    <div class="hero-links">
+      <a class="action action--gold" href="/getting-started/">Get started <span>→</span></a>
+      <a class="action" href="/reference/cli/">Read the reference</a>
+      <a class="action" href="https://github.com/greenways-ai/hoplite">Source ↗</a>
+    </div>
+    <div class="hero-command"><code>{install}</code><span>macOS-first · EPL-2.0</span></div>
+  </div>
+</section>

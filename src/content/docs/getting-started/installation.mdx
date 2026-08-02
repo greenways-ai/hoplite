@@ -1,0 +1,58 @@
+---
+title: Installation
+description: Build Hoplite from source and understand the planned packaged installation.
+---
+
+<span class="doc-badge doc-badge--success">Source build available</span> <span class="doc-badge doc-badge--caution">Tagged package pending</span>
+
+## Build from source
+
+
+1. Clone Hara and Hoplite into sibling directories.
+
+   ```sh
+   git clone https://github.com/hara-lang/hara.git hara.lang
+   git clone https://github.com/greenways-ai/hoplite.git hoplite
+   cd hoplite
+   ```
+
+2. Prepare the development dependencies.
+
+   ```sh
+   make setup
+   ```
+
+3. Run the project checks and build the standalone executable.
+
+   ```sh
+   make check
+   make macos
+   ```
+
+
+Run `make help` for the available development, packaging, example, and benchmark targets. To install a source build under a custom prefix:
+
+```sh
+make install PREFIX=/usr/local
+```
+
+## Homebrew package
+
+After the first tagged release is published, the intended installation is:
+
+```sh
+brew tap greenways-ai/hoplite
+brew install hoplite
+hoplite version
+```
+
+The formula and tap automation exist in the repository, but users should not rely on this path until a tagged release succeeds. See [Packaging](/guides/packaging/) for the release flow.
+
+## Platform support
+
+| Platform | Status | Notes |
+| --- | --- | --- |
+| macOS arm64 | Primary | Standalone packaging target |
+| macOS Intel | Primary | Standalone packaging target |
+| Linux | Validation | CI and Docker; no packaged standalone release yet |
+| Windows | Unsupported | No supported host lifecycle integration |

@@ -1,0 +1,39 @@
+---
+title: Requests and responses
+description: Logical request, response, and streaming values at the Nginx boundary.
+---
+
+## Request boundary
+
+Nginx translates an HTTP request into an HTA value before invoking the cached Hara handler. Handlers receive that logical value as their argument.
+
+## Response maps
+
+A handler may return a response map directly:
+
+```clojure
+{:status 200
+ :headers {"content-type" "application/json"}
+ :body "{\"ready\":true}"}
+```
+
+`hoplite.core/response` can tag an existing definition or construct a status/body response:
+
+```clojure
+(h/response {:status 204})
+(h/response 404 "Not found\n")
+```
+
+<span class="doc-badge doc-badge--success">Public</span> `response` returns a logical value; Nginx remains responsible for emitting the HTTP response.
+
+## Streams
+
+<span class="doc-badge doc-badge--caution">Experimental</span>
+
+`hoplite.core/stream` marks a coroutine or producer as a backpressured response stream:
+
+```clojure
+(h/stream source)
+```
+
+The constructor is visible today, but the streaming host contract is pre-release and may change before the first stable package.

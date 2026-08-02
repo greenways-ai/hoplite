@@ -1,0 +1,39 @@
+---
+title: Project schema
+description: Hara project and Hoplite profile fields consumed by the application loader.
+---
+
+<span class="doc-badge doc-badge--caution">Pre-release interface</span>
+
+## Project selection
+
+Hoplite consumes a normal Hara project containing source paths, a main namespace, capabilities, and profiles. The selected profile must use `:profile/language :hoplite`.
+
+## Hoplite profile
+
+| Field | Type | Required | Validation |
+| --- | --- | --- | --- |
+| `:profile/language` | keyword | Yes | Must equal `:hoplite` |
+| `:profile/main` | qualified symbol | Yes | Must evaluate to a tagged application or internal config |
+| `:profile/options` | map | No | Non-map values are rejected |
+| `:profile/options :port` | integer | No | Must be between 1 and 65535; defaults to 8080 |
+| `:profile/options :workers` | positive integer | No | Defaults to 1 in development and available CPU count in production |
+
+## Application definition
+
+| Field | Type | Required | Behavior |
+| --- | --- | --- | --- |
+| `:name` | text-like | No | Defaults to `app-<id>` |
+| `:resources` | sequence | Unless catch-all | Flattened into method/path/handler routes |
+| `:openapi :path` | text-like | No | Explicit OpenAPI route; development otherwise defaults to `/openapi.json` |
+
+## Advanced host configuration
+
+| Field | Type | Required | Behavior |
+| --- | --- | --- | --- |
+| `:worker-processes` | positive integer | No | Overrides profile/default worker count |
+| `:apps` | non-empty sequence | Yes | Application instances to host |
+
+Instance fields are documented in [Multiple applications](/guides/multiple-applications/).
+
+**Source:** [`src/app.rs`](https://github.com/greenways-ai/hoplite/blob/main/src/app.rs)
