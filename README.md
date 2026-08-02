@@ -255,3 +255,7 @@ Request-body reading, subrequests, upstreams, streaming, and WebSocket events
 remain host-adapter work. They use the same `Host/call -> Promise -> suspended
 fiber -> hoplite_call_resolve/hoplite_call_reject` path demonstrated by the
 timer; none of them belongs inside `Promise`.
+
+## License
+
+Hoplite is available under the [Eclipse Public License 2.0](LICENSE).
