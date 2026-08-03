@@ -37,3 +37,27 @@
   [definition]
   (tagged :service definition))
 
+(defn module
+  "Defines one composable Hoplite module exported from a package."
+  [definition]
+  (tagged :module definition))
+
+(defn adapter
+  "Defines an implementation of a module-owned contract."
+  [definition]
+  (tagged :adapter definition))
+
+(defn store
+  "Defines a store adapter through logical, atomic operations rather than tables."
+  [definition]
+  (tagged :store definition))
+
+(defn package-ref
+  "Selects one export from an exact package version and binds it to a local alias."
+  [coordinate version export alias config]
+  {:hoplite/type :package-ref
+   :module/id coordinate
+   :module/version version
+   :module/export export
+   :module/as alias
+   :module/config config})

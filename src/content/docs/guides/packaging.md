@@ -3,6 +3,30 @@ title: Packaging
 description: Build standalone executables and understand the Homebrew release workflow.
 ---
 
+## Composable `.harp` packages
+
+Hoplite functionality is distributed as signed Hara package archives. The
+canonical package is addressed as `gh:greenways-ai:hoplite`; an activation
+selects a specific export from an exact version:
+
+```clojure
+{:module/id "gh:greenways-ai:hoplite"
+ :module/version "0.1.0"
+ :module/export :hoplite/auth
+ :module/as :auth
+ :module/config {:auth/store :auth-store}}
+```
+
+A `.harp` may contain HAL sources, a `project.edn`, specs, migrations, assets,
+Rust sources, and signed WASM or HTA artifacts. Rust crates are publication-time
+build inputs; Hoplite activates their locked artifacts rather than compiling or
+downloading native code at runtime.
+
+Exports are independently composable. The core Hoplite archive is expected to
+export `:hoplite/auth`, `:hoplite/management`, `:hoplite/gateway`, and
+`:hoplite/module-runtime`. Store implementations and compatibility layers such
+as PGlite, SQLite and Supabase remain separate addon packages.
+
 ## Standalone executable
 
 ```sh

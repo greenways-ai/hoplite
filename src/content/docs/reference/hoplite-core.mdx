@@ -1,6 +1,6 @@
 ---
 title: hoplite.core
-description: Public constructors for Hoplite applications, responses, streams, middleware, and services.
+description: Public HAL constructors for applications, responses, modules, adapters, stores, and package references.
 ---
 
 ## `app`
@@ -53,5 +53,41 @@ Tags a lifecycle middleware definition. The documented lifecycle phases are requ
 ```
 
 Tags a managed application service definition.
+
+## `module`, `adapter`, and `store`
+
+<span class="doc-badge doc-badge--caution">Experimental</span>
+
+```clojure
+(module definition)
+(adapter definition)
+(store definition)
+```
+
+Define composable behaviour entirely in HAL. A module owns behaviour and its
+contracts; an adapter implements a contract; a store is an adapter expressed
+through logical atomic operations rather than database tables. SQLite, PGlite
+and other persistence engines are addon implementations of that store boundary.
+
+## `package-ref`
+
+<span class="doc-badge doc-badge--caution">Experimental</span>
+
+```clojure
+(package-ref coordinate version export alias config)
+```
+
+Constructs the activation selected by `project.edn`. For example:
+
+```clojure
+(package-ref "gh:greenways-ai:hoplite"
+             "0.1.0"
+             :hoplite/auth
+             :auth
+             {:auth/store :auth-store})
+```
+
+The version is exact, the export is package-owned, and the alias is unique in
+the composed application.
 
 **Source:** [`lib/src/hoplite/core.hal`](https://github.com/greenways-ai/hoplite/blob/main/lib/src/hoplite/core.hal)

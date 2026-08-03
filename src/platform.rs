@@ -5,7 +5,7 @@ use semver::Version;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 
-pub const PLATFORM_FORMAT: i64 = 1;
+pub const PLATFORM_FORMAT: i64 = 2;
 pub const PRINCIPAL_CONTRACT: &str = "1.0.0";
 pub const PRINCIPAL_FIELDS: &[&str] = &[
     "principal/id",
@@ -25,6 +25,8 @@ pub struct Config {
 pub struct ModuleActivation {
     pub id: String,
     pub version: Version,
+    pub export: String,
+    pub alias: String,
     pub config: Form,
 }
 
@@ -157,35 +159,54 @@ fn parse_modules(value: &Form) -> Result<Vec<ModuleActivation>, String> {
         return Err(":hoplite/modules must be a vector".into());
     };
     let mut modules = Vec::with_capacity(entries.len());
-    let mut ids = BTreeSet::new();
+    let mut activations = BTreeSet::new();
+    let mut aliases = BTreeSet::new();
     for entry in entries {
         let entry = form_map(entry, "each Hoplite module activation must be a map")?;
         reject_unknown_keys(
             entry,
-            &["module/id", "module/version", "module/config"],
+            &[
+                "module/id",
+                "module/version",
+                "module/export",
+                "module/as",
+                "module/config",
+            ],
             "module",
         )?;
         let id = scalar(
             required(entry, "module/id", "module activation")?,
             ":module/id",
         )?;
-        if !id.contains(':') {
-            return Err(
-                ":module/id must be a registry-qualified coordinate such as \"hara:hoplite/events\""
-                    .into(),
-            );
-        }
-        let id = project::normalize_coordinate(&id)
-            .map_err(|_| format!("invalid Hoplite module coordinate {id:?}"))?;
-        if !ids.insert(id.clone()) {
-            return Err(format!("duplicate Hoplite module activation {id:?}"));
-        }
+        let id = normalize_module_coordinate(&id)?;
         let version_text = string(
             required(entry, "module/version", "module activation")?,
             ":module/version",
         )?;
         let version = Version::parse(&version_text)
             .map_err(|error| format!(":module/version must be exact SemVer: {error}"))?;
+        let export = scalar(
+            required(entry, "module/export", "module activation")?,
+            ":module/export",
+        )?;
+        if !export.contains('/') || export.chars().any(char::is_whitespace) {
+            return Err(
+                ":module/export must be a qualified identifier such as :hoplite/auth".into(),
+            );
+        }
+        if !activations.insert((id.clone(), export.clone())) {
+            return Err(format!("duplicate Hoplite module export {id:?} :{export}"));
+        }
+        let alias = scalar(
+            required(entry, "module/as", "module activation")?,
+            ":module/as",
+        )?;
+        if alias.is_empty() || alias.contains('/') || alias.chars().any(char::is_whitespace) {
+            return Err(":module/as must be a non-empty unqualified identifier".into());
+        }
+        if !aliases.insert(alias.clone()) {
+            return Err(format!("duplicate Hoplite module alias :{alias}"));
+        }
         let config = lookup(entry, "module/config")
             .cloned()
             .unwrap_or_else(|| Form::Map(Vec::new()));
@@ -194,10 +215,40 @@ fn parse_modules(value: &Form) -> Result<Vec<ModuleActivation>, String> {
         modules.push(ModuleActivation {
             id,
             version,
+            export,
+            alias,
             config,
         });
     }
     Ok(modules)
+}
+
+fn normalize_module_coordinate(value: &str) -> Result<String, String> {
+    if let Some(repository) = value.strip_prefix("gh:") {
+        let mut parts = repository.split(':');
+        let valid = matches!(
+            (parts.next(), parts.next(), parts.next()),
+            (Some(owner), Some(repo), None)
+                if valid_github_name(owner) && valid_github_name(repo)
+        );
+        return valid.then(|| value.to_owned()).ok_or_else(|| {
+            format!("invalid GitHub module coordinate {value:?}; expected gh:owner:repo")
+        });
+    }
+    if !value.contains(':') {
+        return Err(
+            ":module/id must be registry-qualified, for example \"gh:greenways-ai:hoplite\"".into(),
+        );
+    }
+    project::normalize_coordinate(value)
+        .map_err(|_| format!("invalid Hoplite module coordinate {value:?}"))
+}
+
+fn valid_github_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
 }
 
 fn parse_authentication(value: &Form) -> Result<Authentication, String> {
@@ -376,6 +427,8 @@ fn to_form(config: &Config) -> Form {
                                 keyword("module/version"),
                                 Form::String(module.version.to_string()),
                             ),
+                            (keyword("module/export"), keyword(&module.export)),
+                            (keyword("module/as"), keyword(&module.alias)),
                             (keyword("module/config"), module.config.clone()),
                         ])
                     })
@@ -643,8 +696,10 @@ mod tests {
     fn compiles_modules_and_separate_authentication_realms() {
         let source = r#"
         {:hoplite/modules
-         [{:module/id "hara:hoplite/events"
+         [{:module/id "gh:greenways-ai:hoplite"
            :module/version "1.2.3"
+           :module/export :hoplite/events
+           :module/as :events
            :module/config {:events/buffer-size 2048}}]
          :hoplite/authentication
          {:auth/realms
@@ -658,8 +713,10 @@ mod tests {
             :auth/session {:session/refresh-ttl-seconds 86400}}}}}
         "#;
         let config = parse_profile(&project_manifest(source), "server").unwrap();
-        assert_eq!(config.modules[0].id, "hara:hoplite/events");
+        assert_eq!(config.modules[0].id, "gh:greenways-ai:hoplite");
         assert_eq!(config.modules[0].version, Version::parse("1.2.3").unwrap());
+        assert_eq!(config.modules[0].export, "hoplite/events");
+        assert_eq!(config.modules[0].alias, "events");
         assert_eq!(
             config.authentication.realms["management"].providers,
             ["auth/key", "auth/passkey"]
@@ -698,24 +755,31 @@ mod tests {
     #[test]
     fn rejects_unpinned_or_duplicate_modules() {
         let unqualified = project_manifest(
-            "{:hoplite/modules [{:module/id \"hoplite/events\" :module/version \"1.0.0\"}]}",
+            "{:hoplite/modules [{:module/id \"hoplite/events\" :module/version \"1.0.0\" :module/export :hoplite/events :module/as :events}]}",
         );
         assert!(parse_profile(&unqualified, "server")
             .unwrap_err()
             .contains("registry-qualified"));
 
         let unpinned = project_manifest(
-            "{:hoplite/modules [{:module/id \"hara:hoplite/events\" :module/version \"^1.0\"}]}",
+            "{:hoplite/modules [{:module/id \"gh:greenways-ai:hoplite\" :module/version \"^1.0\" :module/export :hoplite/events :module/as :events}]}",
         );
         assert!(parse_profile(&unpinned, "server")
             .unwrap_err()
             .contains("exact SemVer"));
 
         let duplicate = project_manifest(
-            "{:hoplite/modules [{:module/id \"hara:hoplite/events\" :module/version \"1.0.0\"} {:module/id \"hara:hoplite/events\" :module/version \"1.0.1\"}]}",
+            "{:hoplite/modules [{:module/id \"gh:greenways-ai:hoplite\" :module/version \"1.0.0\" :module/export :hoplite/events :module/as :events} {:module/id \"gh:greenways-ai:hoplite\" :module/version \"1.0.1\" :module/export :hoplite/events :module/as :other-events}]}",
         );
         assert!(parse_profile(&duplicate, "server")
             .unwrap_err()
             .contains("duplicate"));
+
+        let duplicate_alias = project_manifest(
+            "{:hoplite/modules [{:module/id \"gh:greenways-ai:hoplite\" :module/version \"1.0.0\" :module/export :hoplite/auth :module/as :service} {:module/id \"gh:greenways-ai:hoplite\" :module/version \"1.0.0\" :module/export :hoplite/gateway :module/as :service}]}",
+        );
+        assert!(parse_profile(&duplicate_alias, "server")
+            .unwrap_err()
+            .contains("alias"));
     }
 }

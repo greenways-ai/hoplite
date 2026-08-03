@@ -5,6 +5,8 @@ use serde_json::{json, Map as JsonMap, Value as JsonValue};
 
 pub const CORE_SOURCE: &str = include_str!("../lib/src/hoplite/core.hal");
 pub const INTERNAL_SOURCE: &str = include_str!("../lib/src/hoplite/internal.hal");
+#[cfg(test)]
+const CORE_TEST_SOURCE: &str = include_str!("../lib/test/hoplite/core_test.hal");
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Route {
@@ -447,5 +449,16 @@ mod tests {
         assert_eq!(app.routes[0].handler, "sample/get-user");
         assert_eq!(app.routes[0].path, "/users/:id");
         assert!(openapi(&app).contains("/users/{id}"));
+    }
+
+    #[test]
+    fn public_hal_contract_evaluates_from_disk() {
+        let mut runtime = Runtime::new();
+        runtime.register_resource("hoplite.core", CORE_SOURCE);
+        runtime.register_resource("hoplite.internal", INTERNAL_SOURCE);
+        assert_eq!(
+            runtime.eval_native_value(CORE_TEST_SOURCE).unwrap(),
+            Value::Bool(true)
+        );
     }
 }

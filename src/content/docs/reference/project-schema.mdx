@@ -28,9 +28,17 @@ All Hoplite platform configuration remains inside `project.edn`:
 {:profile/extensions
  {:extension/hoplite
   {:hoplite/modules
-   [{:module/id "hara:hoplite/events"
-     :module/version "1.2.3"
-     :module/config {:events/buffer-size 2048}}]
+   [{:module/id "gh:greenways-ai:hoplite"
+     :module/version "0.1.0"
+     :module/export :hoplite/auth
+     :module/as :auth
+     :module/config {:auth/store :auth-store}}
+
+    {:module/id "gh:greenways-ai:hoplite-store-memory"
+     :module/version "0.1.0"
+     :module/export :hoplite/store
+     :module/as :auth-store
+     :module/config {}}]
    :hoplite/authentication
    {:auth/realms
     {:management {:auth/providers [:auth/key]
@@ -39,11 +47,18 @@ All Hoplite platform configuration remains inside `project.edn`:
                    :auth/required false}}}}}}
 ```
 
-Module coordinates are registry-qualified and versions are exact SemVer. A
-module can appear only once in a profile, and its configuration must be inert
-EDN without reader tags or metadata. Package resolution will bind these exact
-activations to `project.lock.edn`; Hoplite does not perform live installation
-at runtime.
+The canonical Hoplite package coordinate is `gh:greenways-ai:hoplite`.
+`gh:OWNER:REPOSITORY` coordinates resolve `.harp` archives from GitHub releases.
+Every activation selects one qualified `:module/export`, binds it to a unique
+local `:module/as` alias, and uses an exact SemVer. A package may be activated
+more than once when selecting different exports. Configuration must be inert
+EDN without reader tags or metadata.
+
+Package resolution will bind the coordinate, release asset, export, version,
+archive digest and signature to `project.lock.edn`; Hoplite does not perform
+live installation at runtime. Storage is always selected through an addon such
+as `hoplite-store-memory`, SQLite or PGlite and is not embedded into the auth
+export.
 
 ## One authored manifest
 

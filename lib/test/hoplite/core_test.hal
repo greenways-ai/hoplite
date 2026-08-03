@@ -13,6 +13,20 @@
    (= :stream (:hoplite/type (h/stream ["a" "b"])))
    (= :middleware (:hoplite/type (h/middleware {:request identity})))
    (= :service (:hoplite/type (h/service {:start #'sample-handler})))
+   (= :module (:hoplite/type (h/module {:module/export :hoplite/auth})))
+   (= :adapter (:hoplite/type (h/adapter {:adapter/for :hoplite/store})))
+   (= :store (:hoplite/type (h/store {:store/operations {}})))
+   (= {:hoplite/type :package-ref
+       :module/id "gh:greenways-ai:hoplite"
+       :module/version "0.1.0"
+       :module/export :hoplite/auth
+       :module/as :auth
+       :module/config {}}
+      (h/package-ref "gh:greenways-ai:hoplite"
+                     "0.1.0"
+                     :hoplite/auth
+                     :auth
+                     {}))
    (= :config (:hoplite/type (internal/config {:apps []})))])
 
 (if (every? identity checks)
