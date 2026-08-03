@@ -15,7 +15,7 @@ export default defineConfig({
       },
       description: "A lightweight, fast and deeply customizable Nginx application container.",
       logo: { src: "./public/favicon.svg", replacesTitle: false },
-      favicon: "/hoplite/favicon.svg",
+      favicon: "/favicon.svg",
       customCss: ["./src/styles/custom.css"],
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/greenways-ai/hoplite" },

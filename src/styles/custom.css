@@ -45,7 +45,7 @@
 }
 html { background: #07100e; }
 :root[data-theme="light"] { background: #f2ebdd; }
-body { background-image: radial-gradient(circle at 15% 10%, rgba(47,146,127,.08), transparent 28rem), repeating-linear-gradient(90deg, transparent 0 79px, rgba(255,255,255,.015) 80px); }
+body { background-image: conic-gradient(from 90deg, rgba(47,146,127,.065) 25%, transparent 0 50%, rgba(216,170,103,.035) 0 75%, transparent 0), repeating-linear-gradient(90deg, transparent 0 79px, rgba(255,255,255,.015) 80px); background-size: 18px 18px, auto; }
 h1, h2, h3, .site-title { font-family: "Marcellus", Georgia, serif; font-weight: 400; letter-spacing: -.035em; }
 .site-title { letter-spacing: .16em; }
 .social-icons a, a { transition: color .18s, border-color .18s, background .18s; }
@@ -83,7 +83,7 @@ h1, h2, h3, .site-title { font-family: "Marcellus", Georgia, serif; font-weight:
 .action--gold:hover { color: #07100e; background: #f0c77f; }
 .hero-command { max-width: 660px; display: flex; justify-content: space-between; gap: 1rem; margin-top: 1rem; padding-top: 1rem; color: #aaa58f; border-top: 1px solid rgba(231,223,202,.18); font: .58rem "IBM Plex Mono", monospace; }
 .hero-command code { min-width: 0; overflow: hidden; color: #a9dccd; text-overflow: ellipsis; white-space: nowrap; }
-:root[data-theme="light"] body { background-image: radial-gradient(circle at 15% 10%, rgba(47,146,127,.08), transparent 28rem), repeating-linear-gradient(90deg, transparent 0 79px, rgba(23,35,31,.02) 80px); }
+:root[data-theme="light"] body { background-image: conic-gradient(from 90deg, rgba(47,146,127,.055) 25%, transparent 0 50%, rgba(216,170,103,.03) 0 75%, transparent 0), repeating-linear-gradient(90deg, transparent 0 79px, rgba(23,35,31,.02) 80px); background-size: 18px 18px, auto; }
 :root[data-theme="light"] .hoplite-hero__veil { background: linear-gradient(90deg, rgba(242,235,221,.97) 0%, rgba(242,235,221,.8) 38%, rgba(242,235,221,.08) 73%), linear-gradient(0deg, rgba(242,235,221,.7), transparent 45%); }
 :root[data-theme="light"] .hoplite-hero h1 { color: #17231f; }
 :root[data-theme="light"] .hoplite-hero__copy > p:not(.technical-kicker) { color: rgba(23,35,31,.78); }
