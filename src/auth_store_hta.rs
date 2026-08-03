@@ -42,6 +42,24 @@ fn value() -> Value {
             ]),
         ),
         (
+            keyword("abi/types"),
+            map(hoplite_auth_store_abi::RECORDS
+                .iter()
+                .map(|record_type| {
+                    (
+                        keyword(record_type.name),
+                        record(
+                            record_type
+                                .fields
+                                .iter()
+                                .map(|field| (field.name, field.field_type, field.required))
+                                .collect(),
+                        ),
+                    )
+                })
+                .collect()),
+        ),
+        (
             keyword("abi/operations"),
             map(hoplite_auth_store_abi::OPERATIONS
                 .iter()
@@ -104,4 +122,26 @@ mod tests {
         );
         assert!(sha256().unwrap().starts_with("sha256:"));
     }
+
+    #[test]
+    fn contract_contains_every_portable_record() {
+        let types = super::map_entries(&value(), "abi/types").unwrap();
+        assert_eq!(types.len(), hoplite_auth_store_abi::RECORDS.len());
+        for record in hoplite_auth_store_abi::RECORDS {
+            assert!(types.iter().any(
+                |(name, _)| matches!(name, Value::Keyword(name) if name.as_str() == record.name)
+            ));
+        }
+    }
+}
+
+#[cfg(test)]
+fn map_entries(value: &Value, field_name: &str) -> Option<Vec<(Value, Value)>> {
+    hara_wasm::core::map_entries(value)?
+        .into_iter()
+        .find_map(|(key, value)| {
+            matches!(key, Value::Keyword(name) if name.as_str() == field_name)
+                .then(|| hara_wasm::core::map_entries(&value))
+                .flatten()
+        })
 }

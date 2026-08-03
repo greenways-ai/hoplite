@@ -40,6 +40,12 @@ unknown operations are rejected before dispatch, and query operations cannot
 be placed inside atomic mutation batches. Each project build emits
 `auth-store.hta` and its SHA-256 contract digest.
 
+The contract also publishes the exact fields for every operation input and
+output record. Addons compile against the dependency-free Rust descriptors in
+`hoplite-auth-store-abi`; Hoplite emits the same descriptors under `:abi/types`
+in `auth-store.hta`. Optional fields represent absent values directly, including
+the `auth/UserMaybe` query result, rather than using backend-specific nulls.
+
 The boundary uses logical authentication operations, including user and device
 records, one-time challenges, sessions, refresh rotation, revocation, and audit
 append. An implementation must preserve the compare-and-set and transaction

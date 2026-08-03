@@ -28,6 +28,19 @@ pub struct Operation {
     pub output: &'static str,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Field {
+    pub name: &'static str,
+    pub field_type: &'static str,
+    pub required: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Record {
+    pub name: &'static str,
+    pub fields: &'static [Field],
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Request {
     pub id: String,
@@ -148,6 +161,98 @@ pub const OPERATIONS: [Operation; 9] = [
     ),
 ];
 
+pub const RECORDS: [Record; 11] = [
+    record("auth/AuditAppend", AUDIT_APPEND_FIELDS),
+    record("auth/AuditEvent", AUDIT_EVENT_FIELDS),
+    record("auth/Challenge", CHALLENGE_FIELDS),
+    record("auth/ChallengeConsume", CHALLENGE_CONSUME_FIELDS),
+    record("auth/Device", DEVICE_FIELDS),
+    record("auth/RefreshRotate", REFRESH_ROTATE_FIELDS),
+    record("auth/Session", SESSION_FIELDS),
+    record("auth/SessionRevoke", SESSION_REVOKE_FIELDS),
+    record("auth/User", USER_FIELDS),
+    record("auth/UserFind", USER_FIND_FIELDS),
+    record("auth/UserMaybe", USER_MAYBE_FIELDS),
+];
+
+const AUDIT_APPEND_FIELDS: &[Field] = &[
+    field("audit/occurred-at", "integer", true),
+    field("audit/kind", "string", true),
+    field("audit/realm", "string", false),
+    field("audit/subject-id", "string", false),
+    field("audit/detail", "string", true),
+];
+const AUDIT_EVENT_FIELDS: &[Field] = &[
+    field("audit/id", "integer", true),
+    field("audit/occurred-at", "integer", true),
+    field("audit/kind", "string", true),
+    field("audit/realm", "string", false),
+    field("audit/subject-id", "string", false),
+    field("audit/detail", "string", true),
+];
+const CHALLENGE_FIELDS: &[Field] = &[
+    field("challenge/id", "string", true),
+    field("challenge/realm", "string", true),
+    field("challenge/public-key", "bytes", true),
+    field("challenge/nonce", "bytes", true),
+    field("challenge/expires-at", "integer", true),
+    field("challenge/used-at", "integer", false),
+];
+const CHALLENGE_CONSUME_FIELDS: &[Field] = &[
+    field("challenge/id", "string", true),
+    field("challenge/used-at", "integer", true),
+];
+const DEVICE_FIELDS: &[Field] = &[
+    field("device/id", "string", true),
+    field("device/user-id", "string", true),
+    field("device/public-key", "bytes", true),
+    field("device/revoked-at", "integer", false),
+];
+const REFRESH_ROTATE_FIELDS: &[Field] = &[
+    field("refresh/token-hash", "bytes", true),
+    field("refresh/replacement-hash", "bytes", true),
+    field("refresh/issued-at", "integer", true),
+    field("refresh/access-hash", "bytes", true),
+    field("refresh/access-expires-at", "integer", true),
+    field("refresh/expires-at", "integer", true),
+];
+const SESSION_FIELDS: &[Field] = &[
+    field("session/id", "string", true),
+    field("session/user-id", "string", true),
+    field("session/device-id", "string", true),
+    field("session/realm", "string", true),
+    field("session/access-hash", "bytes", true),
+    field("session/access-expires-at", "integer", true),
+    field("session/refresh-expires-at", "integer", true),
+    field("session/revoked-at", "integer", false),
+];
+const SESSION_REVOKE_FIELDS: &[Field] = &[
+    field("session/id", "string", true),
+    field("session/revoked-at", "integer", true),
+];
+const USER_FIELDS: &[Field] = &[
+    field("user/id", "string", true),
+    field("user/realm", "string", true),
+    field("user/created-at", "integer", true),
+];
+const USER_FIND_FIELDS: &[Field] = &[
+    field("user/realm", "string", true),
+    field("device/public-key", "bytes", true),
+];
+const USER_MAYBE_FIELDS: &[Field] = &[field("result/value", "auth/User", false)];
+
+const fn field(name: &'static str, field_type: &'static str, required: bool) -> Field {
+    Field {
+        name,
+        field_type,
+        required,
+    }
+}
+
+const fn record(name: &'static str, fields: &'static [Field]) -> Record {
+    Record { name, fields }
+}
+
 const fn op(
     name: &'static str,
     mode: Mode,
@@ -164,6 +269,10 @@ const fn op(
 
 pub fn operation(name: &str) -> Option<&'static Operation> {
     OPERATIONS.iter().find(|operation| operation.name == name)
+}
+
+pub fn record_type(name: &str) -> Option<&'static Record> {
+    RECORDS.iter().find(|record| record.name == name)
 }
 
 fn validate_id(id: &str, label: &'static str) -> Result<(), Error> {
@@ -211,6 +320,44 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["auth/user-find"]
         );
+        for operation in OPERATIONS {
+            assert!(
+                record_type(operation.input).is_some(),
+                "{}",
+                operation.input
+            );
+            assert!(
+                record_type(operation.output).is_some(),
+                "{}",
+                operation.output
+            );
+        }
+    }
+
+    #[test]
+    fn record_and_field_names_are_unique() {
+        assert_eq!(
+            RECORDS
+                .iter()
+                .map(|record| record.name)
+                .collect::<BTreeSet<_>>()
+                .len(),
+            RECORDS.len()
+        );
+        for record in RECORDS {
+            assert!(!record.fields.is_empty(), "{}", record.name);
+            assert_eq!(
+                record
+                    .fields
+                    .iter()
+                    .map(|field| field.name)
+                    .collect::<BTreeSet<_>>()
+                    .len(),
+                record.fields.len(),
+                "{}",
+                record.name
+            );
+        }
     }
 
     #[test]
