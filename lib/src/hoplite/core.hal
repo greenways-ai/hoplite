@@ -1,0 +1,39 @@
+(ns hoplite.core)
+
+(defn- tagged
+  [kind value]
+  (assoc value :hoplite/type kind))
+
+(defn app
+  "Defines one immutable Hoplite resource application."
+  [definition]
+  (if (map? definition)
+    (tagged :application definition)
+    {:hoplite/type :application
+     :handler definition}))
+
+(defn response
+  "Constructs a logical response value. Response maps may also be returned directly."
+  ([definition]
+   (tagged :response definition))
+  ([status body]
+   {:hoplite/type :response
+    :status status
+    :body body}))
+
+(defn stream
+  "Marks a coroutine or producer as a backpressured response stream."
+  [source]
+  {:hoplite/type :stream
+   :source source})
+
+(defn middleware
+  "Defines lifecycle middleware with request, response, error, and close phases."
+  [definition]
+  (tagged :middleware definition))
+
+(defn service
+  "Defines a managed application service."
+  [definition]
+  (tagged :service definition))
+

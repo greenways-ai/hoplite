@@ -6,4 +6,17 @@
  :project/test-paths []
  :project/extension-paths []
  :project/capabilities #{:host/nginx}
- :project/main hoplite.app}
+ :project/main hoplite.app
+ :project/default-profile :server
+ :project/profiles
+ {:server {:profile/language :hoplite
+           :profile/main hoplite.app/app
+           :profile/options {:port 8080}
+           :profile/extensions
+           {:extension/hoplite
+            {:hoplite/authentication
+             {:auth/realms
+              {:management {:auth/providers [:auth/key]
+                            :auth/required true}
+               :application {:auth/providers [:auth/key]
+                             :auth/required false}}}}}}}}

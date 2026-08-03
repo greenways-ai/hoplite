@@ -9,6 +9,8 @@
 #define OH_KEYWORD 6
 #define OH_VECTOR 9
 #define OH_MAP 11
+#define OH_ARRAY 17
+#define OH_OBJECT 18
 
 static const u_char hoplite_magic[] = {'H', 'T', 'A', '1'};
 
@@ -194,8 +196,20 @@ hoplite_read_value(hoplite_reader_t *reader, hoplite_hta_value_t **output)
             return NGX_ERROR;
         }
         break;
+    case OH_ARRAY:
+        value = hoplite_new_value(reader, HOPLITE_HTA_ARRAY);
+        if (value == NULL || hoplite_read_sequence(reader, value) != NGX_OK) {
+            return NGX_ERROR;
+        }
+        break;
     case OH_MAP:
         value = hoplite_new_value(reader, HOPLITE_HTA_MAP);
+        if (value == NULL || hoplite_read_map(reader, value) != NGX_OK) {
+            return NGX_ERROR;
+        }
+        break;
+    case OH_OBJECT:
+        value = hoplite_new_value(reader, HOPLITE_HTA_OBJECT);
         if (value == NULL || hoplite_read_map(reader, value) != NGX_OK) {
             return NGX_ERROR;
         }
@@ -448,7 +462,9 @@ hoplite_hta_map_get(const hoplite_hta_value_t *map, const char *name)
     size_t i;
     hoplite_hta_value_t *key;
 
-    if (map == NULL || map->kind != HOPLITE_HTA_MAP) {
+    if (map == NULL
+        || (map->kind != HOPLITE_HTA_MAP && map->kind != HOPLITE_HTA_OBJECT))
+    {
         return NULL;
     }
 

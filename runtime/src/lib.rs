@@ -10,12 +10,22 @@ use std::ptr;
 use std::rc::Rc;
 
 const ABI_VERSION: u32 = 1;
-const REQUEST_BINDING: &str = "__hoplite_request";
-
 type HostCall = (u64, Promise, String, String, Vec<Value>);
 
 type WorkId = u64;
 type CallId = u64;
+type HandlerId = u64;
+type AppId = u64;
+
+struct AppRoute {
+    method: String,
+    path: String,
+    handler: HandlerId,
+}
+
+struct AppRouter {
+    routes: Vec<AppRoute>,
+}
 
 struct Work {
     fiber: Option<vm::VmFiber>,
@@ -44,11 +54,14 @@ pub struct HopliteBuffer {
 pub struct HopliteRuntime {
     namespaces: kernel::NamespaceRegistry<Value>,
     protocols: core::ProtocolRegistry,
+    next_handler: HandlerId,
     next_work: WorkId,
     next_call: u64,
     events: Rc<RefCell<VecDeque<Vec<u8>>>>,
     ready: Rc<RefCell<VecDeque<(u64, PromiseState)>>>,
     call_owners: HashMap<CallId, WorkId>,
+    handlers: HashMap<HandlerId, vm::PreparedCall>,
+    apps: HashMap<AppId, AppRouter>,
     works: HashMap<WorkId, Work>,
 }
 
@@ -59,11 +72,14 @@ impl HopliteRuntime {
         Self {
             namespaces,
             protocols: core::ProtocolRegistry::core(),
+            next_handler: 1,
             next_work: 1,
             next_call: 1,
             events: Rc::new(RefCell::new(VecDeque::new())),
             ready: Rc::new(RefCell::new(VecDeque::new())),
             call_owners: HashMap::new(),
+            handlers: HashMap::new(),
+            apps: HashMap::new(),
             works: HashMap::new(),
         }
     }
@@ -134,37 +150,135 @@ impl HopliteRuntime {
         }
     }
 
-    fn work_start(&mut self, source: &str, binding: Option<Value>) -> WorkId {
+    fn handler_prepare(&mut self, function: &str) -> Result<HandlerId, String> {
+        let call = vm::prepare_call(&self.namespaces, function, 1)?;
+        let handler = self.next_handler;
+        self.next_handler = self.next_handler.saturating_add(1);
+        self.handlers.insert(handler, call);
+        Ok(handler)
+    }
+
+    fn open_work(&mut self) -> WorkId {
         let work = self.allocate_work();
         let result = Promise::new();
         let events = self.events.clone();
         result.on_settle(Rc::new(move |state| emit_settlement(&events, work, state)));
         self.works.insert(work, Work::new(result));
-        if let Some(binding) = binding {
-            self.namespaces.current().intern(REQUEST_BINDING, binding);
-        }
+        work
+    }
 
+    fn start_program(&mut self, program: Rc<vm::Program>) -> WorkId {
+        let work = self.open_work();
         let (handler, pending, next) = self.host_handler(work);
         let namespaces = self.namespaces.clone();
         let protocols = self.protocols.clone();
-        let result = prepare_vm_source(source, &self.namespaces).and_then(|source| {
+        let fiber = core::with_namespace_registry(&namespaces, || {
+            core::with_protocols(&protocols, || {
+                core::with_host_calls(handler, || vm::VmFiber::start(program))
+            })
+        });
+        self.collect_calls(work, pending, next);
+        self.drive(work, fiber);
+        work
+    }
+
+    fn work_start(&mut self, source: &str, binding: Option<Value>) -> WorkId {
+        let program = prepare_vm_source(source, &self.namespaces).and_then(|source| {
             vm::compile_source_with(&source, &self.namespaces)
                 .map(Rc::new)
                 .map_err(|error| error.to_string())
         });
-        let result = result.map(|program| {
-            core::with_namespace_registry(&namespaces, || {
-                core::with_protocols(&protocols, || {
-                    core::with_host_calls(handler, || vm::VmFiber::start(program))
-                })
+        match program {
+            Ok(program) => {
+                if let Some(binding) = binding {
+                    self.namespaces.current().intern("__hoplite_request", binding);
+                }
+                self.start_program(program)
+            }
+            Err(error) => {
+                let work = self.allocate_work();
+                let result = Promise::new();
+                let events = self.events.clone();
+                result.on_settle(Rc::new(move |state| emit_settlement(&events, work, state)));
+                self.works.insert(work, Work::new(result));
+                self.reject_work(work, error_value("eval/error", error));
+                work
+            }
+        }
+    }
+
+    fn work_call(&mut self, handler: HandlerId, binding: Value) -> Result<WorkId, ()> {
+        let call = self.handlers.get(&handler).cloned().ok_or(())?;
+        let work = self.open_work();
+        let (host, pending, next) = self.host_handler(work);
+        let namespaces = self.namespaces.clone();
+        let protocols = self.protocols.clone();
+        let fiber = core::with_namespace_registry(&namespaces, || {
+            core::with_protocols(&protocols, || {
+                core::with_host_calls(host, || call.start(vec![binding]))
             })
         });
-
         self.collect_calls(work, pending, next);
-        match result {
+        match fiber {
             Ok(fiber) => self.drive(work, fiber),
             Err(error) => self.reject_work(work, error_value("eval/error", error)),
         }
+        Ok(work)
+    }
+
+    fn apps_prepare(&mut self, manifest: Value) -> Result<(), String> {
+        let mut apps = HashMap::new();
+        for app in map_sequence(&manifest, "apps")? {
+            let id = map_number(&app, "id")? as u64;
+            let mut routes = Vec::new();
+            for route in map_sequence(&app, "routes")? {
+                let method = map_string(&route, "method")?;
+                let path = map_string(&route, "path")?;
+                let function = map_string(&route, "handler")?;
+                let handler = self.handler_prepare(&function)?;
+                routes.push(AppRoute {
+                    method,
+                    path,
+                    handler,
+                });
+            }
+            if apps.insert(id, AppRouter { routes }).is_some() {
+                return Err(format!("duplicate app id {id}"));
+            }
+        }
+        self.apps = apps;
+        Ok(())
+    }
+
+    fn app_call(&mut self, app: AppId, request: Value) -> Result<WorkId, ()> {
+        let method = map_optional_string(&request, "request-method")
+            .or_else(|| map_optional_string(&request, "method"))
+            .ok_or(())?
+            .to_ascii_uppercase();
+        let path = map_optional_string(&request, "path")
+            .or_else(|| map_optional_string(&request, "uri"))
+            .ok_or(())?;
+        let router = self.apps.get(&app).ok_or(())?;
+        let handler = router
+            .routes
+            .iter()
+            .filter(|route| route.method == "ANY" || route.method == method)
+            .filter_map(|route| route_score(&route.path, &path).map(|score| (score, route.handler)))
+            .max_by_key(|(score, _)| *score)
+            .map(|(_, handler)| handler);
+        match handler {
+            Some(handler) => self.work_call(handler, request),
+            None => Ok(self.start_value(response_value(404, "Not Found\n"))),
+        }
+    }
+
+    fn start_value(&mut self, value: Value) -> WorkId {
+        let work = self.allocate_work();
+        let result = Promise::new();
+        let events = self.events.clone();
+        result.on_settle(Rc::new(move |state| emit_settlement(&events, work, state)));
+        self.works.insert(work, Work::new(result.clone()));
+        result.resolve(value);
         work
     }
 
@@ -324,6 +438,98 @@ impl HopliteRuntime {
     }
 }
 
+fn map_value(value: &Value, name: &str) -> Option<Value> {
+    core::map_entries(value)?
+        .into_iter()
+        .find_map(|(key, value)| {
+            matches!(&key, Value::Keyword(keyword) if keyword.as_str() == name).then_some(value)
+        })
+}
+
+fn value_sequence(value: Value) -> Result<Vec<Value>, String> {
+    match value {
+        Value::Vector(values) => Ok(values.iter().cloned().collect()),
+        Value::List(values) => Ok(values.iter().cloned().collect()),
+        Value::Tuple(values) => Ok(values.iter().cloned().collect()),
+        _ => Err("expected sequence".into()),
+    }
+}
+
+fn map_sequence(value: &Value, name: &str) -> Result<Vec<Value>, String> {
+    value_sequence(map_value(value, name).ok_or_else(|| format!("missing :{name}"))?)
+}
+
+fn map_optional_string(value: &Value, name: &str) -> Option<String> {
+    match map_value(value, name)? {
+        Value::String(value) => Some(value),
+        Value::Keyword(value) => Some(value.as_str().to_owned()),
+        _ => None,
+    }
+}
+
+fn map_string(value: &Value, name: &str) -> Result<String, String> {
+    map_optional_string(value, name).ok_or_else(|| format!("missing or invalid :{name}"))
+}
+
+fn map_number(value: &Value, name: &str) -> Result<i64, String> {
+    match map_value(value, name) {
+        Some(Value::Number(value)) if value > 0 => Ok(value),
+        _ => Err(format!("missing or invalid :{name}")),
+    }
+}
+
+fn route_score(pattern: &str, path: &str) -> Option<(usize, usize)> {
+    let pattern = pattern
+        .trim_matches('/')
+        .split('/')
+        .filter(|part| !part.is_empty());
+    let mut path = path
+        .split('?')
+        .next()
+        .unwrap_or(path)
+        .trim_matches('/')
+        .split('/')
+        .filter(|part| !part.is_empty());
+    let mut literal = 0;
+    let mut segments = 0;
+    for expected in pattern {
+        if expected.starts_with('*') {
+            return Some((literal, segments));
+        }
+        let actual = path.next()?;
+        if !expected.starts_with(':') {
+            if expected != actual {
+                return None;
+            }
+            literal += 1;
+        }
+        segments += 1;
+    }
+    path.next().is_none().then_some((literal, segments))
+}
+
+fn response_value(status: i64, body: &str) -> Value {
+    Value::Map(
+        vec![
+            (Value::Keyword("status".into()), Value::Number(status)),
+            (
+                Value::Keyword("headers".into()),
+                Value::Map(
+                    vec![(
+                        Value::String("content-type".into()),
+                        Value::String("text/plain".into()),
+                    )]
+                    .into_iter()
+                    .collect(),
+                ),
+            ),
+            (Value::Keyword("body".into()), Value::String(body.into())),
+        ]
+        .into_iter()
+        .collect(),
+    )
+}
+
 fn prepare_vm_source(
     source: &str,
     namespaces: &kernel::NamespaceRegistry<Value>,
@@ -333,11 +539,27 @@ fn prepare_vm_source(
     for form in forms {
         if let FormNamespace::Namespace(name) = namespace_form(&form) {
             namespaces.set_current(name);
+        } else if application_definition(&form) {
+            continue;
         } else {
             output.push(render_form(&form));
         }
     }
     Ok(output.join("\n"))
+}
+
+fn application_definition(form: &kernel::Form) -> bool {
+    let kernel::Form::List(definition) = form else {
+        return false;
+    };
+    if !matches!(definition.first(), Some(kernel::Form::Symbol(operator)) if operator == "def") {
+        return false;
+    }
+    let Some(kernel::Form::List(expression)) = definition.get(2) else {
+        return false;
+    };
+    matches!(expression.first(), Some(kernel::Form::Symbol(operator))
+        if matches!(operator.as_str(), "h/app" | "hoplite.core/app" | "internal/config" | "hoplite.internal/config"))
 }
 
 enum FormNamespace<'a> {
@@ -413,6 +635,9 @@ fn emit_settlement(events: &Rc<RefCell<VecDeque<Vec<u8>>>>, work: u64, state: Pr
         PromiseState::Rejected(PromiseRejection::Message(message)) => {
             event(1, work, error_value("promise/rejected", message))
         }
+        PromiseState::Rejected(PromiseRejection::Cancelled(value)) => {
+            event(1, work, error_value("work/cancelled", value.display()))
+        }
     };
     enqueue_event(events, value);
 }
@@ -480,6 +705,88 @@ pub unsafe extern "C" fn hoplite_work_start(
             Some(hta::decode(bytes(binding_ptr, binding_len)?).map_err(|_| ())?)
         };
         Ok::<u64, ()>(runtime.work_start(source, binding))
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_handler_close(runtime: *mut HopliteRuntime, handler: u64) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        Ok::<i32, ()>(if runtime.handlers.remove(&handler).is_some() {
+            0
+        } else {
+            1
+        })
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_handler_prepare(
+    runtime: *mut HopliteRuntime,
+    function_ptr: *const u8,
+    function_len: usize,
+) -> u64 {
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        let function = source(function_ptr, function_len)?;
+        runtime.handler_prepare(function).map_err(|_| ())
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_work_call(
+    runtime: *mut HopliteRuntime,
+    handler: u64,
+    input_ptr: *const u8,
+    input_len: usize,
+) -> u64 {
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        let input = hta::decode(bytes(input_ptr, input_len)?).map_err(|_| ())?;
+        runtime.work_call(handler, input)
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_apps_prepare(
+    runtime: *mut HopliteRuntime,
+    manifest_ptr: *const u8,
+    manifest_len: usize,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        let manifest = hta::decode(bytes(manifest_ptr, manifest_len)?).map_err(|_| ())?;
+        runtime.apps_prepare(manifest).map_err(|_| ())?;
+        Ok::<i32, ()>(0)
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_app_call(
+    runtime: *mut HopliteRuntime,
+    app: u64,
+    input_ptr: *const u8,
+    input_len: usize,
+) -> u64 {
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        let input = hta::decode(bytes(input_ptr, input_len)?).map_err(|_| ())?;
+        runtime.app_call(app, input)
     }))
     .ok()
     .and_then(Result::ok)
@@ -659,6 +966,103 @@ mod tests {
             "bootstrap event={event:?}; state={:?}",
             runtime.works.get(&work).map(|work| work.result.state())
         );
+    }
+
+    #[test]
+    fn prepared_handler_program_is_reused_across_requests() {
+        let mut runtime = HopliteRuntime::new();
+        let source = format!("{}\nnil", include_str!("../../examples/app.hal"));
+        runtime.work_start(&source, None);
+        let _ = take_event(&mut runtime);
+
+        let handler = runtime.handler_prepare("hoplite.app/hello").unwrap();
+        assert_eq!(runtime.handlers.len(), 1);
+        for uri in ["/first", "/second"] {
+            let request = Value::Map(
+                [(Value::Keyword("uri".into()), Value::String(uri.into()))]
+                    .into_iter()
+                    .collect(),
+            );
+            runtime.work_call(handler, request).unwrap();
+            let Value::Vector(event) = take_event(&mut runtime) else {
+                panic!("event vector")
+            };
+            assert!(matches!(event.get(0), Some(Value::Number(0))));
+            assert_eq!(runtime.handlers.len(), 1);
+        }
+    }
+
+    #[test]
+    fn manifest_routes_requests_through_prepared_handlers() {
+        let mut runtime = HopliteRuntime::new();
+        runtime.work_start(
+            "(ns demo) (defn show [request] {:status 200 :body (:path request)}) nil",
+            None,
+        );
+        let _ = take_event(&mut runtime);
+        let manifest = Value::Map(
+            vec![(
+                Value::Keyword("apps".into()),
+                Value::Vector(
+                    vec![Value::Map(
+                        vec![
+                            (Value::Keyword("id".into()), Value::Number(1)),
+                            (
+                                Value::Keyword("routes".into()),
+                                Value::Vector(
+                                    vec![Value::Map(
+                                        vec![
+                                            (
+                                                Value::Keyword("method".into()),
+                                                Value::String("GET".into()),
+                                            ),
+                                            (
+                                                Value::Keyword("path".into()),
+                                                Value::String("/users/:id".into()),
+                                            ),
+                                            (
+                                                Value::Keyword("handler".into()),
+                                                Value::String("demo/show".into()),
+                                            ),
+                                        ]
+                                        .into_iter()
+                                        .collect(),
+                                    )]
+                                    .into(),
+                                ),
+                            ),
+                        ]
+                        .into_iter()
+                        .collect(),
+                    )]
+                    .into(),
+                ),
+            )]
+            .into_iter()
+            .collect(),
+        );
+        runtime.apps_prepare(manifest).unwrap();
+        assert_eq!(runtime.handlers.len(), 1);
+        let request = Value::Map(
+            vec![
+                (
+                    Value::Keyword("request-method".into()),
+                    Value::String("GET".into()),
+                ),
+                (
+                    Value::Keyword("path".into()),
+                    Value::String("/users/42".into()),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        runtime.app_call(1, request).unwrap();
+        let event = take_event(&mut runtime);
+        assert!(
+            matches!(event, Value::Vector(values) if matches!(values.get(0), Some(Value::Number(0))))
+        );
+        assert_eq!(runtime.handlers.len(), 1);
     }
 
     #[test]

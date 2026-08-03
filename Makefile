@@ -27,7 +27,30 @@ NGINX_CC_OPT ?= -I$(OPENSSL_PREFIX)/include -I$(PCRE2_PREFIX)/include
 NGINX_LD_OPT ?= $(PCRE2_PREFIX)/lib/libpcre2-8.a $(OPENSSL_PREFIX)/lib/libssl.a $(OPENSSL_PREFIX)/lib/libcrypto.a -Wl,-dead_strip_dylibs
 endif
 
-.PHONY: runtime cli embedded-cli test nginx nginx-source docker check-macos macos macos-package osx
+.PHONY: help setup check runtime cli embedded-cli test nginx nginx-source docker \
+	check-macos macos macos-package osx install uninstall example-check \
+	example-build example-dev example-prod benchmark-bytecode
+
+PREFIX ?= /usr/local
+
+help:
+	@printf '%s\n' \
+		'Hoplite development' \
+		'  make setup              Install macOS build dependencies and fetch crates' \
+		'  make check              Run the complete Rust workspace test suite' \
+		'  make macos              Build the standalone macOS executable' \
+		'  make install            Install the standalone executable under PREFIX' \
+		'  make example-dev        Build and start the example in dev mode' \
+		'  make example-prod       Build and start the example in prod mode' \
+		'  make benchmark-bytecode Compare HAL and HBC library loading'
+
+setup: check-macos
+	brew install rust openssl@3 pcre2
+	cargo fetch --manifest-path Cargo.toml
+	cargo fetch --manifest-path runtime/Cargo.toml
+
+check:
+	cargo test --workspace
 
 runtime:
 	cargo build --manifest-path runtime/Cargo.toml --release
@@ -41,6 +64,21 @@ embedded-cli: nginx
 
 test:
 	cargo test --manifest-path runtime/Cargo.toml
+
+example-check:
+	cargo run -- serve check --mode dev examples
+
+example-build:
+	cargo run -- serve build --mode dev examples
+
+example-dev:
+	cargo run -- serve foreground --mode dev examples
+
+example-prod:
+	cargo run --release -- serve foreground --mode prod examples
+
+benchmark-bytecode:
+	cargo run --release --bin hoplite-bytecode-loading -- 1000
 
 $(NGINX_ARCHIVE):
 	mkdir -p $(SOURCE_ROOT)
@@ -92,3 +130,10 @@ macos-package: check-macos embedded-cli
 macos: macos-package
 
 osx: macos
+
+install: macos-package
+	install -d $(DESTDIR)$(PREFIX)/bin
+	install -m 755 $(HOPLITE_ARTIFACT) $(DESTDIR)$(PREFIX)/bin/hoplite
+
+uninstall:
+	rm -f $(DESTDIR)$(PREFIX)/bin/hoplite

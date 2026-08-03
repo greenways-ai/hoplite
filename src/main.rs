@@ -1,4 +1,4 @@
-use hara_wasm::kernel::{parse, parse_forms, Form};
+use hara_wasm::kernel::{parse_forms, Form};
 use hara_wasm::project::{self, Project};
 use hara_wasm::Runtime;
 use std::env;
@@ -10,6 +10,10 @@ use std::process::{self, Command};
 use std::thread;
 use std::time::Duration;
 
+mod app;
+mod auth;
+mod dev_console;
+mod platform;
 mod repl;
 
 const NGINX_VERSION: &str = "1.30.4";
@@ -19,18 +23,6 @@ const EMBEDDED_NGINX: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/target/nginx/sbin/nginx"
 ));
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct Route {
-    path: String,
-    handler: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct Server {
-    listen: u16,
-    workers: usize,
-}
 
 fn main() {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
@@ -48,6 +40,7 @@ fn run(arguments: Vec<String>) -> Result<(), String> {
             println!("Nginx {} ({})", NGINX_VERSION, nginx_distribution());
         }
         Some("serve") => run_serve_command(&arguments[1..])?,
+        Some("auth") => run_auth_command(&arguments[1..])?,
         Some("eval") => {
             let source = arguments.get(1..).unwrap_or_default().join(" ");
             if source.is_empty() {
@@ -74,38 +67,162 @@ fn usage() {
     println!("  hoplite [repl]");
     println!("  hoplite eval EXPRESSION");
     println!("  hoplite run FILE");
+    println!("  hoplite auth [init|enroll|status] [OPTIONS]");
     println!("  hoplite serve [start|stop|reload|status|build|check] [PROJECT]");
     println!("  hoplite version");
 }
 
-pub(crate) fn run_serve_command(arguments: &[String]) -> Result<(), String> {
-    let (action, project) = match arguments.first().map(String::as_str) {
-        None => ("start", None),
-        Some("--help" | "-h" | "help") => {
-            serve_usage();
-            return Ok(());
+fn run_auth_command(arguments: &[String]) -> Result<(), String> {
+    if matches!(
+        arguments.first().map(String::as_str),
+        Some("--help" | "-h" | "help")
+    ) {
+        auth_usage();
+        return Ok(());
+    }
+    let action = arguments.first().map(String::as_str).unwrap_or("status");
+    match action {
+        "init" => {
+            let root = arguments
+                .get(1)
+                .map(PathBuf::from)
+                .unwrap_or(env::current_dir().map_err(io)?);
+            let mut store = auth::Store::open(auth_store_path(&root))?;
+            match store.initialize()? {
+                Some(token) => {
+                    println!("Hoplite management authentication initialized.");
+                    println!("Bootstrap token (expires in 15 minutes): {token}");
+                    println!("Enroll the first administrator with:");
+                    println!(
+                        "  hoplite auth enroll {token} <ED25519_PUBLIC_KEY_HEX> {}",
+                        root.display()
+                    );
+                }
+                None => println!("Hoplite management authentication is already initialized."),
+            }
         }
-        Some(
-            action @ ("start" | "foreground" | "install" | "uninstall" | "status" | "reload"
-            | "stop" | "build" | "check"),
-        ) => (action, arguments.get(1)),
-        Some(_) => ("start", arguments.first()),
-    };
+        "enroll" => {
+            let token = arguments
+                .get(1)
+                .ok_or("auth enroll requires a bootstrap token")?;
+            let public_key = arguments
+                .get(2)
+                .ok_or("auth enroll requires an Ed25519 public key in hexadecimal")?;
+            let root = arguments
+                .get(3)
+                .map(PathBuf::from)
+                .unwrap_or(env::current_dir().map_err(io)?);
+            let mut store = auth::Store::open(auth_store_path(&root))?;
+            let principal = store.enroll_management_device(token, public_key)?;
+            println!(
+                "enrolled management user {} with device {}",
+                principal.id, principal.device_id
+            );
+        }
+        "status" => {
+            let root = arguments
+                .get(1)
+                .map(PathBuf::from)
+                .unwrap_or(env::current_dir().map_err(io)?);
+            let path = auth_store_path(&root);
+            if path.is_file() {
+                let store = auth::Store::open(&path)?;
+                println!("authentication store: {}", store.path().display());
+            } else {
+                println!("authentication is not initialized; run `hoplite auth init`");
+            }
+        }
+        value => return Err(format!("unknown auth command: {value}")),
+    }
+    Ok(())
+}
+
+fn auth_store_path(root: &Path) -> PathBuf {
+    env::var_os("HOPLITE_STATE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join(".hoplite"))
+        .join("control.db")
+}
+
+fn auth_usage() {
+    println!("Hoplite-owned authentication");
+    println!();
+    println!("Usage:");
+    println!("  hoplite auth init [PROJECT]");
+    println!("  hoplite auth enroll BOOTSTRAP_TOKEN ED25519_PUBLIC_KEY_HEX [PROJECT]");
+    println!("  hoplite auth status [PROJECT]");
+    println!();
+    println!("Set HOPLITE_STATE_DIR to place control.db outside PROJECT/.hoplite.");
+}
+
+pub(crate) fn run_serve_command(arguments: &[String]) -> Result<(), String> {
+    if matches!(
+        arguments.first().map(String::as_str),
+        Some("--help" | "-h" | "help")
+    ) {
+        serve_usage();
+        return Ok(());
+    }
+    let mut action = "start";
+    let mut project = None;
+    let mut settings = BuildSettings::default();
+    let mut index = 0;
+    if let Some(
+        candidate @ ("start" | "foreground" | "install" | "uninstall" | "status" | "reload"
+        | "stop" | "build" | "check"),
+    ) = arguments.first().map(String::as_str)
+    {
+        action = candidate;
+        index = 1;
+    }
+    while index < arguments.len() {
+        match arguments[index].as_str() {
+            "--profile" => {
+                index += 1;
+                settings.profile = Some(
+                    arguments
+                        .get(index)
+                        .ok_or("--profile requires a name")?
+                        .clone(),
+                );
+            }
+            "--mode" => {
+                index += 1;
+                settings.production = match arguments.get(index).map(String::as_str) {
+                    Some("dev") => false,
+                    Some("prod") => true,
+                    _ => return Err("--mode must be dev or prod".into()),
+                };
+            }
+            value if project.is_none() => project = Some(value.to_owned()),
+            value => return Err(format!("unexpected serve argument: {value}")),
+        }
+        index += 1;
+    }
     let root = project
+        .as_deref()
         .map(PathBuf::from)
         .unwrap_or(env::current_dir().map_err(io)?);
     match action {
-        "start" => serve(&root),
-        "foreground" => run_foreground(&root),
-        "install" => launchd_install(&root),
+        "start" => serve(&root, &settings),
+        "foreground" => run_foreground(&root, &settings),
+        "install" => launchd_install(&root, &settings),
         "uninstall" => launchd_uninstall(&root),
         "status" => status(&root),
         "reload" => signal(&root, "reload"),
         "stop" => signal(&root, "quit"),
-        "build" => build(&root).map(|output| println!("built {}", output.display())),
-        "check" => check(&root).map(|project| println!("{} is ready for Hoplite", project.id)),
+        "build" => build(&root, &settings).map(|output| println!("built {}", output.display())),
+        "check" => {
+            check(&root, &settings).map(|project| println!("{} is ready for Hoplite", project.id))
+        }
         _ => unreachable!(),
     }
+}
+
+#[derive(Clone, Debug, Default)]
+struct BuildSettings {
+    profile: Option<String>,
+    production: bool,
 }
 
 fn serve_usage() {
@@ -114,45 +231,81 @@ fn serve_usage() {
         env!("CARGO_PKG_VERSION"),
         NGINX_VERSION
     );
-    println!("usage: hoplite serve [PROJECT]");
-    println!("       hoplite serve <foreground|install|uninstall|status|reload|stop|build|check> [PROJECT]");
+    println!("usage: hoplite serve [--profile NAME] [--mode dev|prod] [PROJECT]");
+    println!("       hoplite serve <foreground|install|uninstall|status|reload|stop|build|check> [--profile NAME] [--mode dev|prod] [PROJECT]");
 }
 
-fn check(root: &Path) -> Result<Project, String> {
+fn check(root: &Path, settings: &BuildSettings) -> Result<Project, String> {
     let project = project::discover(root)?;
+    reject_legacy_extension_manifest(&project.root)?;
     let sources = source_files(&project)?;
     if sources.is_empty() {
         return Err("project has no .hal source files".into());
     }
     let source = bundle_sources(&sources)?;
-    compile_application(&source)
+    let runtime_source = runtime_application_source(&source)?;
+    compile_application(&runtime_source)
         .map_err(|error| format!("Hoplite bytecode compilation failed: {error}"))?;
-    load_configuration(&project)?;
+    app::load(&project, settings.profile.as_deref(), settings.production)?;
+    platform::load(&project, settings.profile.as_deref())?;
     Ok(project)
 }
 
-fn build(root: &Path) -> Result<PathBuf, String> {
-    let project = check(root)?;
+fn reject_legacy_extension_manifest(root: &Path) -> Result<(), String> {
+    let legacy = root.join("hara.extension.edn");
+    if legacy.is_file() {
+        return Err(format!(
+            "{} is no longer loaded by Hoplite; move its extension contract into project.edn under the selected profile's :profile/extensions map",
+            legacy.display()
+        ));
+    }
+    Ok(())
+}
+
+fn build(root: &Path, settings: &BuildSettings) -> Result<PathBuf, String> {
+    let project = check(root, settings)?;
     let sources = source_files(&project)?;
     let source = bundle_sources(&sources)?;
-    let bytecode = compile_application(&source)
+    let runtime_source = runtime_application_source(&source)?;
+    let bytecode = compile_application(&runtime_source)
         .map_err(|error| format!("Hoplite bytecode compilation failed: {error}"))?;
-    let (server, routes) = load_configuration(&project)?;
+    let app_config = app::load(&project, settings.profile.as_deref(), settings.production)?;
+    let platform_config = platform::load(&project, settings.profile.as_deref())?;
     let output = project.root.join(".hoplite");
     let configuration = output.join("conf");
     fs::create_dir_all(&configuration).map_err(io)?;
-    fs::write(output.join("app.hal"), &source).map_err(io)?;
+    fs::write(output.join("app.hal"), &runtime_source).map_err(io)?;
     fs::write(output.join("app.hbc"), bytecode).map_err(io)?;
+    fs::write(output.join("apps.hta"), app::manifest(&app_config)?).map_err(io)?;
+    fs::write(
+        output.join("platform.edn"),
+        platform::readable_manifest(&platform_config),
+    )
+    .map_err(io)?;
+    fs::write(
+        output.join("platform.hta"),
+        platform::manifest(&platform_config)?,
+    )
+    .map_err(io)?;
+    let openapi_dir = output.join("openapi");
+    fs::create_dir_all(&openapi_dir).map_err(io)?;
+    for application in &app_config.apps {
+        fs::write(
+            openapi_dir.join(format!("{}.json", application.name)),
+            app::openapi(application),
+        )
+        .map_err(io)?;
+    }
     fs::write(
         configuration.join("nginx.conf"),
-        nginx_configuration(&project, &server, &routes)?,
+        nginx_app_configuration(&project, &app_config)?,
     )
     .map_err(io)?;
     Ok(output)
 }
 
-fn serve(root: &Path) -> Result<(), String> {
-    let output = build(root)?;
+fn serve(root: &Path, settings: &BuildSettings) -> Result<(), String> {
+    let output = build(root, settings)?;
     let project_root = output.parent().ok_or("invalid Hoplite output path")?;
     let exit = Command::new(nginx_binary()?)
         .arg("-p")
@@ -169,8 +322,8 @@ fn serve(root: &Path) -> Result<(), String> {
     wait_for_status(project_root)
 }
 
-fn run_foreground(root: &Path) -> Result<(), String> {
-    let output = build(root)?;
+fn run_foreground(root: &Path, settings: &BuildSettings) -> Result<(), String> {
+    let output = build(root, settings)?;
     let project_root = output.parent().ok_or("invalid Hoplite output path")?;
     let mut command = Command::new(nginx_binary()?);
     command
@@ -201,8 +354,8 @@ fn run_foreground(root: &Path) -> Result<(), String> {
 }
 
 #[cfg(target_os = "macos")]
-fn launchd_install(root: &Path) -> Result<(), String> {
-    let output = build(root)?;
+fn launchd_install(root: &Path, settings: &BuildSettings) -> Result<(), String> {
+    let output = build(root, settings)?;
     let project_root = output.parent().ok_or("invalid Hoplite output path")?;
     let project = project::discover(project_root)?;
     let executable = env::current_exe().map_err(io)?.canonicalize().map_err(io)?;
@@ -242,7 +395,7 @@ fn launchd_install(root: &Path) -> Result<(), String> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn launchd_install(_root: &Path) -> Result<(), String> {
+fn launchd_install(_root: &Path, _settings: &BuildSettings) -> Result<(), String> {
     Err("hoplite install requires macOS launchd".into())
 }
 
@@ -498,6 +651,30 @@ fn compile_application(source: &str) -> Result<Vec<u8>, String> {
     hara_wasm::compile_bytecode_artifact(&program)
 }
 
+fn runtime_application_source(source: &str) -> Result<String, String> {
+    let forms = parse_forms(source)?;
+    Ok(forms
+        .into_iter()
+        .filter(|form| !application_definition(form))
+        .map(|form| render_form(&form))
+        .collect::<Vec<_>>()
+        .join("\n"))
+}
+
+fn application_definition(form: &Form) -> bool {
+    let Form::List(definition) = form else {
+        return false;
+    };
+    if !matches!(definition.first(), Some(Form::Symbol(operator)) if operator == "def") {
+        return false;
+    }
+    let Some(Form::List(expression)) = definition.get(2) else {
+        return false;
+    };
+    matches!(expression.first(), Some(Form::Symbol(operator))
+        if matches!(operator.as_str(), "h/app" | "hoplite.core/app" | "internal/config" | "hoplite.internal/config"))
+}
+
 fn render_form(form: &Form) -> String {
     match form {
         Form::Metadata(metadata, value) => {
@@ -525,122 +702,43 @@ fn render_sequence(values: &[Form], prefix: &str, suffix: &str) -> String {
     )
 }
 
-fn load_configuration(project: &Project) -> Result<(Server, Vec<Route>), String> {
-    let server_path = project.root.join("server.edn");
-    let routes_path = project.root.join("routes.edn");
-    let server = if server_path.is_file() {
-        parse_server(&read_edn(&server_path)?)?
-    } else {
-        Server {
-            listen: 8080,
-            workers: 1,
-        }
-    };
-    let routes = if routes_path.is_file() {
-        parse_routes(&read_edn(&routes_path)?)?
-    } else {
-        let namespace = project
-            .main
-            .as_deref()
-            .ok_or("Hoplite requires routes.edn or :project/main for its default / route")?;
-        vec![Route {
-            path: "/".into(),
-            handler: format!("{namespace}/handler"),
-        }]
-    };
-    if routes.is_empty() {
-        return Err("routes.edn must declare at least one route".into());
-    }
-    Ok((server, routes))
-}
-
-fn read_edn(path: &Path) -> Result<Form, String> {
-    let source = fs::read_to_string(path).map_err(io)?;
-    parse(&source).map_err(|error| format!("{}: {error}", path.display()))
-}
-
-fn parse_server(form: &Form) -> Result<Server, String> {
-    let entries = as_map(form, "server.edn")?;
-    let listen = match lookup(entries, "hoplite/listen") {
-        Some(Form::Number(value)) if (1..=65535).contains(value) => *value as u16,
-        None => 8080,
-        _ => return Err("server.edn :hoplite/listen must be a TCP port".into()),
-    };
-    let workers = match lookup(entries, "hoplite/workers") {
-        Some(Form::Number(value)) if *value > 0 => *value as usize,
-        None => 1,
-        _ => return Err("server.edn :hoplite/workers must be a positive integer".into()),
-    };
-    Ok(Server { listen, workers })
-}
-
-fn parse_routes(form: &Form) -> Result<Vec<Route>, String> {
-    let entries = as_map(form, "routes.edn")?;
-    let forms = match lookup(entries, "hoplite/routes") {
-        Some(Form::Vector(forms)) => forms,
-        _ => return Err("routes.edn requires :hoplite/routes vector".into()),
-    };
-    forms
-        .iter()
-        .map(|form| {
-            let route = as_map(form, "route")?;
-            let path = text(lookup(route, "path"), "route :path")?;
-            let handler = text(lookup(route, "handler"), "route :handler")?;
-            if !path.starts_with('/') || unsafe_nginx(&path) {
-                return Err(format!("invalid route path {path:?}"));
-            }
-            if unsafe_nginx(&handler) || handler.contains(char::is_whitespace) {
-                return Err(format!("invalid route handler {handler:?}"));
-            }
-            Ok(Route { path, handler })
-        })
-        .collect()
-}
-
-fn nginx_configuration(
-    project: &Project,
-    server: &Server,
-    routes: &[Route],
-) -> Result<String, String> {
+fn nginx_app_configuration(project: &Project, config: &app::Config) -> Result<String, String> {
     let bootstrap = project
         .root
         .join(".hoplite/app.hal")
         .canonicalize()
         .unwrap_or_else(|_| project.root.join(".hoplite/app.hal"));
-    let mut locations = String::new();
-    for route in routes {
-        locations.push_str(&format!(
-            "        location {} {{\n            hoplite_content {};\n        }}\n",
-            route.path, route.handler
+    let manifest = project
+        .root
+        .join(".hoplite/apps.hta")
+        .canonicalize()
+        .unwrap_or_else(|_| project.root.join(".hoplite/apps.hta"));
+    let mut servers = String::new();
+    for application in &config.apps {
+        if application
+            .hostnames
+            .iter()
+            .any(|value| unsafe_nginx(value) || value.contains(char::is_whitespace))
+        {
+            return Err(format!("invalid hostname in app {:?}", application.name));
+        }
+        let names = if application.hostnames.is_empty() {
+            "_".to_owned()
+        } else {
+            application.hostnames.join(" ")
+        };
+        servers.push_str(&format!(
+            "    server {{\n        listen {};\n        server_name {};\n        location / {{\n            hoplite_app {};\n        }}\n    }}\n",
+            application.port, names, application.id
         ));
     }
     Ok(format!(
-        "worker_processes {};\npid .hoplite/nginx.pid;\nerror_log .hoplite/error.log;\nevents {{}}\nhttp {{\n    access_log .hoplite/access.log;\n    hoplite_bootstrap {};\n    server {{\n        listen {};\n{}    }}\n}}\n",
-        server.workers,
+        "worker_processes {};\npid .hoplite/nginx.pid;\nerror_log .hoplite/error.log;\nevents {{}}\nhttp {{\n    access_log .hoplite/access.log;\n    hoplite_bootstrap {};\n    hoplite_manifest {};\n{} }}\n",
+        config.workers,
         bootstrap.display(),
-        server.listen,
-        locations
+        manifest.display(),
+        servers
     ))
-}
-
-fn as_map<'a>(form: &'a Form, label: &str) -> Result<&'a [(Form, Form)], String> {
-    match form {
-        Form::Map(entries) => Ok(entries),
-        _ => Err(format!("{label} must be an EDN map")),
-    }
-}
-
-fn lookup<'a>(entries: &'a [(Form, Form)], key: &str) -> Option<&'a Form> {
-    entries.iter().find_map(|(candidate, value)| {
-        matches!(candidate, Form::Keyword(name) if name == key).then_some(value)
-    })
-}
-
-fn text(value: Option<&Form>, label: &str) -> Result<String, String> {
-    match value {
-        Some(Form::String(value) | Form::Symbol(value) | Form::Keyword(value)) => Ok(value.clone()),
-        _ => Err(format!("{label} must be text or a symbol")),
-    }
 }
 
 fn unsafe_nginx(value: &str) -> bool {
@@ -658,36 +756,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_server_and_routes() {
-        let server =
-            parse_server(&parse("{:hoplite/listen 9090 :hoplite/workers 3}").unwrap()).unwrap();
-        assert_eq!(
-            server,
-            Server {
-                listen: 9090,
-                workers: 3
-            }
-        );
-        let routes = parse_routes(
-            &parse("{:hoplite/routes [{:path \"/hello\" :handler app/hello}]}").unwrap(),
-        )
-        .unwrap();
-        assert_eq!(
-            routes,
-            vec![Route {
-                path: "/hello".into(),
-                handler: "app/hello".into()
-            }]
-        );
-    }
-
-    #[test]
     fn rejects_nginx_configuration_injection() {
-        let error = parse_routes(
-            &parse("{:hoplite/routes [{:path \"/; return 200\" :handler app/hello}]}").unwrap(),
-        )
-        .unwrap_err();
-        assert!(error.contains("invalid route path"));
+        assert!(unsafe_nginx("example.org; return 200"));
     }
 
     #[test]

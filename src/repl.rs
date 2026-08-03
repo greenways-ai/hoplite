@@ -17,6 +17,7 @@ const SPLASH: &str = r#"
 
 pub(crate) fn run() -> Result<(), String> {
     let mut runtime = Runtime::new();
+    super::dev_console::install(&mut runtime);
     let mut editor = Editor::<(), DefaultHistory>::new()
         .map_err(|error| format!("terminal initialization failed: {error}"))?;
     let history = history_file();

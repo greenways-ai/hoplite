@@ -1,0 +1,35 @@
+#!/bin/sh
+set -eu
+
+: "${VERSION:?set VERSION}"
+: "${ARM64_SHA256:?set ARM64_SHA256}"
+: "${X86_64_SHA256:?set X86_64_SHA256}"
+
+cat <<FORMULA
+class Hoplite < Formula
+  desc "Hara application server on nginx"
+  homepage "https://github.com/greenways-ai/hoplite"
+  version "${VERSION}"
+  license "EPL-2.0"
+
+  on_arm do
+    url "https://github.com/greenways-ai/hoplite/releases/download/v${VERSION}/hoplite-v${VERSION}-aarch64-apple-darwin"
+    sha256 "${ARM64_SHA256}"
+  end
+
+  on_intel do
+    url "https://github.com/greenways-ai/hoplite/releases/download/v${VERSION}/hoplite-v${VERSION}-x86_64-apple-darwin"
+    sha256 "${X86_64_SHA256}"
+  end
+
+  def install
+    artifact = Dir["hoplite-v#{version}-*"].first
+    bin.install artifact => "hoplite"
+  end
+
+  test do
+    assert_match "42", shell_output("#{bin}/hoplite eval '(+ 19 23)'")
+    assert_match "Hoplite", shell_output("#{bin}/hoplite version")
+  end
+end
+FORMULA

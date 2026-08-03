@@ -1,0 +1,20 @@
+(ns hoplite.core-test
+  (:require [hoplite.core :as h]
+            [hoplite.internal :as internal]))
+
+(defn sample-handler [_request]
+  {:status 200 :body "ok"})
+
+(def checks
+  [(= :application (:hoplite/type (h/app {:resources []})))
+   (= #'sample-handler (:handler (h/app #'sample-handler)))
+   (= {:hoplite/type :response :status 200 :body "ok"}
+      (h/response 200 "ok"))
+   (= :stream (:hoplite/type (h/stream ["a" "b"])))
+   (= :middleware (:hoplite/type (h/middleware {:request identity})))
+   (= :service (:hoplite/type (h/service {:start #'sample-handler})))
+   (= :config (:hoplite/type (internal/config {:apps []})))])
+
+(if (every? identity checks)
+  true
+  (throw "hoplite.core tests failed"))

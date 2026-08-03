@@ -1,4 +1,5 @@
-(ns hoplite.app)
+(ns hoplite.app
+  (:require [hoplite.core :as h]))
 
 (defn hello
   [request]
@@ -21,3 +22,19 @@
   {:status 200
    :headers {"content-type" "text/plain; charset=utf-8"}
    :body "inspect"})
+
+(def app
+  (h/app
+    {:name "example"
+     :resources
+     [["/hello"
+       {:get {:name "hello"
+              :summary "A synchronous response"
+              :handler #'hello}}]
+      ["/delay"
+       {:get {:name "delay"
+              :summary "A coroutine resumed by nginx"
+              :handler #'delayed}}]
+      ["/inspect"
+       {:get {:name "inspect"
+              :handler #'inspect}}]]}))

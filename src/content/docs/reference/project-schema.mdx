@@ -16,8 +16,63 @@ Hoplite consumes a normal Hara project containing source paths, a main namespace
 | `:profile/language` | keyword | Yes | Must equal `:hoplite` |
 | `:profile/main` | qualified symbol | Yes | Must evaluate to a tagged application or internal config |
 | `:profile/options` | map | No | Non-map values are rejected |
+| `:profile/extensions` | map | No | Host-owned configuration; Hoplite reads `:extension/hoplite` |
 | `:profile/options :port` | integer | No | Must be between 1 and 65535; defaults to 8080 |
 | `:profile/options :workers` | positive integer | No | Defaults to 1 in development and available CPU count in production |
+
+## Hoplite extension
+
+All Hoplite platform configuration remains inside `project.edn`:
+
+```clojure
+{:profile/extensions
+ {:extension/hoplite
+  {:hoplite/modules
+   [{:module/id "hara:hoplite/events"
+     :module/version "1.2.3"
+     :module/config {:events/buffer-size 2048}}]
+   :hoplite/authentication
+   {:auth/realms
+    {:management {:auth/providers [:auth/key]
+                  :auth/required true}
+     :application {:auth/providers [:auth/key]
+                   :auth/required false}}}}}}
+```
+
+Module coordinates are registry-qualified and versions are exact SemVer. A
+module can appear only once in a profile, and its configuration must be inert
+EDN without reader tags or metadata. Package resolution will bind these exact
+activations to `project.lock.edn`; Hoplite does not perform live installation
+at runtime.
+
+## One authored manifest
+
+Hoplite does not load a root `hara.extension.edn`. HTA or WASM extension
+contracts belong under the applicable profile's `:profile/extensions` map,
+alongside `:extension/hoplite`. A project containing the legacy root file fails
+validation with a migration message instead of silently combining two sources
+of truth.
+
+## Authentication realms
+
+Authentication is owned by Hoplite, not by an application module. Every
+compiled platform plan contains separate `:management` and `:application`
+realms. The built-in `:auth/key` provider supplies user-owned-key identity;
+package modules may add providers such as passkeys or OIDC without replacing
+the Hoplite principal and session contract.
+
+| Field | Type | Default | Validation |
+| --- | --- | --- | --- |
+| `:auth/providers` | vector of qualified keywords | `[:auth/key]` | Must not be empty or contain duplicates |
+| `:auth/required` | boolean | Management `true`; application `false` | Management must remain `true` |
+| `:session/access-ttl-seconds` | integer | `900` | 60–3600 seconds |
+| `:session/refresh-ttl-seconds` | integer | `2592000` | At least access TTL; at most one year |
+| `:session/rotate-refresh-tokens` | boolean | `true` | Must remain `true` |
+| `:session/reuse-interval-seconds` | integer | `10` | 0–60 seconds |
+
+Refresh tokens are single-use and rotated. The compiled authentication plan
+also pins principal contract `1.0.0`, including a stable session identifier so
+revocation can be checked for sensitive operations.
 
 ## Application definition
 

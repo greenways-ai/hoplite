@@ -1,13 +1,13 @@
 <section class="home-section home-architecture">
-  <header><p class="technical-kicker">01 · Request path</p><h2>From the edge to your code.</h2><p>One narrow route through the system, with each boundary visible and inspectable.</p></header>
-  <div class="request-flow" aria-label="Request passes through Nginx, HTA values, and a cached Hara handler">
-    <span><small>ARRIVE</small><b>HTTP</b><em>request</em></span><i>→</i>
-    <span><small>GUARD</small><b>Nginx</b><em>host</em></span><i>→</i>
-    <span class="request-flow__core"><small>TRANSLATE</small><b>HTA</b><em>value</em></span><i>→</i>
-    <span><small>RESOLVE</small><b>Hara</b><em>handler</em></span><i>→</i>
-    <span><small>RETURN</small><b>HTA</b><em>response</em></span>
+  <header><p class="technical-kicker">01 · Package to production</p><h2>Configure once. Run anywhere.</h2><p>Pull a project from GitHub, resolve its signed Hara packages, and build the same locked Hoplite service for a local process or container.</p></header>
+  <div class="request-flow" aria-label="A GitHub project is resolved, composed, built, and run by Hoplite">
+    <span><small>PULL</small><b>GitHub</b><em>source</em></span><i>→</i>
+    <span><small>RESOLVE</small><b>Hara</b><em>packages</em></span><i>→</i>
+    <span class="request-flow__core"><small>COMPOSE</small><b>project.edn</b><em>profile</em></span><i>→</i>
+    <span><small>PACKAGE</small><b>Docker</b><em>OCI image</em></span><i>→</i>
+    <span><small>DEPLOY</small><b>Hoplite</b><em>gateway</em></span>
   </div>
-  <a class="technical-link" href="/concepts/runtime-model/">Understand the worker-local runtime →</a>
+  <a class="technical-link" href="/getting-started/development-workflow/">Follow the Git-to-runtime workflow →</a>
 </section>
 <figure class="mosaic-feature">
   <img src="/images/hoplite-threshold.webp" width="1536" height="1024" loading="lazy" alt="A mosaic shield bearer guarding a luminous architectural threshold" />

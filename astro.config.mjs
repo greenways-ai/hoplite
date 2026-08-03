@@ -53,6 +53,7 @@ export default defineConfig({
             { label: "Development console", slug: "guides/development-console" },
             { label: "Multiple applications", slug: "guides/multiple-applications" },
             { label: "Production operation", slug: "guides/production-operation" },
+            { label: "Authentication", slug: "guides/authentication" },
             { label: "OpenAPI output", slug: "guides/openapi" },
             { label: "Packaging", slug: "guides/packaging" },
           ],

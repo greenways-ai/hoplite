@@ -13,6 +13,7 @@ description: Every current Hoplite command, serve action, and option.
 | `hoplite version` | Print the Hoplite version |
 | `hoplite eval EXPR` | Evaluate one Hara expression |
 | `hoplite run FILE` | Run a HAL source file |
+| `hoplite auth …` | Initialize and inspect Hoplite-owned authentication |
 | `hoplite serve …` | Check, build, or operate an application project |
 
 ## Serve syntax
@@ -49,11 +50,25 @@ With no explicit serve action, `hoplite serve` performs `start`.
 
 Unexpected arguments, missing option values, and modes other than `dev` or `prod` are rejected.
 
+## Authentication commands
+
+```text
+hoplite auth init [PROJECT]
+hoplite auth enroll BOOTSTRAP_TOKEN ED25519_PUBLIC_KEY_HEX [PROJECT]
+hoplite auth status [PROJECT]
+```
+
+`init` creates the private SQLite control store and prints a single-use token
+that expires after 15 minutes. `enroll` binds the first management administrator
+to an Ed25519 device key. Once a management user exists, `init` does not issue
+another bootstrap token.
+
 ## Environment
 
 | Variable | Purpose |
 | --- | --- |
 | `HOPLITE_NGINX` | Select an external development Nginx executable instead of the embedded binary |
+| `HOPLITE_STATE_DIR` | Override the directory containing `control.db`; containers use `/var/lib/hoplite` |
 
 Use `HOPLITE_NGINX` deliberately; normal installations should use the embedded host.
 

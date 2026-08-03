@@ -13,7 +13,9 @@ typedef enum {
     HOPLITE_HTA_BYTES,
     HOPLITE_HTA_KEYWORD,
     HOPLITE_HTA_VECTOR,
-    HOPLITE_HTA_MAP
+    HOPLITE_HTA_MAP,
+    HOPLITE_HTA_ARRAY,
+    HOPLITE_HTA_OBJECT
 } hoplite_hta_kind_t;
 
 typedef struct hoplite_hta_value hoplite_hta_value_t;

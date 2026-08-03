@@ -1,0 +1,37 @@
+(ns hoplite.dev)
+
+(defn start
+  "Builds and starts a declared app in the current development console."
+  ([app]
+   (start app {}))
+  ([app opts]
+   (std.native.Host/call "hoplite.dev" "start" [app opts])))
+
+(defn stop
+  "Stops a server previously started by this console."
+  [app]
+  (std.native.Host/call "hoplite.dev" "stop" [app]))
+
+(defn restart
+  "Rebuilds and restarts a server while retaining its console identity."
+  ([app]
+   (restart app {}))
+  ([app opts]
+   (std.native.Host/call "hoplite.dev" "restart" [app opts])))
+
+(defn status
+  "Returns the console record for an explicitly declared app."
+  [app]
+  (std.native.Host/call "hoplite.dev" "status" [app]))
+
+(defn list-all
+  "Returns every server managed by this console."
+  []
+  (std.native.Host/call "hoplite.dev" "list-all" []))
+
+(defn logs
+  "Returns the tail of an app's nginx error log."
+  ([app]
+   (logs app {}))
+  ([app opts]
+   (std.native.Host/call "hoplite.dev" "logs" [app opts])))

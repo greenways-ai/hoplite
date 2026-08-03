@@ -1,257 +1,269 @@
 # Hoplite
 
-[Hoplite](https://github.com/greenways-ai/hoplite) is a Hara application server
-for Nginx. It embeds the [Hara](https://github.com/hara-lang/hara) runtime in
-each worker and maps asynchronous Nginx operations onto Hara promises and
-coroutine suspension.
+Hoplite is a Hara application server built into nginx. Applications are
+immutable resource trees, handlers are Hara Vars, and each nginx worker
+resolves and compiles its route handlers once during startup.
 
-## Quick start
+```text
+request -> nginx -> HTA value -> cached Hara handler -> HTA response -> nginx
+```
 
-Hoplite currently uses a sibling Hara checkout:
+Hoplite is currently macOS-first. Linux is exercised by CI and Docker, but the
+standalone packaged executable and Homebrew distribution target macOS.
 
-```bash
+## Install
+
+After the first tagged release is published:
+
+```shell
+brew tap greenways-ai/hoplite
+brew install hoplite
+hoplite version
+```
+
+Until then, build from sibling checkouts of Hoplite and Hara:
+
+```shell
 git clone https://github.com/hara-lang/hara.git hara.lang
 git clone https://github.com/greenways-ai/hoplite.git hoplite
 cd hoplite
-cargo test --workspace
-cargo run -- eval '(+ 19 23)'
-cargo run
+make setup
+make check
+make macos
 ```
 
-The last command opens the Hoplite REPL. From there, Nginx can be controlled
-without leaving the session:
+`make help` lists the common development, packaging, example, and benchmark
+targets. `make install PREFIX=/usr/local` installs the standalone executable.
 
-```text
-/nginx start examples
-/nginx status examples
-/nginx reload examples
-/nginx stop examples
-```
+## Define an application
 
-The implementation supports two request paths:
+A project selects one app Var. Routes are data; calling a handler is a runtime
+operation, while referring to it with `#'` is declarative configuration.
 
-The implementation supports two request paths:
-
-1. A synchronous HAL function receives an HTTP request map and returns a response map.
-2. `std.native.Host/call` yields a Hara promise, `std.foundation.coroutine/await` suspends the bytecode VM fiber, and an Nginx timer resolves that promise without blocking the worker.
-
-## Architecture
-
-```text
-HTTP request
-    -> ngx_http_hoplite_module
-    -> HTA request value
-    -> worker-local Hoplite WorkRuntime
-    -> HAL handler
-       -> response map, or
-       -> Host/call("nginx", "sleep", [milliseconds])
-            -> unresolved Hara Promise
-            -> suspended VM fiber
-            -> ngx_event_t timer
-            -> hoplite_call_resolve/hoplite_call_reject(...)
-            -> Promise resolution
-            -> queued fiber resumption
-    -> HTA response value
-    -> Nginx response
-```
-
-There is one `HopliteRuntime` per Nginx worker. Runtime values, promises, fibers, and host calls never cross worker boundaries.
-
-## Nginx configuration
-
-```nginx
-events {}
-
-http {
-    hoplite_bootstrap /etc/hoplite/app.hal;
-
-    server {
-        listen 8080;
-
-        location /hello {
-            hoplite_content hoplite.app/hello;
-        }
-
-        location /delay {
-            hoplite_content hoplite.app/delayed;
-        }
-    }
-}
-```
-
-`hoplite_bootstrap` is evaluated once during each worker's `init_process` lifecycle. It must complete synchronously. `hoplite_content` identifies a function loaded by that bootstrap source.
-
-## HAL handlers
+`app.hal`:
 
 ```clojure
-(ns hoplite.app)
+(ns example.app
+  (:require [hoplite.core :as h]))
 
-(defn hello [request]
+(defn hello
+  [request]
   {:status 200
    :headers {"content-type" "text/plain; charset=utf-8"}
    :body "Hello from Hoplite\n"})
 
-(defn ^:async delayed [request]
+(def app
+  (h/app
+    {:name "example"
+     :resources
+     [["/hello"
+       {:get {:name :hello
+              :summary "Return a greeting"
+              :handler #'hello}}]]}))
+```
+
+`project.edn`:
+
+```clojure
+{:hara/type :project
+ :hara/version "1.0.0"
+ :project/id example/app
+ :project/version "0.1.0"
+ :project/source-paths ["."]
+ :project/test-paths []
+ :project/extension-paths []
+ :project/capabilities #{:host/nginx}
+ :project/main example.app
+ :project/default-profile :server
+ :project/profiles
+ {:server {:profile/language :hoplite
+           :profile/main example.app/app
+           :profile/options {:port 8080}
+           :profile/extensions
+           {:extension/hoplite
+            {:hoplite/authentication
+             {:auth/realms
+              {:management {:auth/providers [:auth/key]
+                            :auth/required true}
+               :application {:auth/providers [:auth/key]
+                             :auth/required false}}}}}}}}
+```
+
+Hoplite owns authentication for both its management surface and application
+requests. The built-in `:auth/key` provider is the default user-owned-key
+mechanism. The application realm is permissive until a route policy requires a
+principal; the management realm cannot be made public. Additional identity
+mechanisms are installed as versioned Hoplite modules.
+
+See [`examples/app.hal`](examples/app.hal) and
+[`examples/project.edn`](examples/project.edn) for a runnable project.
+
+## Run it
+
+From this repository:
+
+```shell
+make example-check
+make example-build
+make example-dev
+```
+
+Or from `examples/`, use its project Makefile:
+
+```shell
+make check
+make foreground
+curl -i http://localhost:8080/hello
+```
+
+Production mode uses production worker defaults and disables development-only
+behavior:
+
+```shell
+make example-prod
+# or
+hoplite serve foreground --mode prod --profile server /path/to/project
+```
+
+Build output is placed under the application's `.hoplite/` directory:
+
+```text
+.hoplite/
+  app.hal
+  app.hbc
+  apps.hta
+  platform.edn
+  platform.hta
+  conf/nginx.conf
+  openapi/<app-name>.json
+```
+
+`platform.edn` is the inspectable compiled module and authentication plan;
+`platform.hta` is the equivalent runtime transport. Both are produced from the
+selected profile in `project.edn`.
+
+The application bytecode is generated and validated today; nginx still uses
+the HAL bootstrap while the bytecode bootstrap ABI is being integrated.
+
+## Development console
+
+Running `hoplite` without arguments opens a Hara REPL with the project
+namespaces and `hoplite.dev` service installed:
+
+```clojure
+(ns user
+  (:require [example.app :as app]
+            [hoplite.dev :as dev]))
+
+(dev/start #'app/app {:project "." :profile :server})
+(dev/list-all)
+(dev/status #'app/app)
+(dev/logs #'app/app {:bytes 4096})
+(dev/restart #'app/app)
+(dev/stop #'app/app)
+```
+
+The console accepts only an app Var selected by a project profile. It does not
+execute arbitrary server definitions or shell commands. Multiple projects can
+be tracked by the same console.
+
+## Multiple applications
+
+The normal `hoplite.core/app` interface describes one router. Advanced hosting
+uses `hoplite.internal/config` to place several declared apps into one nginx
+configuration:
+
+```clojure
+(ns example.host
+  (:require [example.api :as api]
+            [example.admin :as admin]
+            [hoplite.internal :as internal]))
+
+(def config
+  (internal/config
+    {:worker-processes 4
+     :apps [{:id :api
+             :app #'api/app
+             :port 8080
+             :hostnames ["api.example.test"]}
+            {:id :admin
+             :app #'admin/app
+             :port 8081
+             :hostnames ["admin.example.test"]}]}))
+```
+
+Point the selected profile's `:profile/main` at `example.host/config`.
+
+## Commands
+
+```shell
+hoplite                         # development console
+hoplite eval '(+ 19 23)'
+hoplite run file.hal
+hoplite serve check PROJECT
+hoplite serve build --mode dev PROJECT
+hoplite serve foreground --mode prod PROJECT
+hoplite serve start PROJECT
+hoplite serve status PROJECT
+hoplite serve reload PROJECT
+hoplite serve stop PROJECT
+hoplite serve install PROJECT   # macOS LaunchAgent
+hoplite serve uninstall PROJECT
+```
+
+Set `HOPLITE_NGINX` only when deliberately selecting an external development
+nginx executable.
+
+## Build and test
+
+```shell
+make check
+make runtime
+make nginx
+make macos
+make benchmark-bytecode
+```
+
+`make nginx` downloads the pinned nginx source, verifies its checksum, and
+statically links the Hoplite module and Rust runtime. The final `hoplite`
+executable embeds that nginx binary.
+
+The bytecode loading benchmark compares HAL compilation, HBC decoding, and
+already-decoded execution for `hoplite.core`, `hoplite.internal`, and
+`hoplite.dev`.
+
+## Homebrew releases
+
+The tagged release workflow:
+
+1. verifies that the tag matches `Cargo.toml`;
+2. builds arm64 and Intel standalone macOS executables;
+3. publishes both files in a GitHub release;
+4. calculates their SHA-256 checksums;
+5. generates and publishes `Formula/hoplite.rb`;
+6. updates `greenways-ai/homebrew-hoplite` when `HOMEBREW_TAP_TOKEN` is set.
+
+Tap setup and local formula instructions live in
+[`packaging/homebrew/README.md`](packaging/homebrew/README.md).
+
+## Runtime model
+
+There is one Hoplite runtime per nginx worker. Bootstrap loads application
+definitions, then `apps.hta` prepares a worker-local router and compiles every
+handler call once. A request performs method/path matching and executes the
+cached program. Runtime Values, fibers, promises, and handler handles remain
+inside their worker.
+
+Asynchronous handlers can await nginx host services without blocking:
+
+```clojure
+(defn ^:async delayed
+  [_request]
   (std.foundation.coroutine/await
     (std.native.Host/call "nginx" "sleep" [25]))
-  {:status 200
-   :headers {"content-type" "text/plain; charset=utf-8"}
-   :body "resumed\n"})
+  {:status 200 :body "resumed\n"})
 ```
 
-The request value currently contains:
+## License
 
-```clojure
-{:method "GET"
- :uri "/inspect?a=1"
- :path "/inspect"
- :query-string "a=1"
- :remote-address "127.0.0.1"
- :headers {"Host" "localhost:8080"}}
-```
-
-A handler returns:
-
-```clojure
-{:status 200
- :headers {"content-type" "text/plain"}
- :body "hello"}
-```
-
-The response body may be a Hara string or byte value.
-
-## Run the Docker experiment
-
-From the directory containing sibling `hoplite` and `hara.lang` checkouts:
-
-```bash
-docker build -f hoplite/docker/Dockerfile -t hoplite .
-docker run --rm -p 8080:8080 hoplite
-```
-
-Then:
-
-```bash
-curl -i http://localhost:8080/hello
-curl -i http://localhost:8080/delay
-curl -i http://localhost:8080/inspect?sample=true
-```
-
-## Native build
-
-On macOS, install the native dependencies first:
-
-```bash
-brew install openssl@3 pcre2
-```
-
-Build the worker runtime:
-
-```bash
-make runtime
-```
-
-Build the pinned Nginx distribution with Hoplite statically built in:
-
-```bash
-make nginx NGINX_SRC=/path/to/nginx-1.30.4
-```
-
-Build the standalone Hoplite executable:
-
-```bash
-make macos
-```
-
-`osx` is an alias for `macos`. The resulting
-`target/dist/hoplite-v<version>-<target>` is the complete distribution: the
-Hara runtime and statically linked Hoplite Nginx host are embedded in that one
-executable. The Makefile downloads and verifies the pinned Nginx source, then
-prints the executable checksum and installation instructions. Set
-`NGINX_SRC=/path/to/nginx-1.30.4` only to override the downloaded source tree.
-
-The build uses Homebrew OpenSSL and PCRE2 static archives while compiling, but
-the resulting executable has no Homebrew runtime-library dependency. There is
-no loadable Hoplite module, separate Nginx executable, or runtime shared
-library to deploy.
-
-## CLI
-
-Hoplite packages the Hara evaluator with the Nginx host and application-server
-commands:
-
-```bash
-cargo build --release
-hoplite eval '(+ 19 23)'
-hoplite run app.hal
-hoplite serve
-hoplite serve install /path/to/project
-hoplite serve status /path/to/project
-hoplite serve uninstall /path/to/project
-```
-
-Running `hoplite` without a command opens the Hoplite REPL. It evaluates Hara
-forms and packages Nginx lifecycle controls directly into the session:
-
-```text
-/nginx start [PROJECT]
-/nginx stop [PROJECT]
-/nginx reload [PROJECT]
-/nginx status [PROJECT]
-/nginx build [PROJECT]
-/nginx check [PROJECT]
-```
-
-`hoplite serve build` emits `.hoplite/app.hal`, the HBC2 bytecode artifact
-`.hoplite/app.hbc`, and a generated Nginx configuration. `server.edn` controls
-`:hoplite/listen` and `:hoplite/workers`; `routes.edn` maps route `:path` values
-to Hara `:handler` vars. `hoplite serve foreground` keeps the embedded host in
-the foreground for service managers. On macOS,
-`hoplite serve install /path/to/project` creates and loads a per-user
-LaunchAgent; `hoplite serve uninstall /path/to/project` unloads and removes it.
-Set `HOPLITE_NGINX` only when deliberately overriding the embedded host for
-development.
-
-## Runtime ABI
-
-The Rust library exposes a native-safe C ABI:
-
-```c
-hoplite_runtime_t *hoplite_runtime_new(void);
-uint64_t hoplite_work_start(...);
-size_t hoplite_work_poll(...);
-int hoplite_work_next_event(...);
-int hoplite_work_send(...);
-int hoplite_call_resolve(...);
-int hoplite_call_reject(...);
-int hoplite_work_cancel(...);
-int hoplite_work_close(...);
-```
-
-Unlike the existing 32-bit-oriented raw HTA pointer packing, `hoplite_work_next_event` returns pointer and length through an explicit `hoplite_buffer_t`, making the bridge safe for native 64-bit Nginx processes.
-
-Events retain Hara's HTA envelope:
-
-```text
-[0 work result]                                      completion
-[1 work error]                                       failure
-[2 call work "HOPLITE" nil service method arguments] host request
-```
-
-## Current boundary
-
-The current boundary supports:
-
-- one Hara runtime per worker;
-- bootstrap evaluation;
-- request maps;
-- response status, headers, strings, and bytes;
-- coroutine suspension over a host promise;
-- `nginx/sleep` through `ngx_event_t`;
-- request cancellation and work cleanup;
-- Nginx configuration reload through normal worker replacement.
-
-Request-body reading, subrequests, upstreams, streaming, and WebSocket events
-remain host-adapter work. They use the same `Host/call -> Promise -> suspended
-fiber -> hoplite_call_resolve/hoplite_call_reject` path demonstrated by the
-timer; none of them belongs inside `Promise`.
+Eclipse Public License 2.0.

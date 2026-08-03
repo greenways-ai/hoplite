@@ -1,0 +1,119 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: hoplite
+      - uses: actions/checkout@v4
+        with:
+          repository: hara-lang/hara
+          path: hara.lang
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: metadata
+        with:
+          images: ghcr.io/greenways-ai/hoplite
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: hoplite/docker/Dockerfile
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+
+  macos:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-14
+            target: aarch64-apple-darwin
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: hoplite
+      - uses: actions/checkout@v4
+        with:
+          repository: hara-lang/hara
+          path: hara.lang
+      - uses: dtolnay/rust-toolchain@stable
+      - run: brew install openssl@3 pcre2
+      - name: Verify tag version
+        working-directory: hoplite
+        run: |
+          version=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          test "${GITHUB_REF_NAME}" = "v${version}"
+      - name: Build standalone executable
+        working-directory: hoplite
+        run: make macos
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hoplite-${{ matrix.target }}
+          path: hoplite/target/dist/hoplite-*-${{ matrix.target }}
+          if-no-files-found: error
+
+  publish:
+    needs: macos
+    runs-on: ubuntu-latest
+    env:
+      TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: hoplite
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" artifacts/* --generate-notes --verify-tag
+      - name: Render formula
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          arm=$(sha256sum artifacts/*-aarch64-apple-darwin | cut -d' ' -f1)
+          intel=$(sha256sum artifacts/*-x86_64-apple-darwin | cut -d' ' -f1)
+          mkdir -p rendered/Formula
+          VERSION="$version" ARM64_SHA256="$arm" X86_64_SHA256="$intel" \
+            hoplite/scripts/render-homebrew-formula > rendered/Formula/hoplite.rb
+          ruby -c rendered/Formula/hoplite.rb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: homebrew-formula
+          path: rendered/Formula/hoplite.rb
+      - name: Update Homebrew tap
+        if: ${{ env.TAP_TOKEN != '' }}
+        env:
+          GH_TOKEN: ${{ env.TAP_TOKEN }}
+        run: |
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/greenways-ai/homebrew-hoplite.git" tap
+          mkdir -p tap/Formula
+          cp rendered/Formula/hoplite.rb tap/Formula/hoplite.rb
+          git -C tap config user.name github-actions[bot]
+          git -C tap config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git -C tap add Formula/hoplite.rb
+          git -C tap commit -m "hoplite ${GITHUB_REF_NAME}"
+          git -C tap push

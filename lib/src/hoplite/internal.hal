@@ -1,0 +1,7 @@
+(ns hoplite.internal)
+
+(defn config
+  "Defines an advanced single- or multi-app Hoplite host configuration."
+  [definition]
+  (assoc definition :hoplite/type :config))
+

@@ -19,7 +19,15 @@ A Hoplite project selects one qualified application Var through `project.edn`.
  :project/profiles
  {:server {:profile/language :hoplite
            :profile/main example.app/app
-           :profile/options {:port 8080}}}}
+           :profile/options {:port 8080}
+           :profile/extensions
+           {:extension/hoplite
+            {:hoplite/authentication
+             {:auth/realms
+              {:management {:auth/providers [:auth/key]
+                            :auth/required true}
+               :application {:auth/providers [:auth/key]
+                             :auth/required false}}}}}}}}
 ```
 
 ## Required profile fields
@@ -29,8 +37,15 @@ A Hoplite project selects one qualified application Var through `project.edn`.
 | `:profile/language` | Must be `:hoplite` |
 | `:profile/main` | Qualified Var that evaluates to `hoplite.core/app` or `hoplite.internal/config` |
 | `:profile/options` | Optional map containing `:port` and `:workers` |
+| `:profile/extensions` | Optional host configuration; Hoplite modules and authentication live under `:extension/hoplite` |
 
 The command-line `--profile NAME` option overrides `:project/default-profile`.
+
+If `:hoplite/authentication` is omitted, Hoplite compiles the same safe
+defaults: user-owned keys for both realms, mandatory authentication for the
+management surface, short-lived access tokens, and rotating single-use refresh
+tokens. See the [project schema reference](/reference/project-schema/#authentication-realms)
+for the full contract.
 
 :::caution[Legacy files are rejected]
 Projects containing `server.edn` or `routes.edn` are no longer supported. Move routing into `hoplite.core/app` and select it through `:project/profiles`.

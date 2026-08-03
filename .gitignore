@@ -1,6 +1,7 @@
 /target/
 **/target/
 /.hoplite/
+**/.hoplite/
 .DS_Store
 node_modules/
 dist/

@@ -7,10 +7,13 @@
 
 typedef struct {
     ngx_str_t bootstrap;
+    ngx_str_t manifest;
 } ngx_http_hoplite_main_conf_t;
 
 typedef struct {
     ngx_str_t handler;
+    uint64_t prepared_handler;
+    ngx_uint_t app;
 } ngx_http_hoplite_loc_conf_t;
 
 typedef struct ngx_http_hoplite_ctx_s ngx_http_hoplite_ctx_t;
@@ -37,6 +40,8 @@ static ngx_flag_t ngx_http_hoplite_queue_ready;
 static ngx_int_t ngx_http_hoplite_handler(ngx_http_request_t *request);
 static char *ngx_http_hoplite_content(ngx_conf_t *cf, ngx_command_t *cmd,
                                       void *conf);
+static char *ngx_http_hoplite_app(ngx_conf_t *cf, ngx_command_t *cmd,
+                                  void *conf);
 static void *ngx_http_hoplite_create_main_conf(ngx_conf_t *cf);
 static void *ngx_http_hoplite_create_loc_conf(ngx_conf_t *cf);
 static ngx_int_t ngx_http_hoplite_init_process(ngx_cycle_t *cycle);
@@ -52,6 +57,22 @@ static ngx_command_t ngx_http_hoplite_commands[] = {
         ngx_conf_set_str_slot,
         NGX_HTTP_MAIN_CONF_OFFSET,
         offsetof(ngx_http_hoplite_main_conf_t, bootstrap),
+        NULL
+    },
+    {
+        ngx_string("hoplite_manifest"),
+        NGX_HTTP_MAIN_CONF | NGX_CONF_TAKE1,
+        ngx_conf_set_str_slot,
+        NGX_HTTP_MAIN_CONF_OFFSET,
+        offsetof(ngx_http_hoplite_main_conf_t, manifest),
+        NULL
+    },
+    {
+        ngx_string("hoplite_app"),
+        NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1,
+        ngx_http_hoplite_app,
+        NGX_HTTP_LOC_CONF_OFFSET,
+        0,
         NULL
     },
     {
@@ -154,7 +175,10 @@ ngx_http_hoplite_add_headers(ngx_http_request_t *request,
     ngx_table_elt_t *header;
     hoplite_hta_pair_t *pair;
 
-    if (headers == NULL || headers->kind != HOPLITE_HTA_MAP) {
+    if (headers == NULL
+        || (headers->kind != HOPLITE_HTA_MAP
+            && headers->kind != HOPLITE_HTA_OBJECT))
+    {
         return NGX_OK;
     }
 
@@ -265,7 +289,10 @@ ngx_http_hoplite_send_result(ngx_http_hoplite_ctx_t *ctx,
     int64_t status_number = NGX_HTTP_OK;
     ngx_str_t body = ngx_null_string;
 
-    if (payload == NULL || payload->kind != HOPLITE_HTA_MAP) {
+    if (payload == NULL
+        || (payload->kind != HOPLITE_HTA_MAP
+            && payload->kind != HOPLITE_HTA_OBJECT))
+    {
         ngx_str_set(&body, "Hoplite handler must return a response map\n");
         ngx_http_hoplite_send(ctx, NGX_HTTP_INTERNAL_SERVER_ERROR, &body, NULL);
         return;
@@ -301,7 +328,10 @@ ngx_http_hoplite_send_error(ngx_http_hoplite_ctx_t *ctx,
     hoplite_hta_value_t *message_value;
     ngx_str_t message;
 
-    if (payload != NULL && payload->kind == HOPLITE_HTA_MAP) {
+    if (payload != NULL
+        && (payload->kind == HOPLITE_HTA_MAP
+            || payload->kind == HOPLITE_HTA_OBJECT))
+    {
         message_value = hoplite_hta_map_get(payload, "message");
         if (message_value != NULL
             && hoplite_hta_text(message_value, &message) == NGX_OK)
@@ -519,36 +549,30 @@ ngx_http_hoplite_handler(ngx_http_request_t *request)
     ngx_http_hoplite_loc_conf_t *conf;
     ngx_http_hoplite_ctx_t *ctx;
     ngx_pool_cleanup_t *cleanup;
-    ngx_str_t binding, source;
-    u_char *cursor;
-    size_t source_len;
+    ngx_str_t binding;
 
     if (ngx_http_hoplite_runtime == NULL) {
         return NGX_HTTP_SERVICE_UNAVAILABLE;
     }
 
     conf = ngx_http_get_module_loc_conf(request, ngx_http_hoplite_module);
-    if (conf->handler.len == 0) {
+    if (conf->handler.len == 0 && conf->app == NGX_CONF_UNSET_UINT) {
         return NGX_DECLINED;
     }
     if (hoplite_hta_encode_request(request, &binding) != NGX_OK) {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
-    source_len = 1 + conf->handler.len + 1
-               + sizeof("__hoplite_request") - 1 + 1;
-    source.data = ngx_pnalloc(request->pool, source_len);
-    if (source.data == NULL) {
-        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    if (conf->app == NGX_CONF_UNSET_UINT && conf->prepared_handler == 0) {
+        conf->prepared_handler = hoplite_handler_prepare(
+            ngx_http_hoplite_runtime, conf->handler.data, conf->handler.len);
+        if (conf->prepared_handler == 0) {
+            ngx_log_error(NGX_LOG_ERR, request->connection->log, 0,
+                          "hoplite could not prepare handler %V",
+                          &conf->handler);
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
     }
-    cursor = source.data;
-    *cursor++ = '(';
-    cursor = ngx_cpymem(cursor, conf->handler.data, conf->handler.len);
-    *cursor++ = ' ';
-    cursor = ngx_cpymem(cursor, "__hoplite_request",
-                        sizeof("__hoplite_request") - 1);
-    *cursor++ = ')';
-    source.len = (size_t) (cursor - source.data);
 
     ctx = ngx_pcalloc(request->pool, sizeof(*ctx));
     if (ctx == NULL) {
@@ -564,9 +588,14 @@ ngx_http_hoplite_handler(ngx_http_request_t *request)
     cleanup->handler = ngx_http_hoplite_cleanup;
     cleanup->data = ctx;
 
-    ctx->work = hoplite_work_start(ngx_http_hoplite_runtime,
-                              source.data, source.len,
-                              binding.data, binding.len);
+    if (conf->app != NGX_CONF_UNSET_UINT) {
+        ctx->work = hoplite_app_call(ngx_http_hoplite_runtime, conf->app,
+                                     binding.data, binding.len);
+    } else {
+        ctx->work = hoplite_work_call(ngx_http_hoplite_runtime,
+                                      conf->prepared_handler,
+                                      binding.data, binding.len);
+    }
     if (ctx->work == 0) {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
@@ -584,7 +613,7 @@ ngx_http_hoplite_handler(ngx_http_request_t *request)
 
 static ngx_int_t
 ngx_http_hoplite_read_file(ngx_cycle_t *cycle, const ngx_str_t *path,
-                           ngx_str_t *source)
+                           ngx_str_t *source, ngx_flag_t append_nil)
 {
     ngx_file_t file;
     ngx_file_info_t info;
@@ -605,7 +634,7 @@ ngx_http_hoplite_read_file(ngx_cycle_t *cycle, const ngx_str_t *path,
     }
 
     source->len = (size_t) ngx_file_size(&info);
-    source->data = ngx_alloc(source->len + sizeof("\nnil") - 1, cycle->log);
+    source->data = ngx_alloc(source->len + (append_nil ? sizeof("\nnil") - 1 : 0), cycle->log);
     if (source->data == NULL) {
         ngx_close_file(file.fd);
         return NGX_ERROR;
@@ -617,8 +646,10 @@ ngx_http_hoplite_read_file(ngx_cycle_t *cycle, const ngx_str_t *path,
         source->data = NULL;
         return NGX_ERROR;
     }
-    ngx_memcpy(source->data + source->len, "\nnil", sizeof("\nnil") - 1);
-    source->len += sizeof("\nnil") - 1;
+    if (append_nil) {
+        ngx_memcpy(source->data + source->len, "\nnil", sizeof("\nnil") - 1);
+        source->len += sizeof("\nnil") - 1;
+    }
     return NGX_OK;
 }
 
@@ -633,7 +664,7 @@ ngx_http_hoplite_bootstrap(ngx_cycle_t *cycle, const ngx_str_t *path)
     uint64_t work;
     ngx_int_t rc = NGX_ERROR;
 
-    if (ngx_http_hoplite_read_file(cycle, path, &source) != NGX_OK) {
+    if (ngx_http_hoplite_read_file(cycle, path, &source, 1) != NGX_OK) {
         return NGX_ERROR;
     }
     work = hoplite_work_start(ngx_http_hoplite_runtime,
@@ -695,6 +726,20 @@ ngx_http_hoplite_init_process(ngx_cycle_t *cycle)
     {
         return NGX_ERROR;
     }
+    if (conf != NULL && conf->manifest.len != 0) {
+        ngx_str_t manifest;
+        if (ngx_http_hoplite_read_file(cycle, &conf->manifest, &manifest, 0) != NGX_OK) {
+            return NGX_ERROR;
+        }
+        if (hoplite_apps_prepare(ngx_http_hoplite_runtime,
+                                 manifest.data, manifest.len) != 0) {
+            ngx_free(manifest.data);
+            ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
+                          "hoplite could not prepare app manifest %V", &conf->manifest);
+            return NGX_ERROR;
+        }
+        ngx_free(manifest.data);
+    }
     return NGX_OK;
 }
 
@@ -718,7 +763,35 @@ ngx_http_hoplite_create_main_conf(ngx_conf_t *cf)
 static void *
 ngx_http_hoplite_create_loc_conf(ngx_conf_t *cf)
 {
-    return ngx_pcalloc(cf->pool, sizeof(ngx_http_hoplite_loc_conf_t));
+    ngx_http_hoplite_loc_conf_t *conf;
+    conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_hoplite_loc_conf_t));
+    if (conf != NULL) {
+        conf->app = NGX_CONF_UNSET_UINT;
+    }
+    return conf;
+}
+
+static char *
+ngx_http_hoplite_app(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+    ngx_http_hoplite_loc_conf_t *location = conf;
+    ngx_http_core_loc_conf_t *core;
+    ngx_str_t *value;
+    ngx_int_t app;
+
+    (void) cmd;
+    if (location->app != NGX_CONF_UNSET_UINT || location->handler.len != 0) {
+        return "is duplicate";
+    }
+    value = cf->args->elts;
+    app = ngx_atoi(value[1].data, value[1].len);
+    if (app <= 0) {
+        return "must be a positive app id";
+    }
+    location->app = (ngx_uint_t) app;
+    core = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
+    core->handler = ngx_http_hoplite_handler;
+    return NGX_CONF_OK;
 }
 
 static char *

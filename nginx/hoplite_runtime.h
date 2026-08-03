@@ -15,11 +15,29 @@ uint32_t hoplite_abi_version(void);
 hoplite_runtime_t *hoplite_runtime_new(void);
 void hoplite_runtime_free(hoplite_runtime_t *runtime);
 
+uint64_t hoplite_handler_prepare(hoplite_runtime_t *runtime,
+                                 const uint8_t *function,
+                                 size_t function_len);
+
+uint64_t hoplite_work_call(hoplite_runtime_t *runtime,
+                           uint64_t handler,
+                           const uint8_t *input,
+                           size_t input_len);
+
+int hoplite_apps_prepare(hoplite_runtime_t *runtime,
+                         const uint8_t *manifest,
+                         size_t manifest_len);
+uint64_t hoplite_app_call(hoplite_runtime_t *runtime,
+                          uint64_t app,
+                          const uint8_t *input,
+                          size_t input_len);
+
 uint64_t hoplite_work_start(hoplite_runtime_t *runtime,
                             const uint8_t *function,
                             size_t function_len,
                             const uint8_t *input,
                             size_t input_len);
+int hoplite_handler_close(hoplite_runtime_t *runtime, uint64_t handler);
 
 size_t hoplite_work_poll(hoplite_runtime_t *runtime);
 int hoplite_work_next_event(hoplite_runtime_t *runtime, hoplite_buffer_t *output);
