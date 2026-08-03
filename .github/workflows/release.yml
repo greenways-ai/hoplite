@@ -20,6 +20,7 @@ jobs:
         with:
           repository: hara-lang/hara
           path: hara.lang
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - name: Verify tag version
         working-directory: hoplite
@@ -50,6 +51,7 @@ jobs:
         with:
           repository: hara-lang/hara
           path: hara.lang
+          submodules: recursive
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -88,6 +90,7 @@ jobs:
         with:
           repository: hara-lang/hara
           path: hara.lang
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - run: brew install openssl@3 pcre2
       - name: Verify tag version

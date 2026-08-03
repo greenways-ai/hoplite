@@ -15,6 +15,7 @@ jobs:
         with:
           repository: hara-lang/hara
           path: hara.lang
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --manifest-path hoplite/Cargo.toml --workspace
 
@@ -28,4 +29,5 @@ jobs:
         with:
           repository: hara-lang/hara
           path: hara.lang
+          submodules: recursive
       - run: docker build -f hoplite/docker/Dockerfile -t hoplite-ci .
