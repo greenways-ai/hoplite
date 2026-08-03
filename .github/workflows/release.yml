@@ -10,6 +10,36 @@ permissions:
   packages: write
 
 jobs:
+  harp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: hoplite
+      - uses: actions/checkout@v4
+        with:
+          repository: hara-lang/hara
+          path: hara.lang
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify tag version
+        working-directory: hoplite
+        run: |
+          version=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          test "${GITHUB_REF_NAME}" = "v${version}"
+      - name: Build deterministic HARP
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          cargo run --manifest-path hara.lang/rust/Cargo.toml --bin hara -- \
+            package build hoplite --output "hoplite-${version}.harp"
+          cargo run --manifest-path hara.lang/rust/Cargo.toml --bin hara -- \
+            package inspect "hoplite-${version}.harp"
+          sha256sum "hoplite-${version}.harp"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hoplite-harp
+          path: hoplite-*.harp
+          if-no-files-found: error
+
   container:
     runs-on: ubuntu-latest
     steps:
@@ -75,7 +105,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: macos
+    needs: [harp, macos]
     runs-on: ubuntu-latest
     env:
       TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
