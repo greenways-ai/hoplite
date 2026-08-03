@@ -1,0 +1,49 @@
+---
+title: hoplite.auth
+description: HAL authentication policy, store contract, and pure session decisions.
+---
+
+`hoplite.auth` is the package-owned authentication policy for Hoplite. It is
+written in HAL and exported from `gh:greenways-ai:hoplite` as `:hoplite/auth`.
+It does not select a database or call cryptographic libraries directly.
+
+## Module contract
+
+<span class="doc-badge doc-badge--caution">Experimental</span>
+
+```clojure
+auth/module
+```
+
+The module declares the versioned `:hoplite/auth-store` contract and the host
+capabilities needed for randomness, hashing, signature verification, and time.
+A `.harp` addon implements the store contract for a chosen persistence engine.
+
+## `AuthStore`
+
+```clojure
+(-query store query)
+(-transact store operation)
+```
+
+The boundary uses logical authentication operations, including user and device
+records, one-time challenges, sessions, refresh rotation, revocation, and audit
+append. An implementation must preserve the compare-and-set and transaction
+semantics returned by the policy functions.
+
+## Policy functions
+
+```clojure
+(challenge id realm public-key nonce now ttl-seconds)
+(consume-challenge record now)
+(session id subject-id device-id realm access-hash now access-ttl refresh-ttl)
+(principal session claims)
+(rotate-refresh refresh session replacement now reuse-interval-seconds)
+```
+
+These functions are deterministic. They return values and atomic store
+operations; the selected store adapter performs those operations. In
+particular, refresh reuse outside the retry interval produces a session
+revocation and an audit event in one transaction.
+
+**Source:** [`lib/src/hoplite/auth.hal`](https://github.com/greenways-ai/hoplite/blob/main/lib/src/hoplite/auth.hal)

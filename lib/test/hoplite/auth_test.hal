@@ -1,0 +1,55 @@
+(ns hoplite.auth-test
+  (:require [hoplite.auth :as auth]))
+
+(def challenge
+  (auth/challenge "challenge-1" :management "public-key" "nonce" 100 30))
+
+(def session
+  (auth/session "session-1" "user-1" "device-1" :management "access-1" 100 20 100))
+
+(def checks
+  [(= :hoplite/auth (:module/export auth/module))
+   (= auth/store-operations
+      #{:auth/user-create :auth/user-find :auth/device-put
+        :auth/challenge-put :auth/challenge-consume :auth/session-put
+        :auth/refresh-rotate :auth/session-revoke :auth/audit-append})
+   (= 130 (:challenge/expires-at challenge))
+   (= :accepted (:auth/result (auth/consume-challenge challenge 120)))
+   (= :challenge-expired (:auth/reason (auth/consume-challenge challenge 131)))
+   (= {:principal/id "user-1"
+       :principal/realm :management
+       :principal/session-id "session-1"
+       :principal/device-id "device-1"
+       :principal/claims {:role :admin}}
+      (auth/principal session {:role :admin}))
+   (= :accepted
+      (:auth/result
+       (auth/rotate-refresh
+         {:refresh/hash "refresh-1" :refresh/used-at nil}
+         session
+         {:refresh/hash "refresh-2"
+          :refresh/access-hash "access-2"
+          :refresh/access-expires-at 130
+          :refresh/expires-at 200}
+         110
+         10)))
+   (= :retry
+      (:auth/result
+       (auth/rotate-refresh
+         {:refresh/hash "refresh-1" :refresh/used-at 105}
+         session
+         {}
+         110
+         10)))
+   (= :refresh-reuse
+      (:auth/reason
+       (auth/rotate-refresh
+         {:refresh/hash "refresh-1" :refresh/used-at 105}
+         session
+         {}
+         116
+         10)))])
+
+(if (every? identity checks)
+  true
+  (throw "hoplite.auth tests failed"))

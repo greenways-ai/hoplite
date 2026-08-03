@@ -1,0 +1,18 @@
+(ns hoplite.host)
+
+(defn random-bytes [size]
+  (std.native.Host/call "hoplite.host" "random-bytes" [size]))
+
+(defn hash [algorithm value]
+  (std.native.Host/call "hoplite.host" "hash" [algorithm value]))
+
+(defn verify-signature [algorithm public-key message signature]
+  (std.native.Host/call "hoplite.host"
+                        "verify-signature"
+                        [algorithm public-key message signature]))
+
+(defn now []
+  (std.native.Host/call "hoplite.host" "now" []))
+
+(defn secret [reference]
+  (std.native.Host/call "hoplite.host" "secret" [reference]))

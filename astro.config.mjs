@@ -65,6 +65,8 @@ export default defineConfig({
             { label: "Project schema", slug: "reference/project-schema" },
             { label: "Build output", slug: "reference/build-output" },
             { label: "hoplite.core", slug: "reference/hoplite-core" },
+            { label: "hoplite.auth", slug: "reference/hoplite-auth" },
+            { label: "hoplite.host", slug: "reference/hoplite-host" },
             { label: "hoplite.dev", slug: "reference/hoplite-dev" },
             { label: "hoplite.internal", slug: "reference/hoplite-internal" },
           ],

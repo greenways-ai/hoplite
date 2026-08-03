@@ -4,9 +4,13 @@ use hara_wasm::Runtime;
 use serde_json::{json, Map as JsonMap, Value as JsonValue};
 
 pub const CORE_SOURCE: &str = include_str!("../lib/src/hoplite/core.hal");
+pub const AUTH_SOURCE: &str = include_str!("../lib/src/hoplite/auth.hal");
+pub const HOST_SOURCE: &str = include_str!("../lib/src/hoplite/host.hal");
 pub const INTERNAL_SOURCE: &str = include_str!("../lib/src/hoplite/internal.hal");
 #[cfg(test)]
 const CORE_TEST_SOURCE: &str = include_str!("../lib/test/hoplite/core_test.hal");
+#[cfg(test)]
+const AUTH_TEST_SOURCE: &str = include_str!("../lib/test/hoplite/auth_test.hal");
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Route {
@@ -53,6 +57,8 @@ pub fn load(project: &Project, profile: Option<&str>, production: bool) -> Resul
         .ok_or("Hoplite profile main must be a qualified app var such as app.core/app")?;
     let mut runtime = Runtime::new();
     runtime.register_resource("hoplite.core", CORE_SOURCE);
+    runtime.register_resource("hoplite.auth", AUTH_SOURCE);
+    runtime.register_resource("hoplite.host", HOST_SOURCE);
     runtime.register_resource("hoplite.internal", INTERNAL_SOURCE);
     project::register_sources(project, &mut runtime)?;
     let source = format!(
@@ -458,6 +464,18 @@ mod tests {
         runtime.register_resource("hoplite.internal", INTERNAL_SOURCE);
         assert_eq!(
             runtime.eval_native_value(CORE_TEST_SOURCE).unwrap(),
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
+    fn auth_hal_contract_evaluates_from_disk() {
+        let mut runtime = Runtime::new();
+        runtime.register_resource("hoplite.core", CORE_SOURCE);
+        runtime.register_resource("hoplite.auth", AUTH_SOURCE);
+        runtime.register_resource("hoplite.host", HOST_SOURCE);
+        assert_eq!(
+            runtime.eval_native_value(AUTH_TEST_SOURCE).unwrap(),
             Value::Bool(true)
         );
     }

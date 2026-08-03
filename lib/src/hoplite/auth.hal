@@ -1,0 +1,105 @@
+(ns hoplite.auth
+  (:require [hoplite.core :as h]))
+
+(defprotocol AuthStore
+  (-query [store query])
+  (-transact [store operation]))
+
+(def store-operations
+  #{:auth/user-create :auth/user-find :auth/device-put
+    :auth/challenge-put :auth/challenge-consume :auth/session-put
+    :auth/refresh-rotate :auth/session-revoke :auth/audit-append})
+
+(def module
+  (h/module
+    {:module/export :hoplite/auth
+     :module/contracts
+     {:hoplite/auth-store
+      {:contract/version "1.0.0"
+       :contract/operations store-operations}}
+     :module/capabilities
+     #{:host/random :host/hash :host/signature :host/clock}}))
+
+(defn challenge [id realm public-key nonce now ttl-seconds]
+  {:challenge/id id
+   :challenge/realm realm
+   :challenge/public-key public-key
+   :challenge/nonce nonce
+   :challenge/issued-at now
+   :challenge/expires-at (+ now ttl-seconds)
+   :challenge/used-at nil})
+
+(defn consume-challenge [record now]
+  (cond
+    (:challenge/used-at record)
+    {:auth/result :rejected :auth/reason :challenge-used}
+
+    (< (:challenge/expires-at record) now)
+    {:auth/result :rejected :auth/reason :challenge-expired}
+
+    :else
+    {:auth/result :accepted
+     :store/op :compare-and-set
+     :store/key [:auth/challenge (:challenge/id record)]
+     :store/expect {:challenge/used-at nil}
+     :store/update {:challenge/used-at now}}))
+
+(defn session [id subject-id device-id realm access-hash now access-ttl refresh-ttl]
+  {:session/id id
+   :session/subject-id subject-id
+   :session/device-id device-id
+   :session/realm realm
+   :session/access-hash access-hash
+   :session/access-expires-at (+ now access-ttl)
+   :session/refresh-expires-at (+ now refresh-ttl)
+   :session/revoked-at nil})
+
+(defn principal [session claims]
+  {:principal/id (:session/subject-id session)
+   :principal/realm (:session/realm session)
+   :principal/session-id (:session/id session)
+   :principal/device-id (:session/device-id session)
+   :principal/claims claims})
+
+(defn rotate-refresh [refresh session replacement now reuse-interval-seconds]
+  (cond
+    (:session/revoked-at session)
+    {:auth/result :rejected :auth/reason :session-revoked}
+
+    (< (:session/refresh-expires-at session) now)
+    {:auth/result :rejected :auth/reason :refresh-expired}
+
+    (:refresh/used-at refresh)
+    (if (<= (- now (:refresh/used-at refresh)) reuse-interval-seconds)
+      {:auth/result :retry :auth/reason :refresh-already-rotated}
+      {:auth/result :rejected
+       :auth/reason :refresh-reuse
+       :store/op :transaction
+       :store/operations
+       [{:store/op :compare-and-set
+         :store/key [:auth/session (:session/id session)]
+         :store/expect {:session/revoked-at nil}
+         :store/update {:session/revoked-at now}}
+        {:store/op :append
+         :store/key :auth/audit
+         :store/value {:audit/type :auth.refresh/reuse
+                       :audit/session-id (:session/id session)
+                       :audit/occurred-at now}}]})
+
+    :else
+    {:auth/result :accepted
+     :store/op :transaction
+     :store/operations
+     [{:store/op :compare-and-set
+       :store/key [:auth/refresh (:refresh/hash refresh)]
+       :store/expect {:refresh/used-at nil}
+       :store/update {:refresh/used-at now}}
+      {:store/op :put
+       :store/key [:auth/refresh (:refresh/hash replacement)]
+       :store/value replacement}
+      {:store/op :compare-and-set
+       :store/key [:auth/session (:session/id session)]
+       :store/expect {:session/revoked-at nil}
+       :store/update {:session/access-hash (:refresh/access-hash replacement)
+                      :session/access-expires-at (:refresh/access-expires-at replacement)
+                      :session/refresh-expires-at (:refresh/expires-at replacement)}}]}))
