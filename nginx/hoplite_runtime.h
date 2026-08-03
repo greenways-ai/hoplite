@@ -11,6 +11,31 @@ typedef struct {
     size_t len;
 } hoplite_buffer_t;
 
+typedef struct {
+    const uint8_t *data;
+    size_t len;
+} hoplite_slice_t;
+
+typedef int (*hoplite_header_at_fn)(void *context, size_t index,
+                                    hoplite_slice_t *name,
+                                    hoplite_slice_t *value);
+
+typedef struct {
+    void *context;
+    hoplite_slice_t method;
+    hoplite_slice_t uri;
+    hoplite_slice_t path;
+    hoplite_slice_t query_string;
+    hoplite_slice_t remote_address;
+    size_t header_count;
+    hoplite_header_at_fn header_at;
+} hoplite_request_v2_t;
+
+typedef struct {
+    uint32_t kind;
+    uint64_t id;
+} hoplite_outcome_v2_t;
+
 uint32_t hoplite_abi_version(void);
 hoplite_runtime_t *hoplite_runtime_new(void);
 void hoplite_runtime_free(hoplite_runtime_t *runtime);
@@ -31,6 +56,30 @@ uint64_t hoplite_app_call(hoplite_runtime_t *runtime,
                           uint64_t app,
                           const uint8_t *input,
                           size_t input_len);
+int hoplite_app_invoke_v2(hoplite_runtime_t *runtime,
+                          uint64_t app,
+                          const hoplite_request_v2_t *request,
+                          hoplite_outcome_v2_t *outcome);
+int hoplite_handler_invoke_v2(hoplite_runtime_t *runtime,
+                              uint64_t handler,
+                              uint32_t adapter,
+                              const hoplite_request_v2_t *request,
+                              hoplite_outcome_v2_t *outcome);
+int hoplite_response_status_v2(hoplite_runtime_t *runtime,
+                               uint64_t response,
+                               uint16_t *status);
+int hoplite_response_body_v2(hoplite_runtime_t *runtime,
+                             uint64_t response,
+                             hoplite_slice_t *body);
+size_t hoplite_response_header_count_v2(hoplite_runtime_t *runtime,
+                                        uint64_t response);
+int hoplite_response_header_at_v2(hoplite_runtime_t *runtime,
+                                  uint64_t response,
+                                  size_t index,
+                                  hoplite_slice_t *name,
+                                  hoplite_slice_t *value);
+int hoplite_response_close_v2(hoplite_runtime_t *runtime,
+                              uint64_t response);
 
 uint64_t hoplite_work_start(hoplite_runtime_t *runtime,
                             const uint8_t *function,

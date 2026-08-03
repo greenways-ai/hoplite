@@ -25,7 +25,16 @@ There is one Hoplite runtime per Nginx worker. Runtime values do not cross worke
 
 ## Request execution
 
-For each request, the worker matches method and path, translates the request to HTA, executes the cached handler program, then translates the returned logical value to an Nginx response.
+For each request, the worker matches method and path against borrowed Nginx
+method/path slices and invokes the cached handler. The default `:request`
+adapter exposes a lazy map-like extension: fields and headers are read only
+when HAL code asks for them. A synchronous response is retained by the runtime
+and referenced directly by Nginx until request cleanup; it does not allocate a
+work record or create HTA events.
+
+Only an actual `await` suspension creates a fiber/work record and enters the
+Nginx event-loop continuation path. `:request+hta` remains available when a
+fully materialized portable value is required.
 
 ## Bytecode status
 

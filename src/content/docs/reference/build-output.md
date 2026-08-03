@@ -27,7 +27,7 @@ Build output is isolated beneath the application project's `.hoplite/` directory
 | --- | --- |
 | `app.hal` | Application bootstrap source used by the current Nginx integration |
 | `app.hbc` | Generated and validated Hara bytecode |
-| `apps.hta` | Encoded application/route manifest consumed at worker startup |
+| `apps.hta` | Version 2 application/route manifest, including each route's boundary adapter |
 | `auth-store.hta` | Canonical typed `hoplite-auth-store/1` operation and wire contract |
 | `auth-store.hta.sha256` | Digest used to bind adapters and compiled artifacts to the exact HTA contract |
 | `native-adapters.edn` | Locked registry of native adapter factories selected by package, export, crate, and ABI |

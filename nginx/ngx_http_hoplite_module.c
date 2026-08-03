@@ -14,7 +14,12 @@ typedef struct {
     ngx_str_t handler;
     uint64_t prepared_handler;
     ngx_uint_t app;
+    ngx_uint_t adapter;
 } ngx_http_hoplite_loc_conf_t;
+
+#define NGX_HTTP_HOPLITE_RAW 0
+#define NGX_HTTP_HOPLITE_REQUEST 1
+#define NGX_HTTP_HOPLITE_REQUEST_HTA 2
 
 typedef struct ngx_http_hoplite_ctx_s ngx_http_hoplite_ctx_t;
 
@@ -28,10 +33,61 @@ struct ngx_http_hoplite_ctx_s {
     ngx_queue_t queue;
     ngx_http_request_t *request;
     uint64_t work;
+    uint64_t response;
     ngx_flag_t queued;
     ngx_flag_t done;
     ngx_http_hoplite_sleep_t *sleep;
 };
+
+static int
+ngx_http_hoplite_header_at(void *data, size_t index,
+                           hoplite_slice_t *name, hoplite_slice_t *value)
+{
+    ngx_http_request_t *request = data;
+    ngx_list_part_t *part = &request->headers_in.headers.part;
+    ngx_table_elt_t *headers = part->elts;
+    size_t offset = 0;
+    ngx_uint_t i;
+
+    for (i = 0; ; i++) {
+        if (i >= part->nelts) {
+            if (part->next == NULL) {
+                return 1;
+            }
+            part = part->next;
+            headers = part->elts;
+            i = 0;
+        }
+        if (offset++ == index) {
+            name->data = headers[i].key.data;
+            name->len = headers[i].key.len;
+            value->data = headers[i].value.data;
+            value->len = headers[i].value.len;
+            return 0;
+        }
+    }
+}
+
+static size_t
+ngx_http_hoplite_header_count(ngx_http_request_t *request)
+{
+    ngx_list_part_t *part = &request->headers_in.headers.part;
+    size_t count = 0;
+    while (part != NULL) {
+        count += part->nelts;
+        part = part->next;
+    }
+    return count;
+}
+
+static hoplite_slice_t
+ngx_http_hoplite_slice(ngx_str_t value)
+{
+    hoplite_slice_t slice;
+    slice.data = value.data;
+    slice.len = value.len;
+    return slice;
+}
 
 static hoplite_runtime_t *ngx_http_hoplite_runtime;
 static ngx_queue_t ngx_http_hoplite_requests;
@@ -44,6 +100,8 @@ static char *ngx_http_hoplite_app(ngx_conf_t *cf, ngx_command_t *cmd,
                                   void *conf);
 static void *ngx_http_hoplite_create_main_conf(ngx_conf_t *cf);
 static void *ngx_http_hoplite_create_loc_conf(ngx_conf_t *cf);
+static char *ngx_http_hoplite_merge_loc_conf(ngx_conf_t *cf, void *parent,
+                                             void *child);
 static ngx_int_t ngx_http_hoplite_init_process(ngx_cycle_t *cycle);
 static void ngx_http_hoplite_exit_process(ngx_cycle_t *cycle);
 static void ngx_http_hoplite_cleanup(void *data);
@@ -77,7 +135,7 @@ static ngx_command_t ngx_http_hoplite_commands[] = {
     },
     {
         ngx_string("hoplite_content"),
-        NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1,
+        NGX_HTTP_LOC_CONF | NGX_CONF_TAKE12,
         ngx_http_hoplite_content,
         NGX_HTTP_LOC_CONF_OFFSET,
         0,
@@ -94,7 +152,7 @@ static ngx_http_module_t ngx_http_hoplite_module_ctx = {
     NULL,
     NULL,
     ngx_http_hoplite_create_loc_conf,
-    NULL
+    ngx_http_hoplite_merge_loc_conf
 };
 
 ngx_module_t ngx_http_hoplite_module = {
@@ -277,6 +335,86 @@ ngx_http_hoplite_send(ngx_http_hoplite_ctx_t *ctx,
     rc = ngx_http_output_filter(request, &chain);
     ngx_http_hoplite_finish(ctx);
     ngx_http_finalize_request(request, rc);
+}
+
+static ngx_int_t
+ngx_http_hoplite_send_native(ngx_http_hoplite_ctx_t *ctx)
+{
+    ngx_http_request_t *request = ctx->request;
+    hoplite_slice_t body, key, value;
+    ngx_table_elt_t *header;
+    ngx_buf_t *buffer;
+    ngx_chain_t chain;
+    ngx_int_t rc;
+    uint16_t status;
+    size_t count, i;
+
+    if (hoplite_response_status_v2(ngx_http_hoplite_runtime, ctx->response,
+                                   &status) != 0
+        || hoplite_response_body_v2(ngx_http_hoplite_runtime, ctx->response,
+                                    &body) != 0)
+    {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+
+    count = hoplite_response_header_count_v2(ngx_http_hoplite_runtime,
+                                              ctx->response);
+    for (i = 0; i < count; i++) {
+        if (hoplite_response_header_at_v2(ngx_http_hoplite_runtime,
+                                          ctx->response, i,
+                                          &key, &value) != 0)
+        {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        if (key.len == sizeof("content-length") - 1
+            && ngx_strncasecmp((u_char *) key.data,
+                               (u_char *) "content-length", key.len) == 0)
+        {
+            continue;
+        }
+        if (key.len == sizeof("content-type") - 1
+            && ngx_strncasecmp((u_char *) key.data,
+                               (u_char *) "content-type", key.len) == 0)
+        {
+            request->headers_out.content_type.data = (u_char *) value.data;
+            request->headers_out.content_type.len = value.len;
+            continue;
+        }
+        header = ngx_list_push(&request->headers_out.headers);
+        if (header == NULL) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        header->hash = 1;
+        header->key.data = (u_char *) key.data;
+        header->key.len = key.len;
+        header->value.data = (u_char *) value.data;
+        header->value.len = value.len;
+    }
+
+    request->headers_out.status = status;
+    request->headers_out.content_length_n = (off_t) body.len;
+    if (request->headers_out.content_type.len == 0) {
+        ngx_str_set(&request->headers_out.content_type, "text/plain");
+    }
+    rc = ngx_http_send_header(request);
+    if (rc == NGX_ERROR || rc > NGX_OK || request->header_only || body.len == 0) {
+        ctx->done = 1;
+        return rc;
+    }
+
+    buffer = ngx_calloc_buf(request->pool);
+    if (buffer == NULL) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+    buffer->pos = (u_char *) body.data;
+    buffer->last = (u_char *) body.data + body.len;
+    buffer->memory = 1;
+    buffer->last_buf = 1;
+    chain.buf = buffer;
+    chain.next = NULL;
+    rc = ngx_http_output_filter(request, &chain);
+    ctx->done = 1;
+    return rc;
 }
 
 static void
@@ -536,6 +674,11 @@ ngx_http_hoplite_cleanup(void *data)
         (void) hoplite_work_cancel(ngx_http_hoplite_runtime, ctx->work);
         (void) hoplite_work_close(ngx_http_hoplite_runtime, ctx->work);
     }
+    if (ngx_http_hoplite_runtime != NULL && ctx->response != 0) {
+        (void) hoplite_response_close_v2(ngx_http_hoplite_runtime,
+                                         ctx->response);
+        ctx->response = 0;
+    }
     if (ctx->queued) {
         ngx_queue_remove(&ctx->queue);
         ctx->queued = 0;
@@ -550,6 +693,9 @@ ngx_http_hoplite_handler(ngx_http_request_t *request)
     ngx_http_hoplite_ctx_t *ctx;
     ngx_pool_cleanup_t *cleanup;
     ngx_str_t binding;
+    hoplite_request_v2_t native_request;
+    hoplite_outcome_v2_t outcome;
+    ngx_int_t rc;
 
     if (ngx_http_hoplite_runtime == NULL) {
         return NGX_HTTP_SERVICE_UNAVAILABLE;
@@ -559,10 +705,6 @@ ngx_http_hoplite_handler(ngx_http_request_t *request)
     if (conf->handler.len == 0 && conf->app == NGX_CONF_UNSET_UINT) {
         return NGX_DECLINED;
     }
-    if (hoplite_hta_encode_request(request, &binding) != NGX_OK) {
-        return NGX_HTTP_INTERNAL_SERVER_ERROR;
-    }
-
     if (conf->app == NGX_CONF_UNSET_UINT && conf->prepared_handler == 0) {
         conf->prepared_handler = hoplite_handler_prepare(
             ngx_http_hoplite_runtime, conf->handler.data, conf->handler.len);
@@ -588,13 +730,59 @@ ngx_http_hoplite_handler(ngx_http_request_t *request)
     cleanup->handler = ngx_http_hoplite_cleanup;
     cleanup->data = ctx;
 
+    native_request.context = request;
+    native_request.method = ngx_http_hoplite_slice(request->method_name);
+    native_request.uri = ngx_http_hoplite_slice(request->unparsed_uri);
+    native_request.path = ngx_http_hoplite_slice(request->uri);
+    native_request.query_string = ngx_http_hoplite_slice(request->args);
+    native_request.remote_address =
+        ngx_http_hoplite_slice(request->connection->addr_text);
+    native_request.header_count = ngx_http_hoplite_header_count(request);
+    native_request.header_at = ngx_http_hoplite_header_at;
     if (conf->app != NGX_CONF_UNSET_UINT) {
-        ctx->work = hoplite_app_call(ngx_http_hoplite_runtime, conf->app,
-                                     binding.data, binding.len);
-    } else {
+        if (hoplite_app_invoke_v2(ngx_http_hoplite_runtime, conf->app,
+                                  &native_request, &outcome) != 0)
+        {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        if (outcome.kind == 1) {
+            ctx->response = outcome.id;
+            rc = ngx_http_hoplite_send_native(ctx);
+            if (rc == NGX_HTTP_INTERNAL_SERVER_ERROR) {
+                ctx->done = 1;
+            }
+            return rc;
+        }
+        if (outcome.kind != 2) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        ctx->work = outcome.id;
+    } else if (conf->adapter == NGX_HTTP_HOPLITE_REQUEST_HTA) {
+        if (hoplite_hta_encode_request(request, &binding) != NGX_OK) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
         ctx->work = hoplite_work_call(ngx_http_hoplite_runtime,
                                       conf->prepared_handler,
                                       binding.data, binding.len);
+    } else {
+        if (hoplite_handler_invoke_v2(ngx_http_hoplite_runtime,
+                                      conf->prepared_handler, conf->adapter,
+                                      &native_request, &outcome) != 0)
+        {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        if (outcome.kind == 1) {
+            ctx->response = outcome.id;
+            rc = ngx_http_hoplite_send_native(ctx);
+            if (rc == NGX_HTTP_INTERNAL_SERVER_ERROR) {
+                ctx->done = 1;
+            }
+            return rc;
+        }
+        if (outcome.kind != 2) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        ctx->work = outcome.id;
     }
     if (ctx->work == 0) {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -714,7 +902,7 @@ ngx_http_hoplite_init_process(ngx_cycle_t *cycle)
     ngx_queue_init(&ngx_http_hoplite_requests);
     ngx_http_hoplite_queue_ready = 1;
     ngx_http_hoplite_runtime = hoplite_runtime_new();
-    if (ngx_http_hoplite_runtime == NULL || hoplite_abi_version() != 1) {
+    if (ngx_http_hoplite_runtime == NULL || hoplite_abi_version() != 2) {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
                       "hoplite runtime could not be initialized");
         return NGX_ERROR;
@@ -767,8 +955,23 @@ ngx_http_hoplite_create_loc_conf(ngx_conf_t *cf)
     conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_hoplite_loc_conf_t));
     if (conf != NULL) {
         conf->app = NGX_CONF_UNSET_UINT;
+        conf->adapter = NGX_CONF_UNSET_UINT;
     }
     return conf;
+}
+
+static char *
+ngx_http_hoplite_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
+{
+    ngx_http_hoplite_loc_conf_t *previous = parent;
+    ngx_http_hoplite_loc_conf_t *conf = child;
+
+    ngx_conf_merge_str_value(conf->handler, previous->handler, "");
+    ngx_conf_merge_uint_value(conf->app, previous->app, NGX_CONF_UNSET_UINT);
+    ngx_conf_merge_uint_value(conf->adapter, previous->adapter,
+                              NGX_HTTP_HOPLITE_REQUEST);
+    (void) cf;
+    return NGX_CONF_OK;
 }
 
 static char *
@@ -807,6 +1010,18 @@ ngx_http_hoplite_content(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     }
     value = cf->args->elts;
     location->handler = value[1];
+    location->adapter = NGX_HTTP_HOPLITE_REQUEST;
+    if (cf->args->nelts == 3) {
+        if (ngx_strcmp(value[2].data, "raw") == 0) {
+            location->adapter = NGX_HTTP_HOPLITE_RAW;
+        } else if (ngx_strcmp(value[2].data, "request") == 0) {
+            location->adapter = NGX_HTTP_HOPLITE_REQUEST;
+        } else if (ngx_strcmp(value[2].data, "request+hta") == 0) {
+            location->adapter = NGX_HTTP_HOPLITE_REQUEST_HTA;
+        } else {
+            return "adapter must be raw, request, or request+hta";
+        }
+    }
 
     core = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
     core->handler = ngx_http_hoplite_handler;
