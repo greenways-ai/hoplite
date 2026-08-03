@@ -56,6 +56,25 @@ external credential, but Hoplite still creates sessions, emits principals, and
 enforces realm boundaries. Provider secrets use deployment-time secret
 references and must not be committed to `project.edn`.
 
-The current release exposes bootstrap management through the CLI. HTTP
-challenge, callback, session, and management endpoints are the next gateway
-integration milestone; see [Status and roadmap](/project/status/).
+## Management API
+
+Start the loopback-only API from a configured Hoplite project:
+
+```sh
+hoplite auth serve --listen 127.0.0.1:9090 PROJECT
+```
+
+| Method and path | Authentication | Purpose |
+| --- | --- | --- |
+| `GET /health` | Public, loopback only | Process health |
+| `POST /v1/auth/enroll` | Bootstrap token | Enroll the first management device |
+| `POST /v1/auth/challenges` | Enrolled public key | Create an Ed25519 challenge |
+| `POST /v1/auth/sessions` | Signed challenge | Issue a management session |
+| `POST /v1/auth/refresh` | Refresh token | Rotate a session token pair |
+| `GET /v1/auth/me` | Management bearer token | Inspect the current principal |
+| `POST /v1/auth/revoke` | Management bearer token | Revoke a session immediately |
+
+Requests and responses use JSON. Requests are limited to 64 KiB and responses
+include `Cache-Control: no-store`. The server refuses wildcard and non-loopback
+bindings; deliberate remote administration should be placed behind a separate
+authenticated transport such as an SSH tunnel.

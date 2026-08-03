@@ -13,6 +13,7 @@ use std::time::Duration;
 mod app;
 mod auth;
 mod dev_console;
+mod management;
 mod platform;
 mod repl;
 
@@ -67,7 +68,7 @@ fn usage() {
     println!("  hoplite [repl]");
     println!("  hoplite eval EXPRESSION");
     println!("  hoplite run FILE");
-    println!("  hoplite auth [init|enroll|status] [OPTIONS]");
+    println!("  hoplite auth [init|enroll|serve|status] [OPTIONS]");
     println!("  hoplite serve [start|stop|reload|status|build|check] [PROJECT]");
     println!("  hoplite version");
 }
@@ -132,6 +133,30 @@ fn run_auth_command(arguments: &[String]) -> Result<(), String> {
                 println!("authentication is not initialized; run `hoplite auth init`");
             }
         }
+        "serve" => {
+            let mut listen = "127.0.0.1:9090".to_owned();
+            let mut project_root = None;
+            let mut index = 1;
+            while index < arguments.len() {
+                match arguments[index].as_str() {
+                    "--listen" => {
+                        index += 1;
+                        listen = arguments
+                            .get(index)
+                            .ok_or("auth serve --listen requires an address")?
+                            .clone();
+                    }
+                    value if project_root.is_none() => project_root = Some(PathBuf::from(value)),
+                    value => return Err(format!("unexpected auth serve argument: {value}")),
+                }
+                index += 1;
+            }
+            let root = project_root.unwrap_or(env::current_dir().map_err(io)?);
+            let project = project::discover(&root)?;
+            let platform = platform::load(&project, None)?;
+            let policy = &platform.authentication.realms["management"].session;
+            management::serve(&auth_store_path(&root), &listen, policy)?;
+        }
         value => return Err(format!("unknown auth command: {value}")),
     }
     Ok(())
@@ -150,6 +175,7 @@ fn auth_usage() {
     println!("Usage:");
     println!("  hoplite auth init [PROJECT]");
     println!("  hoplite auth enroll BOOTSTRAP_TOKEN ED25519_PUBLIC_KEY_HEX [PROJECT]");
+    println!("  hoplite auth serve [--listen 127.0.0.1:9090] [PROJECT]");
     println!("  hoplite auth status [PROJECT]");
     println!();
     println!("Set HOPLITE_STATE_DIR to place control.db outside PROJECT/.hoplite.");
