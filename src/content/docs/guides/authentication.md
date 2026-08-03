@@ -12,8 +12,8 @@ a package loaded into the application.
 Install the native SQLite store addon pinned to its published bytes:
 
 ```sh
-hoplite package install gh:greenways-ai:hoplite-store-sqlite 0.3.1 \
-  --sha256 996932ecf6dd865b3ce335a80040b2cedd264f9b33ec28a0c87d69c689e65d94
+hoplite package install gh:greenways-ai:hoplite-store-sqlite 0.3.2 \
+  --sha256 6ae69ab070abcd3ec463b24bccca9fc1c4943545061d4e74d78cbcba802ab31b
 ```
 
 Activate its `:hoplite/store` export in `project.edn` and bind the core auth
