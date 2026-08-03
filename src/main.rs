@@ -74,7 +74,7 @@ fn usage() {
     println!("  hoplite eval EXPRESSION");
     println!("  hoplite run FILE");
     println!("  hoplite auth [init|enroll|serve|status] [OPTIONS]");
-    println!("  hoplite package [check|build|inspect|install] [OPTIONS]");
+    println!("  hoplite package [check|build|inspect|install|verify] [OPTIONS]");
     println!("  hoplite serve [start|stop|reload|status|build|check] [PROJECT]");
     println!("  hoplite version");
 }

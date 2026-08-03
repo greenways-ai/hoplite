@@ -34,6 +34,7 @@ used by Hoplite:
 hoplite package build . --output target/hoplite-0.1.0.harp
 hoplite package inspect target/hoplite-0.1.0.harp
 hoplite package install target/hoplite-0.1.0.harp
+hoplite package verify gh:greenways-ai:hoplite 0.1.0
 ```
 
 Installation verifies and expands the archive into Hara's content-addressed
