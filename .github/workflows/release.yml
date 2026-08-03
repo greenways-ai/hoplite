@@ -4,32 +4,78 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to rebuild, for example v0.1.0
+        required: true
+        type: string
 
 permissions:
   contents: write
   packages: write
 
 jobs:
-  harp:
+  prepare:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.metadata.outputs.tag }}
+      version: ${{ steps.metadata.outputs.version }}
+      hoplite_revision: ${{ steps.metadata.outputs.hoplite_revision }}
+      hara_revision: ${{ steps.metadata.outputs.hara_revision }}
+      license: ${{ steps.metadata.outputs.license }}
+      nginx_version: ${{ steps.metadata.outputs.nginx_version }}
+      nginx_sha256: ${{ steps.metadata.outputs.nginx_sha256 }}
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
           path: hoplite
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
           path: hara.lang
           submodules: recursive
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Verify tag version
+      - name: Resolve immutable release inputs
+        id: metadata
         working-directory: hoplite
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
-          version=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
-          test "${GITHUB_REF_NAME}" = "v${version}"
+          case "$RELEASE_TAG" in
+            v*) ;;
+            *) echo "release tag must start with v: $RELEASE_TAG" >&2; exit 1 ;;
+          esac
+          version=${RELEASE_TAG#v}
+          crate_version=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          test "$version" = "$crate_version"
+
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "hoplite_revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "hara_revision=$(git -C ../hara.lang rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "license=$(grep -m1 '^license = ' Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
+          echo "nginx_version=$(sed -n 's/^NGINX_VERSION := //p' Makefile)" >> "$GITHUB_OUTPUT"
+          echo "nginx_sha256=$(sed -n 's/^NGINX_SHA256 := //p' Makefile)" >> "$GITHUB_OUTPUT"
+
+  harp:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+          path: hoplite
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ needs.prepare.outputs.hara_revision }}
+          path: hara.lang
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
       - name: Build deterministic HARP
         run: |
-          version=${GITHUB_REF_NAME#v}
+          version=${{ needs.prepare.outputs.version }}
           cargo run --manifest-path hara.lang/rust/Cargo.toml --bin hara -- \
             package build hoplite --output "hoplite-${version}.harp"
           cargo run --manifest-path hara.lang/rust/Cargo.toml --bin hara -- \
@@ -42,14 +88,17 @@ jobs:
           if-no-files-found: error
 
   container:
+    needs: prepare
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ needs.prepare.outputs.tag }}
           path: hoplite
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
+          ref: ${{ needs.prepare.outputs.hara_revision }}
           path: hara.lang
           submodules: recursive
       - uses: docker/login-action@v3
@@ -62,8 +111,8 @@ jobs:
         with:
           images: ghcr.io/greenways-ai/hoplite
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{version}},value=${{ needs.prepare.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.prepare.outputs.tag }}
             type=raw,value=latest
       - uses: docker/build-push-action@v6
         with:
@@ -74,7 +123,9 @@ jobs:
           labels: ${{ steps.metadata.outputs.labels }}
 
   macos:
+    needs: prepare
     strategy:
+      fail-fast: false
       matrix:
         include:
           - runner: macos-14
@@ -85,22 +136,67 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ needs.prepare.outputs.tag }}
           path: hoplite
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
+          ref: ${{ needs.prepare.outputs.hara_revision }}
           path: hara.lang
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - run: brew install openssl@3 pcre2
-      - name: Verify tag version
+      - name: Build and smoke-test standalone executable
         working-directory: hoplite
         run: |
-          version=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
-          test "${GITHUB_REF_NAME}" = "v${version}"
-      - name: Build standalone executable
+          make macos
+          artifact="target/dist/hoplite-v${{ needs.prepare.outputs.version }}-${{ matrix.target }}"
+          test "$("$artifact" eval '(+ 19 23)')" = "42"
+          "$artifact" version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hoplite-${{ matrix.target }}
+          path: hoplite/target/dist/hoplite-*-${{ matrix.target }}
+          if-no-files-found: error
+
+  linux:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+          path: hoplite
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ needs.prepare.outputs.hara_revision }}
+          path: hara.lang
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential ca-certificates curl libpcre2-dev libssl-dev zlib1g-dev
+      - name: Build and smoke-test standalone executable
         working-directory: hoplite
-        run: make macos
+        run: |
+          make embedded-cli
+          artifact="target/dist/hoplite-v${{ needs.prepare.outputs.version }}-${{ matrix.target }}"
+          mkdir -p target/dist
+          install -m 755 target/release/hoplite "$artifact"
+          test "$("$artifact" eval '(+ 19 23)')" = "42"
+          "$artifact" version
+          sha256sum "$artifact"
       - uses: actions/upload-artifact@v4
         with:
           name: hoplite-${{ matrix.target }}
@@ -108,14 +204,21 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: [harp, macos]
+    needs: [prepare, harp, container, macos, linux]
     runs-on: ubuntu-latest
     env:
       TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ needs.prepare.outputs.tag }}
           path: hoplite
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ needs.prepare.outputs.hara_revision }}
+          path: hara.lang
+          submodules: recursive
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -123,30 +226,45 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" artifacts/* --generate-notes --verify-tag
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" artifacts/* \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" artifacts/* \
+              --repo "$GITHUB_REPOSITORY" --generate-notes --verify-tag
+          fi
       - name: Render formula
         run: |
-          version=${GITHUB_REF_NAME#v}
-          arm=$(sha256sum artifacts/*-aarch64-apple-darwin | cut -d' ' -f1)
-          intel=$(sha256sum artifacts/*-x86_64-apple-darwin | cut -d' ' -f1)
           mkdir -p rendered/Formula
-          VERSION="$version" ARM64_SHA256="$arm" X86_64_SHA256="$intel" \
+          VERSION="${{ needs.prepare.outputs.version }}" \
+          HOPLITE_REVISION="${{ needs.prepare.outputs.hoplite_revision }}" \
+          HARA_REVISION="${{ needs.prepare.outputs.hara_revision }}" \
+          LICENSE="${{ needs.prepare.outputs.license }}" \
+          NGINX_VERSION="${{ needs.prepare.outputs.nginx_version }}" \
+          NGINX_SHA256="${{ needs.prepare.outputs.nginx_sha256 }}" \
             hoplite/scripts/render-homebrew-formula > rendered/Formula/hoplite.rb
           ruby -c rendered/Formula/hoplite.rb
       - uses: actions/upload-artifact@v4
         with:
           name: homebrew-formula
           path: rendered/Formula/hoplite.rb
-      - name: Update Homebrew tap
+      - name: Update central Homebrew tap
         if: ${{ env.TAP_TOKEN != '' }}
         env:
           GH_TOKEN: ${{ env.TAP_TOKEN }}
         run: |
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/greenways-ai/homebrew-hoplite.git" tap
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/greenways-ai/homebrew-tap.git" tap
           mkdir -p tap/Formula
           cp rendered/Formula/hoplite.rb tap/Formula/hoplite.rb
+          git -C tap diff --check
+          if test -z "$(git -C tap status --porcelain -- Formula/hoplite.rb)"; then
+            echo "Central tap already contains ${{ needs.prepare.outputs.tag }}"
+            exit 0
+          fi
           git -C tap config user.name github-actions[bot]
           git -C tap config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git -C tap add Formula/hoplite.rb
-          git -C tap commit -m "hoplite ${GITHUB_REF_NAME}"
+          git -C tap commit -m "hoplite ${{ needs.prepare.outputs.tag }}"
           git -C tap push
