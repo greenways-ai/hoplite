@@ -28,7 +28,7 @@ pub struct SessionTokens {
     pub refresh_expires_at: i64,
 }
 
-pub struct Store {
+pub struct SqliteStore {
     path: PathBuf,
     connection: Connection,
 }
@@ -71,7 +71,7 @@ pub struct Service {
     policy: AuthPolicy,
 }
 
-impl Store {
+impl SqliteStore {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, String> {
         let path = path.as_ref().to_path_buf();
         let in_memory = path == Path::new(":memory:");
@@ -508,13 +508,13 @@ impl Store {
     }
 }
 
-impl AuthStore for Store {
+impl AuthStore for SqliteStore {
     fn path(&self) -> &Path {
-        Store::path(self)
+        SqliteStore::path(self)
     }
 
     fn initialize(&mut self) -> Result<Option<String>, String> {
-        Store::initialize(self)
+        SqliteStore::initialize(self)
     }
 
     fn enroll_management_device(
@@ -522,7 +522,7 @@ impl AuthStore for Store {
         bootstrap_token: &str,
         public_key_hex: &str,
     ) -> Result<Principal, String> {
-        Store::enroll_management_device(self, bootstrap_token, public_key_hex)
+        SqliteStore::enroll_management_device(self, bootstrap_token, public_key_hex)
     }
 
     fn create_challenge(
@@ -530,7 +530,7 @@ impl AuthStore for Store {
         realm: &str,
         public_key_hex: &str,
     ) -> Result<(String, String), String> {
-        Store::create_challenge(self, realm, public_key_hex)
+        SqliteStore::create_challenge(self, realm, public_key_hex)
     }
 
     fn exchange_challenge(
@@ -541,7 +541,7 @@ impl AuthStore for Store {
         access_ttl_seconds: u32,
         refresh_ttl_seconds: u32,
     ) -> Result<SessionTokens, String> {
-        Store::exchange_challenge(
+        SqliteStore::exchange_challenge(
             self,
             policy,
             challenge_id,
@@ -552,7 +552,7 @@ impl AuthStore for Store {
     }
 
     fn authenticate(&self, realm: &str, access_token: &str) -> Result<Principal, String> {
-        Store::authenticate(self, realm, access_token)
+        SqliteStore::authenticate(self, realm, access_token)
     }
 
     fn rotate_refresh_token(
@@ -563,7 +563,7 @@ impl AuthStore for Store {
         refresh_ttl_seconds: u32,
         reuse_interval_seconds: u32,
     ) -> Result<SessionTokens, String> {
-        Store::rotate_refresh_token(
+        SqliteStore::rotate_refresh_token(
             self,
             policy,
             refresh_token,
@@ -574,7 +574,7 @@ impl AuthStore for Store {
     }
 
     fn revoke_session(&mut self, session_id: &str) -> Result<bool, String> {
-        Store::revoke_session(self, session_id)
+        SqliteStore::revoke_session(self, session_id)
     }
 }
 

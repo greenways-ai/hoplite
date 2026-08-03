@@ -25,7 +25,7 @@ pub fn open(
         composition.store_export.as_str(),
     ) {
         (crate::platform::SQLITE_STORE_PACKAGE, crate::platform::STORE_EXPORT) => {
-            Ok(Box::new(crate::auth::Store::open(path)?))
+            Ok(Box::new(crate::auth::SqliteStore::open(path)?))
         }
         (package, export) => Err(format!(
             "authentication store adapter {package} :{export} is resolved but has no native backend"
