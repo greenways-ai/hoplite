@@ -16,6 +16,7 @@ mod auth_policy;
 mod dev_console;
 mod host;
 mod management;
+mod package;
 mod platform;
 mod repl;
 
@@ -44,6 +45,7 @@ fn run(arguments: Vec<String>) -> Result<(), String> {
         }
         Some("serve") => run_serve_command(&arguments[1..])?,
         Some("auth") => run_auth_command(&arguments[1..])?,
+        Some("package") => package::run(&arguments[1..])?,
         Some("eval") => {
             let source = arguments.get(1..).unwrap_or_default().join(" ");
             if source.is_empty() {
@@ -71,6 +73,7 @@ fn usage() {
     println!("  hoplite eval EXPRESSION");
     println!("  hoplite run FILE");
     println!("  hoplite auth [init|enroll|serve|status] [OPTIONS]");
+    println!("  hoplite package [check|build|inspect|install] [OPTIONS]");
     println!("  hoplite serve [start|stop|reload|status|build|check] [PROJECT]");
     println!("  hoplite version");
 }

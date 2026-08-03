@@ -22,9 +22,12 @@ pub const STORE_EXPORT: &str = "hoplite/store";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AuthComposition {
     pub policy_package: String,
+    pub policy_version: Version,
     pub policy_export: String,
     pub store_package: String,
+    pub store_version: Version,
     pub store_export: String,
+    pub explicit: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -116,9 +119,12 @@ impl Config {
         else {
             return Ok(AuthComposition {
                 policy_package: CORE_PACKAGE.into(),
+                policy_version: Version::parse("0.1.0").expect("valid bundled version"),
                 policy_export: CORE_AUTH_EXPORT.into(),
                 store_package: SQLITE_STORE_PACKAGE.into(),
+                store_version: Version::parse("0.1.0").expect("valid bundled version"),
                 store_export: STORE_EXPORT.into(),
+                explicit: false,
             });
         };
         let config = form_map(&policy.config, ":hoplite/auth module config must be a map")?;
@@ -133,9 +139,12 @@ impl Config {
             .ok_or_else(|| format!("authentication store alias :{store_alias} is not activated"))?;
         Ok(AuthComposition {
             policy_package: policy.id.clone(),
+            policy_version: policy.version.clone(),
             policy_export: policy.export.clone(),
             store_package: store.id.clone(),
+            store_version: store.version.clone(),
             store_export: store.export.clone(),
+            explicit: true,
         })
     }
 }
@@ -793,9 +802,12 @@ mod tests {
             config.auth_composition().unwrap(),
             AuthComposition {
                 policy_package: CORE_PACKAGE.into(),
+                policy_version: Version::parse("0.1.0").unwrap(),
                 policy_export: CORE_AUTH_EXPORT.into(),
                 store_package: SQLITE_STORE_PACKAGE.into(),
+                store_version: Version::parse("0.1.0").unwrap(),
                 store_export: STORE_EXPORT.into(),
+                explicit: true,
             }
         );
 

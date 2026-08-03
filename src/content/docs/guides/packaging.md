@@ -27,6 +27,19 @@ export `:hoplite/auth`, `:hoplite/management`, `:hoplite/gateway`, and
 `:hoplite/module-runtime`. Store implementations and compatibility layers such
 as PGlite, SQLite and Supabase remain separate addon packages.
 
+Build, inspect, and install archives with the same Hara package implementation
+used by Hoplite:
+
+```sh
+hoplite package build . --output target/hoplite-0.1.0.harp
+hoplite package inspect target/hoplite-0.1.0.harp
+hoplite package install target/hoplite-0.1.0.harp
+```
+
+Installation verifies and expands the archive into Hara's content-addressed
+distribution directory. A configured exact module version must already be
+installed when Hoplite starts; package activation never downloads from GitHub.
+
 ## Standalone executable
 
 ```sh

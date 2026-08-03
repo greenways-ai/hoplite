@@ -1,0 +1,14 @@
+{:hara/type :project
+ :hara/version "1.0.0"
+ :project/id "gh:greenways-ai/hoplite"
+ :project/version "0.1.0"
+ :project/source-paths ["lib/src"]
+ :project/test-paths ["lib/test"]
+ :project/extension-paths []
+ :project/capabilities #{:host/random :host/hash :host/signature :host/clock :host/secret}
+ :project/dependencies {}
+ :hoplite/exports
+ {:hoplite/auth {:export/namespace hoplite.auth
+                 :export/contracts {:hoplite/auth-store "1.0.0"}}
+  :hoplite/gateway {:export/namespace hoplite.core}
+  :hoplite/module-runtime {:export/namespace hoplite.core}}}

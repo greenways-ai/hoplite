@@ -33,10 +33,20 @@ impl AuthPolicy {
         }
         let mut runtime = Runtime::new();
         runtime.register_resource("hoplite.core", super::app::CORE_SOURCE);
-        runtime.register_resource("hoplite.auth", super::app::AUTH_SOURCE);
-        runtime.eval_native_value(
-            "(ns hoplite.auth.engine (:require [hoplite.auth :as auth])) :ready",
-        )?;
+        if composition.policy_package == crate::platform::CORE_PACKAGE {
+            runtime.register_resource("hoplite.auth", super::app::AUTH_SOURCE);
+        } else {
+            let root = crate::package::installed_root(
+                &composition.policy_package,
+                &composition.policy_version,
+            )?;
+            let project = hara_wasm::project::read(&root)?;
+            hara_wasm::project::register_sources(&project, &mut runtime)?;
+        }
+        let namespace = composition.policy_export.replace('/', ".");
+        runtime.eval_native_value(&format!(
+            "(ns hoplite.auth.engine (:require [{namespace} :as auth])) :ready"
+        ))?;
         Ok(Self { runtime })
     }
 
