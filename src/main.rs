@@ -327,6 +327,16 @@ fn build(root: &Path, settings: &BuildSettings) -> Result<PathBuf, String> {
         platform::manifest(&platform_config)?,
     )
     .map_err(io)?;
+    fs::write(
+        output.join("auth-store.hta"),
+        hoplite_auth_store_abi::contract()?,
+    )
+    .map_err(io)?;
+    fs::write(
+        output.join("auth-store.hta.sha256"),
+        format!("{}\n", hoplite_auth_store_abi::sha256()?),
+    )
+    .map_err(io)?;
     let openapi_dir = output.join("openapi");
     fs::create_dir_all(&openapi_dir).map_err(io)?;
     for application in &app_config.apps {

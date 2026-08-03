@@ -33,6 +33,13 @@ composition; bootstrap commands cannot bypass the adapter selected by
 (-transact store operation)
 ```
 
+The native boundary is defined by the standalone
+`hoplite-auth-store-abi` crate. It encodes requests, mutation batches, and the
+operation catalogue as canonical HTA1 frames. Request identifiers are bounded,
+unknown operations are rejected before dispatch, and query operations cannot
+be placed inside atomic mutation batches. Each project build emits
+`auth-store.hta` and its SHA-256 contract digest.
+
 The boundary uses logical authentication operations, including user and device
 records, one-time challenges, sessions, refresh rotation, revocation, and audit
 append. An implementation must preserve the compare-and-set and transaction

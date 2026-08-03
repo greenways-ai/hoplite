@@ -8,7 +8,7 @@ description = "Hara application server for Nginx"
 default-run = "hoplite"
 
 [workspace]
-members = [".", "runtime"]
+members = [".", "abi/auth-store", "runtime"]
 default-members = ["."]
 resolver = "2"
 
@@ -19,6 +19,7 @@ embedded-nginx = []
 
 [dependencies]
 hara-wasm = { path = "../hara.lang/rust", features = ["bytecode-vm"] }
+hoplite-auth-store-abi = { path = "abi/auth-store" }
 rustyline = "14.0.0"
 home = "=0.5.9"
 serde_json = "1.0"

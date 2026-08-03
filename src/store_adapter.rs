@@ -3,18 +3,6 @@ use hara_wasm::Runtime;
 use std::collections::BTreeSet;
 use std::path::Path;
 
-const AUTH_STORE_OPERATIONS: [&str; 9] = [
-    "auth/audit-append",
-    "auth/challenge-consume",
-    "auth/challenge-put",
-    "auth/device-put",
-    "auth/refresh-rotate",
-    "auth/session-put",
-    "auth/session-revoke",
-    "auth/user-create",
-    "auth/user-find",
-];
-
 pub fn open(
     path: &Path,
     composition: &crate::platform::AuthComposition,
@@ -213,9 +201,9 @@ fn expect_operations(value: &Value) -> Result<(), String> {
             .collect::<Result<_, _>>()?,
         _ => return Err("store adapter :adapter/operations must be a set of keywords".into()),
     };
-    let expected = AUTH_STORE_OPERATIONS
+    let expected = hoplite_auth_store_abi::OPERATIONS
         .iter()
-        .map(|operation| (*operation).to_owned())
+        .map(|operation| operation.name.to_owned())
         .collect::<BTreeSet<_>>();
     if actual == expected {
         Ok(())
@@ -243,5 +231,5 @@ fn expect_native_artifact(value: &Value, package: &str) -> Result<(), String> {
         .next()
         .ok_or("store adapter package coordinate has no artifact name")?;
     expect_string(&native, "crate", expected_crate)?;
-    expect_string(&native, "abi", "hoplite-auth-store/1")
+    expect_string(&native, "abi", hoplite_auth_store_abi::NATIVE_ABI)
 }

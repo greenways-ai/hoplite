@@ -1,0 +1,11 @@
+[package]
+name = "hoplite-auth-store-abi"
+version = "0.1.0"
+edition = "2021"
+license = "EPL-2.0"
+rust-version = "1.78"
+description = "Canonical HTA wire contract for Hoplite authentication stores"
+
+[dependencies]
+hara-wasm = { path = "../../../hara.lang/rust" }
+sha2 = "0.10"

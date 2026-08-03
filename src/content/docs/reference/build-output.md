@@ -10,6 +10,8 @@ Build output is isolated beneath the application project's `.hoplite/` directory
   app.hal
   app.hbc
   apps.hta
+  auth-store.hta
+  auth-store.hta.sha256
   platform.edn
   platform.hta
   conf/nginx.conf
@@ -24,6 +26,8 @@ Build output is isolated beneath the application project's `.hoplite/` directory
 | `app.hal` | Application bootstrap source used by the current Nginx integration |
 | `app.hbc` | Generated and validated Hara bytecode |
 | `apps.hta` | Encoded application/route manifest consumed at worker startup |
+| `auth-store.hta` | Canonical typed `hoplite-auth-store/1` operation and wire contract |
+| `auth-store.hta.sha256` | Digest used to bind adapters and compiled artifacts to the exact HTA contract |
 | `platform.edn` | Inspectable, canonical module and authentication plan compiled from `project.edn` |
 | `platform.hta` | HTA-encoded platform plan for worker startup |
 | `conf/nginx.conf` | Generated Nginx worker, server, bootstrap, and manifest configuration |
