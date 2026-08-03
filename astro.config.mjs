@@ -4,6 +4,7 @@ import mdx from "@astrojs/mdx";
 
 export default defineConfig({
   site: "https://hoplite.greenways.ai",
+  vite: { build: { assetsInlineLimit: 0 } },
   integrations: [
     starlight({
       title: "Hoplite",
@@ -11,7 +12,7 @@ export default defineConfig({
         ThemeProvider: "./src/components/GreenwaysThemeProvider.astro",
         ThemeSelect: "./src/components/GreenwaysThemeSelect.astro",
       },
-      description: "A Hara application server built into Nginx.",
+      description: "A lightweight, fast and deeply customizable Nginx application container.",
       logo: { src: "./public/favicon.svg", replacesTitle: false },
       favicon: "/favicon.svg",
       customCss: ["./src/styles/custom.css"],
