@@ -1,17 +1,18 @@
 ---
 import ThemedArtwork from "@greenways-ai/visual-language/ThemedArtwork.astro";
 const install = "git clone https://github.com/greenways-ai/hoplite.git && cd hoplite && make example-dev";
+const base = import.meta.env.BASE_URL;
 ---
 <section class="hoplite-hero">
-  <ThemedArtwork class="hoplite-hero__art" light="/images/hoplite-squad-day.webp" dark="/images/hoplite-squad-night.webp" lightAlt="A Hoplite squad training together and helping citizens build fast, adaptable civic infrastructure" darkAlt="The same squad rapidly reconfiguring its formation to contain an abstract breach at night" position="center" />
+  <ThemedArtwork class="hoplite-hero__art" light={`${base}images/hoplite-squad-day.webp`} dark={`${base}images/hoplite-squad-night.webp`} lightAlt="A refined Hoplite squad maintaining a fortified formal garden" darkAlt="The squad coordinating its defense together at night" position="center" />
   <div class="hoplite-hero__veil"></div>
   <div class="hoplite-hero__copy">
     <p class="technical-kicker"><i></i> Hara packages · Git-native deployment</p>
     <h1>Small. Fast. Yours.</h1>
     <p>Configure signed Hara packages in <code>project.edn</code>, clone the project, and run it. Hoplite turns the same locked service into a local process or verified container—with authentication and management built in.</p>
     <div class="hero-links">
-      <a class="action action--gold" href="/getting-started/">Get started <span>→</span></a>
-      <a class="action" href="/reference/cli/">Read the reference</a>
+      <a class="action action--gold" href={`${base}getting-started/`}>Get started <span>→</span></a>
+      <a class="action" href={`${base}reference/cli/`}>Read the reference</a>
       <a class="action" href="https://github.com/greenways-ai/hoplite">Source ↗</a>
     </div>
     <div class="hero-command"><code>{install}</code><span>clone · run · ship</span></div>

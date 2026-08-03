@@ -3,7 +3,8 @@ import starlight from "@astrojs/starlight";
 import mdx from "@astrojs/mdx";
 
 export default defineConfig({
-  site: "https://hoplite.greenways.ai",
+  site: "https://opensource.greenways.ai",
+  base: "/hoplite",
   vite: { build: { assetsInlineLimit: 0 } },
   integrations: [
     starlight({
@@ -14,7 +15,7 @@ export default defineConfig({
       },
       description: "A lightweight, fast and deeply customizable Nginx application container.",
       logo: { src: "./public/favicon.svg", replacesTitle: false },
-      favicon: "/favicon.svg",
+      favicon: "/hoplite/favicon.svg",
       customCss: ["./src/styles/custom.css"],
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/greenways-ai/hoplite" },
