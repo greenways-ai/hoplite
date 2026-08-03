@@ -23,7 +23,7 @@ For every `v*` tag, `.github/workflows/release.yml`:
 
 Update `packaging/hara-revision` deliberately whenever Hoplite moves to a new Hara revision. The file must contain one complete 40-character commit SHA. For historical Hoplite tags that predate the file, the workflow first looks for a Hara tag with the same name and only falls back to the fetched Hara head with an explicit warning.
 
-The workflow can also be run manually against an existing tag. This is useful for rebuilding an older tag after release automation changes without moving or recreating that tag. Manual rebuilds use the release automation from the branch where the workflow is dispatched, while all application source remains pinned to the requested tag and resolved Hara commit.
+The workflow can also be run manually against an existing tag. This is useful for rebuilding an older tag after release automation changes without moving or recreating that tag. Manual rebuilds use the release automation from the branch where the workflow is dispatched, while all application source remains pinned to the requested tag. When a legacy tag needs a different Hara source than its matching tag, provide the optional `hara_revision` input with the complete compatible Hara commit SHA. For example, rebuilding Hoplite `v0.1.0` requires `ba52a6bfce31aeff7359d0e60d7f8d1538204694`.
 
 ## Repository setup
 
@@ -49,7 +49,7 @@ The Makefile derives the current versions, licence, nginx checksum and Git revis
 make check \
   VERSION=0.1.0 \
   HOPLITE_REVISION=eaa09a2e3a54edce8a7d68d1cb887bb700a24afe \
-  HARA_REVISION=5ae3449e461274323318ceb33131111c53210835 \
+  HARA_REVISION=ba52a6bfce31aeff7359d0e60d7f8d1538204694 \
   LICENSE=EPL-2.0
 ```
 
