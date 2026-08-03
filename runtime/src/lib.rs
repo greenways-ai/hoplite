@@ -8,19 +8,51 @@ use std::collections::{HashMap, VecDeque};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::ptr;
 use std::rc::Rc;
+use std::{ffi::c_void, slice, str};
 
-const ABI_VERSION: u32 = 1;
+const ABI_VERSION: u32 = 2;
 type HostCall = (u64, Promise, String, String, Vec<Value>);
 
 type WorkId = u64;
 type CallId = u64;
 type HandlerId = u64;
 type AppId = u64;
+type RequestId = u64;
+type ResponseId = u64;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RouteAdapter {
+    Raw,
+    Request,
+    RequestHta,
+}
+
+impl RouteAdapter {
+    fn parse(value: Option<String>, legacy: bool) -> Result<Self, String> {
+        match value.as_deref() {
+            None if legacy => Ok(Self::RequestHta),
+            None | Some("request") => Ok(Self::Request),
+            Some("raw") => Ok(Self::Raw),
+            Some("request+hta") => Ok(Self::RequestHta),
+            Some(value) => Err(format!("unknown route adapter :{value}")),
+        }
+    }
+
+    fn from_abi(value: u32) -> Result<Self, String> {
+        match value {
+            0 => Ok(Self::Raw),
+            1 => Ok(Self::Request),
+            2 => Ok(Self::RequestHta),
+            _ => Err(format!("unknown route adapter ABI value {value}")),
+        }
+    }
+}
 
 struct AppRoute {
     method: String,
     path: String,
     handler: HandlerId,
+    adapter: RouteAdapter,
 }
 
 struct AppRouter {
@@ -32,6 +64,7 @@ struct Work {
     result: Promise,
     children: Vec<Promise>,
     calls: HashMap<CallId, Promise>,
+    request: Option<RequestId>,
 }
 
 impl Work {
@@ -41,8 +74,65 @@ impl Work {
             result,
             children: Vec::new(),
             calls: HashMap::new(),
+            request: None,
         }
     }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct HopliteSlice {
+    pub data: *const u8,
+    pub len: usize,
+}
+
+pub type HopliteHeaderAt = unsafe extern "C" fn(
+    context: *mut c_void,
+    index: usize,
+    name: *mut HopliteSlice,
+    value: *mut HopliteSlice,
+) -> i32;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct HopliteRequestV2 {
+    pub context: *mut c_void,
+    pub method: HopliteSlice,
+    pub uri: HopliteSlice,
+    pub path: HopliteSlice,
+    pub query_string: HopliteSlice,
+    pub remote_address: HopliteSlice,
+    pub header_count: usize,
+    pub header_at: Option<HopliteHeaderAt>,
+}
+
+#[repr(C)]
+pub struct HopliteOutcomeV2 {
+    /// 0 = error, 1 = complete, 2 = suspended.
+    pub kind: u32,
+    pub id: u64,
+}
+
+#[derive(Clone, Copy)]
+struct RequestRecord {
+    request: HopliteRequestV2,
+}
+
+struct NativeResponse {
+    status: u16,
+    headers: Vec<(String, String)>,
+    body: Vec<u8>,
+}
+
+struct RawBuilder {
+    status: u16,
+    headers: Vec<(String, String)>,
+    body: Vec<u8>,
+}
+
+enum InvokeState {
+    Complete(ResponseId),
+    Suspended(WorkId),
 }
 
 #[repr(C)]
@@ -57,30 +147,537 @@ pub struct HopliteRuntime {
     next_handler: HandlerId,
     next_work: WorkId,
     next_call: u64,
+    next_request: RequestId,
+    next_response: ResponseId,
     events: Rc<RefCell<VecDeque<Vec<u8>>>>,
     ready: Rc<RefCell<VecDeque<(u64, PromiseState)>>>,
     call_owners: HashMap<CallId, WorkId>,
     handlers: HashMap<HandlerId, vm::PreparedCall>,
     apps: HashMap<AppId, AppRouter>,
     works: HashMap<WorkId, Work>,
+    requests: Rc<RefCell<HashMap<RequestId, RequestRecord>>>,
+    raw_builders: Rc<RefCell<HashMap<RequestId, RawBuilder>>>,
+    responses: HashMap<ResponseId, NativeResponse>,
+    host: Rc<dyn Fn(String, String, Vec<Value>) -> Result<Value, String>>,
+    host_pending: Rc<RefCell<Vec<HostCall>>>,
+    host_next: Rc<RefCell<u64>>,
+}
+
+fn extension_request_id(value: &Value) -> Result<RequestId, String> {
+    match value {
+        Value::Extension(value)
+            if value.provider == "hoplite.route"
+                && matches!(value.type_name.as_str(), "request" | "headers" | "exchange") =>
+        {
+            Ok(value.handle)
+        }
+        _ => Err("hoplite/request-invalid: expected a request-scoped value".into()),
+    }
+}
+
+fn slice_string(value: HopliteSlice) -> Result<String, String> {
+    if value.len == 0 {
+        return Ok(String::new());
+    }
+    if value.data.is_null() {
+        return Err("hoplite/request-invalid: null request slice".into());
+    }
+    let bytes = unsafe { slice::from_raw_parts(value.data, value.len) };
+    str::from_utf8(bytes)
+        .map(str::to_owned)
+        .map_err(|_| "hoplite/request-invalid: request text is not UTF-8".into())
+}
+
+fn request_record(
+    requests: &Rc<RefCell<HashMap<RequestId, RequestRecord>>>,
+    request: RequestId,
+) -> Result<RequestRecord, String> {
+    requests
+        .borrow()
+        .get(&request)
+        .copied()
+        .ok_or_else(|| "hoplite/request-closed: request scope has ended".into())
+}
+
+fn request_headers(record: RequestRecord) -> Result<Vec<(String, String)>, String> {
+    let Some(header_at) = record.request.header_at else {
+        return Ok(Vec::new());
+    };
+    let mut headers = Vec::with_capacity(record.request.header_count);
+    for index in 0..record.request.header_count {
+        let mut name = HopliteSlice {
+            data: ptr::null(),
+            len: 0,
+        };
+        let mut value = name;
+        if unsafe { header_at(record.request.context, index, &mut name, &mut value) } != 0 {
+            return Err("hoplite/request-invalid: cannot read request header".into());
+        }
+        headers.push((slice_string(name)?, slice_string(value)?));
+    }
+    Ok(headers)
+}
+
+fn request_entries(
+    requests: &Rc<RefCell<HashMap<RequestId, RequestRecord>>>,
+    request: RequestId,
+) -> Result<Vec<(Value, Value)>, String> {
+    let record = request_record(requests, request)?;
+    let headers = request_headers(record)?
+        .into_iter()
+        .map(|(name, value)| (Value::String(name), Value::String(value)))
+        .collect();
+    Ok(vec![
+        (
+            Value::Keyword("method".into()),
+            Value::String(slice_string(record.request.method)?),
+        ),
+        (
+            Value::Keyword("uri".into()),
+            Value::String(slice_string(record.request.uri)?),
+        ),
+        (
+            Value::Keyword("path".into()),
+            Value::String(slice_string(record.request.path)?),
+        ),
+        (
+            Value::Keyword("query-string".into()),
+            Value::String(slice_string(record.request.query_string)?),
+        ),
+        (
+            Value::Keyword("remote-address".into()),
+            Value::String(slice_string(record.request.remote_address)?),
+        ),
+        (Value::Keyword("headers".into()), Value::Map(headers)),
+    ])
+}
+
+fn request_value(
+    requests: &Rc<RefCell<HashMap<RequestId, RequestRecord>>>,
+    request: RequestId,
+    type_name: &str,
+) -> Result<Value, String> {
+    request_record(requests, request)?;
+    Ok(Value::Extension(core::ExtensionValue {
+        provider: "hoplite.route".into(),
+        type_name: type_name.into(),
+        handle: request,
+    }))
+}
+
+fn request_lookup(
+    requests: &Rc<RefCell<HashMap<RequestId, RequestRecord>>>,
+    receiver: &core::ExtensionValue,
+    key: &Value,
+) -> Result<Option<Value>, String> {
+    let record = request_record(requests, receiver.handle)?;
+    if receiver.type_name == "headers" {
+        let name = match key {
+            Value::String(name) => name,
+            Value::Keyword(name) => name.as_str(),
+            _ => return Ok(None),
+        };
+        return Ok(request_headers(record)?
+            .into_iter()
+            .find(|(candidate, _)| candidate.eq_ignore_ascii_case(name))
+            .map(|(_, value)| Value::String(value)));
+    }
+    let name = match key {
+        Value::Keyword(name) => name.as_str(),
+        Value::String(name) => name,
+        _ => return Ok(None),
+    };
+    Ok(match name {
+        "method" => Some(Value::String(slice_string(record.request.method)?)),
+        "uri" => Some(Value::String(slice_string(record.request.uri)?)),
+        "path" => Some(Value::String(slice_string(record.request.path)?)),
+        "query-string" => Some(Value::String(slice_string(record.request.query_string)?)),
+        "remote-address" => Some(Value::String(slice_string(record.request.remote_address)?)),
+        "headers" => Some(request_value(requests, receiver.handle, "headers")?),
+        _ => None,
+    })
+}
+
+fn extension_entries(
+    requests: &Rc<RefCell<HashMap<RequestId, RequestRecord>>>,
+    receiver: &core::ExtensionValue,
+) -> Result<Vec<(Value, Value)>, String> {
+    if receiver.type_name == "headers" {
+        return Ok(request_headers(request_record(requests, receiver.handle)?)?
+            .into_iter()
+            .map(|(key, value)| (Value::String(key), Value::String(value)))
+            .collect());
+    }
+    request_entries(requests, receiver.handle)
+}
+
+fn response_headers(value: Option<&Value>) -> Result<Vec<(String, String)>, String> {
+    let Some(value) = value else {
+        return Ok(Vec::new());
+    };
+    core::map_entries(value)
+        .ok_or_else(|| "Hoplite response headers must be a map".to_string())?
+        .into_iter()
+        .map(|(key, value)| {
+            let key = match key {
+                Value::String(value) => value,
+                Value::Keyword(value) => value.as_str().to_owned(),
+                _ => return Err("Hoplite response header names must be text".into()),
+            };
+            let value = match value {
+                Value::String(value) => value,
+                _ => return Err("Hoplite response header values must be strings".into()),
+            };
+            Ok((key, value))
+        })
+        .collect()
+}
+
+fn response_headers_owned(value: Option<Value>) -> Result<Vec<(String, String)>, String> {
+    let entries = match value {
+        None => return Ok(Vec::new()),
+        Some(Value::Map(entries)) => entries.into_iter().collect(),
+        Some(value) => core::map_entries(&value)
+            .ok_or_else(|| "Hoplite response headers must be a map".to_string())?,
+    };
+    entries
+        .into_iter()
+        .map(|(key, value)| {
+            let key = match key {
+                Value::String(value) => value,
+                Value::Keyword(value) => value.as_str().to_owned(),
+                _ => return Err("Hoplite response header names must be text".into()),
+            };
+            let Value::String(value) = value else {
+                return Err("Hoplite response header values must be strings".into());
+            };
+            Ok((key, value))
+        })
+        .collect()
+}
+
+fn native_response(value: Value) -> Result<NativeResponse, String> {
+    let entries = match value {
+        Value::Map(entries) => entries.into_iter().collect(),
+        value => core::map_entries(&value)
+            .ok_or_else(|| "Hoplite handler must return a response map".to_string())?,
+    };
+    let mut status_value = None;
+    let mut headers_value = None;
+    let mut body_value = None;
+    for (key, value) in entries {
+        match key {
+            Value::Keyword(keyword) if keyword.as_str() == "status" => status_value = Some(value),
+            Value::Keyword(keyword) if keyword.as_str() == "headers" => headers_value = Some(value),
+            Value::Keyword(keyword) if keyword.as_str() == "body" => body_value = Some(value),
+            _ => {}
+        }
+    }
+    let status = match status_value {
+        None => 200,
+        Some(Value::Number(value)) => u16::try_from(value)
+            .ok()
+            .filter(|value| (100..=599).contains(value))
+            .ok_or_else(|| "Hoplite response status must be between 100 and 599".to_string())?,
+        _ => return Err("Hoplite response status must be a number".into()),
+    };
+    let body = match body_value {
+        None | Some(Value::Nil) => Vec::new(),
+        Some(Value::String(value)) => value.into_bytes(),
+        Some(Value::Bytes(value)) => value,
+        _ => return Err("Hoplite response body must be a string or bytes".into()),
+    };
+    Ok(NativeResponse {
+        status,
+        headers: response_headers_owned(headers_value)?,
+        body,
+    })
+}
+
+fn response_value_owned(response: NativeResponse) -> Value {
+    Value::Map(
+        vec![
+            (
+                Value::Keyword("status".into()),
+                Value::Number(response.status as i64),
+            ),
+            (
+                Value::Keyword("headers".into()),
+                Value::Map(
+                    response
+                        .headers
+                        .into_iter()
+                        .map(|(key, value)| (Value::String(key), Value::String(value)))
+                        .collect(),
+                ),
+            ),
+            (Value::Keyword("body".into()), Value::Bytes(response.body)),
+        ]
+        .into_iter()
+        .collect(),
+    )
+}
+
+fn install_request_protocols(
+    protocols: &mut core::ProtocolRegistry,
+    requests: Rc<RefCell<HashMap<RequestId, RequestRecord>>>,
+) {
+    for type_name in ["request", "headers", "exchange"] {
+        protocols.register_extension_category("hoplite.route", type_name, "map");
+
+        let store = requests.clone();
+        protocols.register_extension(
+            "hoplite.route",
+            type_name,
+            "std.protocol.ilookup/ILookup",
+            "lookup",
+            move |arguments| match arguments {
+                [Value::Extension(receiver), key, default]
+                    if receiver.provider == "hoplite.route" =>
+                {
+                    Ok(request_lookup(&store, receiver, key)?.unwrap_or_else(|| default.clone()))
+                }
+                _ => Err("hoplite/request-invalid: lookup receiver".into()),
+            },
+        );
+
+        let store = requests.clone();
+        protocols.register_extension(
+            "hoplite.route",
+            type_name,
+            "std.protocol.icount/ICount",
+            "count",
+            move |arguments| match arguments {
+                [Value::Extension(receiver)] if receiver.provider == "hoplite.route" => {
+                    let count = extension_entries(&store, receiver)?.len();
+                    Ok(Value::Number(count as i64))
+                }
+                _ => Err("hoplite/request-invalid: count receiver".into()),
+            },
+        );
+
+        let store = requests.clone();
+        protocols.register_extension(
+            "hoplite.route",
+            type_name,
+            "std.protocol.iiter/IIter",
+            "iter",
+            move |arguments| match arguments {
+                [Value::Extension(receiver)] if receiver.provider == "hoplite.route" => {
+                    Ok(core::iterator_from_values(
+                        extension_entries(&store, receiver)?
+                            .into_iter()
+                            .map(|(key, value)| Value::Vector(vec![key, value].into()))
+                            .collect(),
+                    ))
+                }
+                _ => Err("hoplite/request-invalid: iter receiver".into()),
+            },
+        );
+
+        let store = requests.clone();
+        protocols.register_extension(
+            "hoplite.route",
+            type_name,
+            "std.protocol.ifind/IFind",
+            "find",
+            move |arguments| match arguments {
+                [Value::Extension(receiver), key] if receiver.provider == "hoplite.route" => {
+                    Ok(request_lookup(&store, receiver, key)?
+                        .map(|value| Value::Vector(vec![key.clone(), value].into()))
+                        .unwrap_or(Value::Nil))
+                }
+                _ => Err("hoplite/request-invalid: find receiver".into()),
+            },
+        );
+
+        let store = requests.clone();
+        protocols.register_extension(
+            "hoplite.route",
+            type_name,
+            "std.protocol.iassoc/IAssoc",
+            "assoc",
+            move |arguments| match arguments {
+                [Value::Extension(receiver), key, replacement]
+                    if receiver.provider == "hoplite.route" =>
+                {
+                    let mut entries = extension_entries(&store, receiver)?;
+                    entries.retain(|(candidate, _)| candidate != key);
+                    entries.push((key.clone(), replacement.clone()));
+                    Ok(Value::Map(entries.into_iter().collect()))
+                }
+                _ => Err("hoplite/request-invalid: assoc receiver".into()),
+            },
+        );
+
+        let store = requests.clone();
+        protocols.register_extension(
+            "hoplite.route",
+            type_name,
+            "std.protocol.idissoc/IDissoc",
+            "dissoc",
+            move |arguments| match arguments {
+                [Value::Extension(receiver), key] if receiver.provider == "hoplite.route" => {
+                    let mut entries = extension_entries(&store, receiver)?;
+                    entries.retain(|(candidate, _)| candidate != key);
+                    Ok(Value::Map(entries.into_iter().collect()))
+                }
+                _ => Err("hoplite/request-invalid: dissoc receiver".into()),
+            },
+        );
+
+        protocols.register_extension(
+            "hoplite.route",
+            type_name,
+            "std.protocol.iempty/IEmpty",
+            "empty",
+            |_| Ok(Value::Map(Default::default())),
+        );
+    }
+}
+
+fn install_raw_namespace(
+    namespaces: &kernel::NamespaceRegistry<Value>,
+    requests: Rc<RefCell<HashMap<RequestId, RequestRecord>>>,
+    builders: Rc<RefCell<HashMap<RequestId, RawBuilder>>>,
+) {
+    let native = namespaces.find_or_create("hoplite.raw.native");
+
+    let respond_requests = requests.clone();
+    native.intern(
+        "respond",
+        core::native_function("hoplite.raw.native/respond", 4, move |arguments| {
+            let request = extension_request_id(&arguments[0])?;
+            request_record(&respond_requests, request)?;
+            let response = Value::Map(
+                vec![
+                    (Value::Keyword("status".into()), arguments[1].clone()),
+                    (Value::Keyword("headers".into()), arguments[2].clone()),
+                    (Value::Keyword("body".into()), arguments[3].clone()),
+                ]
+                .into_iter()
+                .collect(),
+            );
+            Ok(response)
+        }),
+    );
+
+    let start_requests = requests.clone();
+    let start_builders = builders.clone();
+    native.intern(
+        "start",
+        core::native_function("hoplite.raw.native/start", 3, move |arguments| {
+            let request = extension_request_id(&arguments[0])?;
+            request_record(&start_requests, request)?;
+            let status = match arguments[1] {
+                Value::Number(value) => u16::try_from(value)
+                    .ok()
+                    .filter(|value| (100..=599).contains(value))
+                    .ok_or_else(|| "raw/start! status must be between 100 and 599".to_string())?,
+                _ => return Err("raw/start! status must be a number".into()),
+            };
+            let headers = response_headers(Some(&arguments[2]))?;
+            if start_builders
+                .borrow_mut()
+                .insert(
+                    request,
+                    RawBuilder {
+                        status,
+                        headers,
+                        body: Vec::new(),
+                    },
+                )
+                .is_some()
+            {
+                return Err("raw/response-started: response already started".into());
+            }
+            Ok(Value::Nil)
+        }),
+    );
+
+    let write_requests = requests.clone();
+    let write_builders = builders.clone();
+    native.intern(
+        "write",
+        core::native_function("hoplite.raw.native/write", 2, move |arguments| {
+            let request = extension_request_id(&arguments[0])?;
+            request_record(&write_requests, request)?;
+            let bytes = match &arguments[1] {
+                Value::String(value) => value.as_bytes(),
+                Value::Bytes(value) => value.as_slice(),
+                _ => return Err("raw/write! expects a string or bytes".into()),
+            };
+            write_builders
+                .borrow_mut()
+                .get_mut(&request)
+                .ok_or_else(|| "raw/response-not-started: call start! first".to_string())?
+                .body
+                .extend_from_slice(bytes);
+            Ok(Value::Nil)
+        }),
+    );
+
+    let finish_requests = requests;
+    native.intern(
+        "finish",
+        core::native_function("hoplite.raw.native/finish", 1, move |arguments| {
+            let request = extension_request_id(&arguments[0])?;
+            request_record(&finish_requests, request)?;
+            let response = builders
+                .borrow_mut()
+                .remove(&request)
+                .ok_or_else(|| "raw/response-not-started: call start! first".to_string())?;
+            Ok(response_value_owned(NativeResponse {
+                status: response.status,
+                headers: response.headers,
+                body: response.body,
+            }))
+        }),
+    );
 }
 
 impl HopliteRuntime {
     fn new() -> Self {
         let namespaces = hara_wasm::embedding_namespace_registry();
+        let requests = Rc::new(RefCell::new(HashMap::new()));
+        let raw_builders = Rc::new(RefCell::new(HashMap::new()));
+        let mut protocols = core::ProtocolRegistry::core();
+        install_request_protocols(&mut protocols, requests.clone());
+        install_raw_namespace(&namespaces, requests.clone(), raw_builders.clone());
+        let host_pending = Rc::new(RefCell::new(Vec::new()));
+        let pending = host_pending.clone();
+        let host_next = Rc::new(RefCell::new(1_u64));
+        let next = host_next.clone();
+        let host = Rc::new(move |service: String, method: String, args: Vec<Value>| {
+            let call = *next.borrow();
+            *next.borrow_mut() = call.saturating_add(1);
+            let promise = Promise::new();
+            pending
+                .borrow_mut()
+                .push((call, promise.clone(), service, method, args));
+            Ok(Value::Promise(promise))
+        });
 
         Self {
             namespaces,
-            protocols: core::ProtocolRegistry::core(),
+            protocols,
             next_handler: 1,
             next_work: 1,
             next_call: 1,
+            next_request: 1,
+            next_response: 1,
             events: Rc::new(RefCell::new(VecDeque::new())),
             ready: Rc::new(RefCell::new(VecDeque::new())),
             call_owners: HashMap::new(),
             handlers: HashMap::new(),
             apps: HashMap::new(),
             works: HashMap::new(),
+            requests,
+            raw_builders,
+            responses: HashMap::new(),
+            host,
+            host_pending,
+            host_next,
         }
     }
 
@@ -88,6 +685,170 @@ impl HopliteRuntime {
         let work = self.next_work;
         self.next_work = self.next_work.saturating_add(1);
         work
+    }
+
+    fn allocate_request(&mut self, request: HopliteRequestV2) -> RequestId {
+        let id = self.next_request;
+        self.next_request = self.next_request.saturating_add(1);
+        self.requests
+            .borrow_mut()
+            .insert(id, RequestRecord { request });
+        id
+    }
+
+    fn close_request(&mut self, request: RequestId) {
+        self.requests.borrow_mut().remove(&request);
+        self.raw_builders.borrow_mut().remove(&request);
+    }
+
+    fn store_response(&mut self, response: NativeResponse) -> ResponseId {
+        let id = self.next_response;
+        self.next_response = self.next_response.saturating_add(1);
+        self.responses.insert(id, response);
+        id
+    }
+
+    fn insert_work(&mut self, work: WorkId, request: Option<RequestId>) {
+        let result = Promise::new();
+        let events = self.events.clone();
+        result.on_settle(Rc::new(move |state| emit_settlement(&events, work, state)));
+        let mut owner = Work::new(result);
+        owner.request = request;
+        self.works.insert(work, owner);
+    }
+
+    fn invoke_direct(
+        &mut self,
+        handler: HandlerId,
+        binding: Value,
+        request: RequestId,
+    ) -> Result<InvokeState, String> {
+        let call = self
+            .handlers
+            .get(&handler)
+            .cloned()
+            .ok_or_else(|| "unknown prepared handler".to_string())?;
+        let work = self.allocate_work();
+        let (host, pending, next) = self.host_handler(work);
+        let namespaces = self.namespaces.clone();
+        let protocols = self.protocols.clone();
+        let value = core::with_namespace_registry(&namespaces, || {
+            core::with_protocols(&protocols, || {
+                core::with_host_calls(host, || call.invoke(vec![binding]))
+            })
+        })?;
+
+        match value {
+            Value::Promise(promise) => match promise.state() {
+                PromiseState::Fulfilled(value) => {
+                    self.next_call = *next.borrow();
+                    let response = native_response(value)?;
+                    self.close_request(request);
+                    Ok(InvokeState::Complete(self.store_response(response)))
+                }
+                PromiseState::Rejected(error) => {
+                    self.next_call = *next.borrow();
+                    self.close_request(request);
+                    Err(promise_rejection_message(error))
+                }
+                PromiseState::Pending => {
+                    self.insert_work(work, Some(request));
+                    if let Some(owner) = self.works.get_mut(&work) {
+                        owner.result.adopt(&promise);
+                        owner.children.push(promise);
+                    }
+                    self.collect_calls(work, pending, next);
+                    Ok(InvokeState::Suspended(work))
+                }
+            },
+            value => {
+                if !pending.borrow().is_empty() {
+                    self.next_call = *next.borrow();
+                    self.close_request(request);
+                    return Err("handler completed with unobserved host operations".into());
+                }
+                self.next_call = *next.borrow();
+                let response = native_response(value)?;
+                self.close_request(request);
+                Ok(InvokeState::Complete(self.store_response(response)))
+            }
+        }
+    }
+
+    fn app_invoke(&mut self, app: AppId, request: HopliteRequestV2) -> Result<InvokeState, String> {
+        let method = slice_string(request.method)?.to_ascii_uppercase();
+        let path = slice_string(request.path)?;
+        let router = self
+            .apps
+            .get(&app)
+            .ok_or_else(|| format!("unknown app {app}"))?;
+        let route = router
+            .routes
+            .iter()
+            .filter(|route| route.method == "ANY" || route.method == method)
+            .filter_map(|route| route_score(&route.path, &path).map(|score| (score, route)))
+            .max_by_key(|(score, _)| *score)
+            .map(|(_, route)| (route.handler, route.adapter));
+        let Some((handler, adapter)) = route else {
+            return Ok(InvokeState::Complete(self.store_response(native_response(
+                response_value(404, "Not Found\n"),
+            )?)));
+        };
+
+        let request_id = self.allocate_request(request);
+        match adapter {
+            RouteAdapter::Raw => {
+                let binding = request_value(&self.requests, request_id, "exchange")?;
+                self.invoke_direct(handler, binding, request_id)
+            }
+            RouteAdapter::Request => {
+                let binding = request_value(&self.requests, request_id, "request")?;
+                self.invoke_direct(handler, binding, request_id)
+            }
+            RouteAdapter::RequestHta => {
+                let value = Value::Map(
+                    request_entries(&self.requests, request_id)?
+                        .into_iter()
+                        .collect(),
+                );
+                self.close_request(request_id);
+                let portable = hta::decode(&hta::encode(&value)?)?;
+                self.work_call(handler, portable)
+                    .map(InvokeState::Suspended)
+                    .map_err(|_| "cannot start HTA route".into())
+            }
+        }
+    }
+
+    fn handler_invoke(
+        &mut self,
+        handler: HandlerId,
+        adapter: RouteAdapter,
+        request: HopliteRequestV2,
+    ) -> Result<InvokeState, String> {
+        let request_id = self.allocate_request(request);
+        match adapter {
+            RouteAdapter::Raw => {
+                let binding = request_value(&self.requests, request_id, "exchange")?;
+                self.invoke_direct(handler, binding, request_id)
+            }
+            RouteAdapter::Request => {
+                let binding = request_value(&self.requests, request_id, "request")?;
+                self.invoke_direct(handler, binding, request_id)
+            }
+            RouteAdapter::RequestHta => {
+                let value = Value::Map(
+                    request_entries(&self.requests, request_id)?
+                        .into_iter()
+                        .collect(),
+                );
+                self.close_request(request_id);
+                let portable = hta::decode(&hta::encode(&value)?)?;
+                self.work_call(handler, portable)
+                    .map(InvokeState::Suspended)
+                    .map_err(|_| "cannot start HTA handler".into())
+            }
+        }
     }
 
     fn host_handler(
@@ -98,20 +859,13 @@ impl HopliteRuntime {
         Rc<RefCell<Vec<HostCall>>>,
         Rc<RefCell<u64>>,
     ) {
-        let pending = Rc::new(RefCell::new(Vec::new()));
-        let queue = pending.clone();
-        let next = Rc::new(RefCell::new(self.next_call));
-        let ids = next.clone();
-        let handler = Rc::new(move |service: String, method: String, args: Vec<Value>| {
-            let call = *ids.borrow();
-            *ids.borrow_mut() = call.saturating_add(1);
-            let promise = Promise::new();
-            queue
-                .borrow_mut()
-                .push((call, promise.clone(), service, method, args));
-            Ok(Value::Promise(promise))
-        });
-        (handler, pending, next)
+        self.host_pending.borrow_mut().clear();
+        *self.host_next.borrow_mut() = self.next_call;
+        (
+            self.host.clone(),
+            self.host_pending.clone(),
+            self.host_next.clone(),
+        )
     }
 
     fn collect_calls(
@@ -191,7 +945,9 @@ impl HopliteRuntime {
         match program {
             Ok(program) => {
                 if let Some(binding) = binding {
-                    self.namespaces.current().intern("__hoplite_request", binding);
+                    self.namespaces
+                        .current()
+                        .intern("__hoplite_request", binding);
                 }
                 self.start_program(program)
             }
@@ -227,6 +983,10 @@ impl HopliteRuntime {
     }
 
     fn apps_prepare(&mut self, manifest: Value) -> Result<(), String> {
+        let legacy = map_optional_number(&manifest, "format").is_none();
+        if !legacy && map_optional_number(&manifest, "format") != Some(2) {
+            return Err("unsupported Hoplite app manifest format".into());
+        }
         let mut apps = HashMap::new();
         for app in map_sequence(&manifest, "apps")? {
             let id = map_number(&app, "id")? as u64;
@@ -235,11 +995,13 @@ impl HopliteRuntime {
                 let method = map_string(&route, "method")?;
                 let path = map_string(&route, "path")?;
                 let function = map_string(&route, "handler")?;
+                let adapter = RouteAdapter::parse(map_optional_string(&route, "adapter"), legacy)?;
                 let handler = self.handler_prepare(&function)?;
                 routes.push(AppRoute {
                     method,
                     path,
                     handler,
+                    adapter,
                 });
             }
             if apps.insert(id, AppRouter { routes }).is_some() {
@@ -427,6 +1189,9 @@ impl HopliteRuntime {
                 self.call_owners.remove(&call);
                 promise.cancel();
             }
+            if let Some(request) = owner.request.take() {
+                self.close_request(request);
+            }
         }
         true
     }
@@ -475,6 +1240,13 @@ fn map_number(value: &Value, name: &str) -> Result<i64, String> {
     match map_value(value, name) {
         Some(Value::Number(value)) if value > 0 => Ok(value),
         _ => Err(format!("missing or invalid :{name}")),
+    }
+}
+
+fn map_optional_number(value: &Value, name: &str) -> Option<i64> {
+    match map_value(value, name)? {
+        Value::Number(value) => Some(value),
+        _ => None,
     }
 }
 
@@ -642,6 +1414,14 @@ fn emit_settlement(events: &Rc<RefCell<VecDeque<Vec<u8>>>>, work: u64, state: Pr
     enqueue_event(events, value);
 }
 
+fn promise_rejection_message(error: PromiseRejection) -> String {
+    match error {
+        PromiseRejection::Value(value) => value.display(),
+        PromiseRejection::Message(message) => message,
+        PromiseRejection::Cancelled(value) => value.display(),
+    }
+}
+
 fn enqueue_event(events: &Rc<RefCell<VecDeque<Vec<u8>>>>, value: Value) {
     let encoded = hta::encode(&value)
         .or_else(|error| hta::encode(&event(1, 0, error_value("hta/value-unsupported", error))));
@@ -794,6 +1574,174 @@ pub unsafe extern "C" fn hoplite_app_call(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn hoplite_app_invoke_v2(
+    runtime: *mut HopliteRuntime,
+    app: u64,
+    request: *const HopliteRequestV2,
+    outcome: *mut HopliteOutcomeV2,
+) -> i32 {
+    if request.is_null() || outcome.is_null() {
+        return 1;
+    }
+    (*outcome).kind = 0;
+    (*outcome).id = 0;
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        match runtime.app_invoke(app, *request).map_err(|_| ())? {
+            InvokeState::Complete(response) => {
+                (*outcome).kind = 1;
+                (*outcome).id = response;
+            }
+            InvokeState::Suspended(work) => {
+                (*outcome).kind = 2;
+                (*outcome).id = work;
+            }
+        }
+        Ok::<i32, ()>(0)
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_handler_invoke_v2(
+    runtime: *mut HopliteRuntime,
+    handler: u64,
+    adapter: u32,
+    request: *const HopliteRequestV2,
+    outcome: *mut HopliteOutcomeV2,
+) -> i32 {
+    if request.is_null() || outcome.is_null() {
+        return 1;
+    }
+    (*outcome).kind = 0;
+    (*outcome).id = 0;
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        let adapter = RouteAdapter::from_abi(adapter).map_err(|_| ())?;
+        match runtime
+            .handler_invoke(handler, adapter, *request)
+            .map_err(|_| ())?
+        {
+            InvokeState::Complete(response) => {
+                (*outcome).kind = 1;
+                (*outcome).id = response;
+            }
+            InvokeState::Suspended(work) => {
+                (*outcome).kind = 2;
+                (*outcome).id = work;
+            }
+        }
+        Ok::<i32, ()>(0)
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_response_status_v2(
+    runtime: *mut HopliteRuntime,
+    response: u64,
+    status: *mut u16,
+) -> i32 {
+    if status.is_null() {
+        return 1;
+    }
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        *status = runtime.responses.get(&response).ok_or(())?.status;
+        Ok::<i32, ()>(0)
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_response_body_v2(
+    runtime: *mut HopliteRuntime,
+    response: u64,
+    body: *mut HopliteSlice,
+) -> i32 {
+    if body.is_null() {
+        return 1;
+    }
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        let value = &runtime.responses.get(&response).ok_or(())?.body;
+        (*body).data = value.as_ptr();
+        (*body).len = value.len();
+        Ok::<i32, ()>(0)
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_response_header_count_v2(
+    runtime: *mut HopliteRuntime,
+    response: u64,
+) -> usize {
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        Ok::<usize, ()>(runtime.responses.get(&response).ok_or(())?.headers.len())
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_response_header_at_v2(
+    runtime: *mut HopliteRuntime,
+    response: u64,
+    index: usize,
+    name: *mut HopliteSlice,
+    value: *mut HopliteSlice,
+) -> i32 {
+    if name.is_null() || value.is_null() {
+        return 1;
+    }
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        let (header_name, header_value) = runtime
+            .responses
+            .get(&response)
+            .and_then(|response| response.headers.get(index))
+            .ok_or(())?;
+        (*name).data = header_name.as_ptr();
+        (*name).len = header_name.len();
+        (*value).data = header_value.as_ptr();
+        (*value).len = header_value.len();
+        Ok::<i32, ()>(0)
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_response_close_v2(
+    runtime: *mut HopliteRuntime,
+    response: u64,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        Ok::<i32, ()>(if runtime.responses.remove(&response).is_some() {
+            0
+        } else {
+            1
+        })
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(1)
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn hoplite_work_poll(runtime: *mut HopliteRuntime) -> usize {
     catch_unwind(AssertUnwindSafe(|| {
         let runtime = runtime_mut(runtime)?;
@@ -933,6 +1881,96 @@ pub unsafe extern "C" fn hoplite_work_close(runtime: *mut HopliteRuntime, work: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct TestRequest {
+        headers: Vec<(&'static str, &'static str)>,
+    }
+
+    unsafe extern "C" fn test_header_at(
+        context: *mut c_void,
+        index: usize,
+        name: *mut HopliteSlice,
+        value: *mut HopliteSlice,
+    ) -> i32 {
+        let request = &*(context as *const TestRequest);
+        let Some((header_name, header_value)) = request.headers.get(index) else {
+            return 1;
+        };
+        *name = test_slice(header_name);
+        *value = test_slice(header_value);
+        0
+    }
+
+    fn test_slice(value: &'static str) -> HopliteSlice {
+        HopliteSlice {
+            data: value.as_ptr(),
+            len: value.len(),
+        }
+    }
+
+    fn test_request(context: &mut TestRequest, path: &'static str) -> HopliteRequestV2 {
+        HopliteRequestV2 {
+            context: context as *mut TestRequest as *mut c_void,
+            method: test_slice("GET"),
+            uri: test_slice(path),
+            path: test_slice(path),
+            query_string: test_slice(""),
+            remote_address: test_slice("127.0.0.1"),
+            header_count: context.headers.len(),
+            header_at: Some(test_header_at),
+        }
+    }
+
+    fn manifest_v2(handler: &str, adapter: &str) -> Value {
+        Value::Map(
+            vec![
+                (Value::Keyword("format".into()), Value::Number(2)),
+                (
+                    Value::Keyword("apps".into()),
+                    Value::Vector(
+                        vec![Value::Map(
+                            vec![
+                                (Value::Keyword("id".into()), Value::Number(1)),
+                                (
+                                    Value::Keyword("routes".into()),
+                                    Value::Vector(
+                                        vec![Value::Map(
+                                            vec![
+                                                (
+                                                    Value::Keyword("method".into()),
+                                                    Value::String("GET".into()),
+                                                ),
+                                                (
+                                                    Value::Keyword("path".into()),
+                                                    Value::String("/*path".into()),
+                                                ),
+                                                (
+                                                    Value::Keyword("handler".into()),
+                                                    Value::String(handler.into()),
+                                                ),
+                                                (
+                                                    Value::Keyword("adapter".into()),
+                                                    Value::Keyword(adapter.into()),
+                                                ),
+                                            ]
+                                            .into_iter()
+                                            .collect(),
+                                        )]
+                                        .into(),
+                                    ),
+                                ),
+                            ]
+                            .into_iter()
+                            .collect(),
+                        )]
+                        .into(),
+                    ),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        )
+    }
 
     fn take_event(runtime: &mut HopliteRuntime) -> Value {
         runtime.drain_ready();
@@ -1123,5 +2161,99 @@ mod tests {
         };
         assert!(matches!(done.get(0), Some(Value::Number(0))));
         assert!(matches!(done.get(1), Some(Value::Number(value)) if *value == work as i64));
+    }
+
+    #[test]
+    fn request_adapter_completes_without_work_or_hta_events() {
+        let mut runtime = HopliteRuntime::new();
+        runtime.work_start(
+            "(ns direct.request) (defn show [request] {:status 200 :headers {\"x-path\" (:path request)} :body (get (:headers request) \"x-test\")}) nil",
+            None,
+        );
+        let bootstrap = take_event(&mut runtime);
+        assert!(
+            matches!(&bootstrap, Value::Vector(values) if matches!(values.get(0), Some(Value::Number(0)))),
+            "bootstrap failed: {bootstrap:?}"
+        );
+        let works_before = runtime.works.len();
+        runtime
+            .apps_prepare(manifest_v2("direct.request/show", "request"))
+            .unwrap();
+        let mut context = TestRequest {
+            headers: vec![("x-test", "lazy")],
+        };
+        let outcome = runtime
+            .app_invoke(1, test_request(&mut context, "/hello"))
+            .unwrap();
+        let InvokeState::Complete(response) = outcome else {
+            panic!("request route suspended")
+        };
+        let response = runtime.responses.get(&response).unwrap();
+        assert_eq!(response.status, 200);
+        assert_eq!(response.body, b"lazy");
+        assert_eq!(response.headers, vec![("x-path".into(), "/hello".into())]);
+        assert_eq!(runtime.works.len(), works_before);
+        assert!(runtime.events.borrow().is_empty());
+        assert!(runtime.requests.borrow().is_empty());
+    }
+
+    #[test]
+    fn raw_adapter_uses_the_exchange_response_api() {
+        let mut runtime = HopliteRuntime::new();
+        runtime.work_start(
+            "(ns direct.raw) (defn show [exchange] (hoplite.raw.native/respond exchange 201 {\"x-mode\" \"raw\"} (:path exchange))) nil",
+            None,
+        );
+        let _ = take_event(&mut runtime);
+        let works_before = runtime.works.len();
+        runtime
+            .apps_prepare(manifest_v2("direct.raw/show", "raw"))
+            .unwrap();
+        let mut context = TestRequest { headers: vec![] };
+        let outcome = runtime
+            .app_invoke(1, test_request(&mut context, "/raw"))
+            .unwrap();
+        let InvokeState::Complete(response) = outcome else {
+            panic!("raw route suspended")
+        };
+        let response = runtime.responses.get(&response).unwrap();
+        assert_eq!(response.status, 201);
+        assert_eq!(response.body, b"/raw");
+        assert_eq!(response.headers, vec![("x-mode".into(), "raw".into())]);
+        assert_eq!(runtime.works.len(), works_before);
+    }
+
+    #[test]
+    fn request_handler_yields_without_async_metadata() {
+        let mut runtime = HopliteRuntime::new();
+        runtime.work_start(
+            "(ns direct.async) (defn show [request] (std.foundation.coroutine/await (std.native.Host/call \"nginx\" \"sleep\" [1])) {:status 200 :body (:path request)}) nil",
+            None,
+        );
+        let _ = take_event(&mut runtime);
+        runtime
+            .apps_prepare(manifest_v2("direct.async/show", "request"))
+            .unwrap();
+        let mut context = TestRequest { headers: vec![] };
+        let InvokeState::Suspended(work) = runtime
+            .app_invoke(1, test_request(&mut context, "/async"))
+            .unwrap()
+        else {
+            panic!("async route completed synchronously")
+        };
+        let Value::Vector(call) = take_event(&mut runtime) else {
+            panic!("host event")
+        };
+        let call_id = match call.get(1) {
+            Some(Value::Number(value)) => *value as u64,
+            _ => panic!("call id"),
+        };
+        runtime.call_deliver(call_id, true, Value::Nil).unwrap();
+        let Value::Vector(done) = take_event(&mut runtime) else {
+            panic!("completion event")
+        };
+        assert!(matches!(done.get(0), Some(Value::Number(0))));
+        assert!(runtime.work_close(work));
+        assert!(runtime.requests.borrow().is_empty());
     }
 }

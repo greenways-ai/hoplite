@@ -5,7 +5,16 @@ description: Logical request, response, and streaming values at the Nginx bounda
 
 ## Request boundary
 
-Nginx translates an HTTP request into an HTA value before invoking the cached Hara handler. Handlers receive that logical value as their argument.
+The default `:request` adapter gives a handler a lazy map-compatible request.
+Lookup, `get`, `find`, `count`, iteration, `assoc`, and `dissoc` use Hara's
+extension collection protocols. Nginx request memory is borrowed only for the
+handler lifetime; retaining the request and reading it after completion raises
+`hoplite/request-closed`.
+
+The request keys are `:method`, `:uri`, `:path`, `:query-string`,
+`:remote-address`, and `:headers`. Headers are themselves lazy and map-like.
+Use `:request+hta` when the handler or an adapter boundary requires an owned,
+portable HTA value.
 
 ## Response maps
 

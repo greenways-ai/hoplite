@@ -1,5 +1,7 @@
+use hara_wasm::core;
 use hara_wasm::kernel::{parse_forms, Form};
 use hara_wasm::project::{self, Project};
+use hara_wasm::vm;
 use hara_wasm::Runtime;
 use std::env;
 use std::fs;
@@ -284,7 +286,11 @@ fn check(root: &Path, settings: &BuildSettings) -> Result<Project, String> {
         return Err("project has no .hal source files".into());
     }
     let source = bundle_sources(&sources)?;
-    let runtime_source = runtime_application_source(&source)?;
+    let runtime_source = format!(
+        "{}\n\n{}",
+        app::RAW_SOURCE,
+        runtime_application_source(&source)?
+    );
     compile_application(&runtime_source)
         .map_err(|error| format!("Hoplite bytecode compilation failed: {error}"))?;
     app::load(&project, settings.profile.as_deref(), settings.production)?;
@@ -307,7 +313,11 @@ fn build(root: &Path, settings: &BuildSettings) -> Result<PathBuf, String> {
     let project = check(root, settings)?;
     let sources = source_files(&project)?;
     let source = bundle_sources(&sources)?;
-    let runtime_source = runtime_application_source(&source)?;
+    let runtime_source = format!(
+        "{}\n\n{}",
+        app::RAW_SOURCE,
+        runtime_application_source(&source)?
+    );
     let bytecode = compile_application(&runtime_source)
         .map_err(|error| format!("Hoplite bytecode compilation failed: {error}"))?;
     let app_config = app::load(&project, settings.profile.as_deref(), settings.production)?;
@@ -721,7 +731,20 @@ fn compile_application(source: &str) -> Result<Vec<u8>, String> {
         .map(|form| render_form(&form))
         .collect::<Vec<_>>();
     let program = format!("(do {})", compilable.join("\n"));
-    hara_wasm::compile_bytecode_artifact(&program)
+    let namespaces = hara_wasm::embedding_namespace_registry();
+    let raw = namespaces.find_or_create("hoplite.raw.native");
+    for (name, arity) in [("respond", 4), ("start", 3), ("write", 2), ("finish", 1)] {
+        let qualified = format!("hoplite.raw.native/{name}");
+        raw.intern(
+            name,
+            core::native_function(&qualified, arity, |_| {
+                Err("compile-only Hoplite raw binding was invoked".into())
+            }),
+        );
+    }
+    let compiled =
+        vm::compile_source_with(&program, &namespaces).map_err(|error| error.to_string())?;
+    vm::encode_program(&compiled)
 }
 
 fn runtime_application_source(source: &str) -> Result<String, String> {

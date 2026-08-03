@@ -5,8 +5,11 @@ immutable resource trees, handlers are Hara Vars, and each nginx worker
 resolves and compiles its route handlers once during startup.
 
 ```text
-request -> nginx -> HTA value -> cached Hara handler -> HTA response -> nginx
+request -> nginx -> borrowed Hara request -> cached handler -> native response -> nginx
 ```
+
+HTA remains available as an explicit portability adapter; it is no longer the
+mandatory boundary for every request.
 
 Hoplite is currently macOS-first. Linux is exercised by CI and Docker, but the
 standalone packaged executable and Homebrew distribution target macOS.
@@ -59,6 +62,7 @@ operation, while referring to it with `#'` is declarative configuration.
      [["/hello"
        {:get {:name :hello
               :summary "Return a greeting"
+              :route/adapter :request
               :handler #'hello}}]]}))
 ```
 
@@ -262,12 +266,22 @@ inside their worker.
 Asynchronous handlers can await nginx host services without blocking:
 
 ```clojure
-(defn ^:async delayed
+(defn delayed
   [_request]
   (std.foundation.coroutine/await
     (std.native.Host/call "nginx" "sleep" [25]))
   {:status 200 :body "resumed\n"})
 ```
+
+Hara infers suspension from `await`. A normal handler stays on the direct path
+until it actually suspends, so `^:async` is optional and no promise/work record
+is allocated for a synchronous response.
+
+Routes select one of three boundary adapters: `:raw` exposes the borrowed Nginx
+exchange and `hoplite.raw` response operations, `:request` exposes a lazy
+map-like request and returns response maps, and `:request+hta` materializes an
+HTA request for portability and compatibility. See the routing-adapters guide
+for the detailed contract and trade-offs.
 
 ## License
 

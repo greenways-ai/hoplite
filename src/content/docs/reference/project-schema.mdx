@@ -123,7 +123,12 @@ revocation can be checked for sensitive operations.
 | --- | --- | --- | --- |
 | `:name` | text-like | No | Defaults to `app-<id>` |
 | `:resources` | sequence | Unless catch-all | Flattened into method/path/handler routes |
+| `:route/adapter` | keyword | No | Default route boundary: `:raw`, `:request` (default), or `:request+hta` |
 | `:openapi :path` | text-like | No | Explicit OpenAPI route; development otherwise defaults to `/openapi.json` |
+
+Each resource operation accepts the same `:route/adapter` field and overrides
+the application default for that route. The selected value is recorded in the
+version 2 `apps.hta` manifest.
 
 ## Advanced host configuration
 

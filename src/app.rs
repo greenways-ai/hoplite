@@ -7,10 +7,39 @@ pub const CORE_SOURCE: &str = include_str!("../lib/src/hoplite/core.hal");
 pub const AUTH_SOURCE: &str = include_str!("../lib/src/hoplite/auth.hal");
 pub const HOST_SOURCE: &str = include_str!("../lib/src/hoplite/host.hal");
 pub const INTERNAL_SOURCE: &str = include_str!("../lib/src/hoplite/internal.hal");
+pub const RAW_SOURCE: &str = include_str!("../lib/src/hoplite/raw.hal");
 #[cfg(test)]
 const CORE_TEST_SOURCE: &str = include_str!("../lib/test/hoplite/core_test.hal");
 #[cfg(test)]
 const AUTH_TEST_SOURCE: &str = include_str!("../lib/test/hoplite/auth_test.hal");
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RouteAdapter {
+    Raw,
+    Request,
+    RequestHta,
+}
+
+impl RouteAdapter {
+    fn parse(value: Option<String>, context: &str) -> Result<Self, String> {
+        match value.as_deref().unwrap_or("request") {
+            "raw" => Ok(Self::Raw),
+            "request" => Ok(Self::Request),
+            "request+hta" => Ok(Self::RequestHta),
+            value => Err(format!(
+                "{context} :route/adapter must be :raw, :request, or :request+hta; got :{value}"
+            )),
+        }
+    }
+
+    fn keyword(&self) -> &'static str {
+        match self {
+            Self::Raw => "raw",
+            Self::Request => "request",
+            Self::RequestHta => "request+hta",
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Route {
@@ -19,6 +48,7 @@ pub struct Route {
     pub handler: String,
     pub name: Option<String>,
     pub summary: Option<String>,
+    pub adapter: RouteAdapter,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -60,6 +90,7 @@ pub fn load(project: &Project, profile: Option<&str>, production: bool) -> Resul
     runtime.register_resource("hoplite.auth", AUTH_SOURCE);
     runtime.register_resource("hoplite.host", HOST_SOURCE);
     runtime.register_resource("hoplite.internal", INTERNAL_SOURCE);
+    runtime.register_resource("hoplite.raw", RAW_SOURCE);
     project::register_sources(project, &mut runtime)?;
     let source = format!(
         "(ns hoplite.build (:require [{namespace}]))\n{}",
@@ -156,6 +187,10 @@ fn parse_app(
         return Err("app instance :app must be a hoplite.core/app".into());
     }
     let name = text_field(&value, "name").unwrap_or_else(|| format!("app-{id}"));
+    let default_adapter = RouteAdapter::parse(
+        keyword_field(&value, "route/adapter"),
+        &format!("Hoplite app {name:?}"),
+    )?;
     let mut routes = Vec::new();
     if let Some(handler) = field(&value, "handler") {
         routes.push(Route {
@@ -164,10 +199,11 @@ fn parse_app(
             handler: callable_name(&handler)?,
             name: Some(format!("{name}/handler")),
             summary: None,
+            adapter: default_adapter.clone(),
         });
     }
     for resource in sequence_field(&value, "resources").unwrap_or_default() {
-        flatten_resource(&resource, "", &mut routes)?;
+        flatten_resource(&resource, "", &default_adapter, &mut routes)?;
     }
     if routes.is_empty() {
         return Err(format!("Hoplite app {name:?} has no resource operations"));
@@ -185,7 +221,12 @@ fn parse_app(
     })
 }
 
-fn flatten_resource(value: &Value, parent: &str, output: &mut Vec<Route>) -> Result<(), String> {
+fn flatten_resource(
+    value: &Value,
+    parent: &str,
+    default_adapter: &RouteAdapter,
+    output: &mut Vec<Route>,
+) -> Result<(), String> {
     let items = sequence(value).ok_or("resource must be a vector")?;
     let path = text(
         items.first().ok_or("resource requires a path")?,
@@ -212,12 +253,17 @@ fn flatten_resource(value: &Value, parent: &str, output: &mut Vec<Route>) -> Res
                 handler: callable_name(&handler)?,
                 name: text_field(&operation, "name"),
                 summary: text_field(&operation, "summary"),
+                adapter: RouteAdapter::parse(
+                    keyword_field(&operation, "route/adapter")
+                        .or_else(|| Some(default_adapter.keyword().to_owned())),
+                    &format!("{method:?} operation at {full_path:?}"),
+                )?,
             });
         }
     }
     let children_start = usize::from(data.is_some()) + 1;
     for child in items.iter().skip(children_start) {
-        flatten_resource(child, &full_path, output)?;
+        flatten_resource(child, &full_path, default_adapter, output)?;
     }
     Ok(())
 }
@@ -255,6 +301,10 @@ pub fn manifest(config: &Config) -> Result<Vec<u8>, String> {
                                     (keyword("method"), Value::String(route.method.clone())),
                                     (keyword("path"), Value::String(route.path.clone())),
                                     (keyword("handler"), Value::String(route.handler.clone())),
+                                    (
+                                        keyword("adapter"),
+                                        Value::Keyword(route.adapter.keyword().into()),
+                                    ),
                                 ])
                             })
                             .collect(),
@@ -263,7 +313,10 @@ pub fn manifest(config: &Config) -> Result<Vec<u8>, String> {
             ])
         })
         .collect();
-    hara_wasm::hta::encode(&map_value(vec![(keyword("apps"), Value::Vector(apps))]))
+    hara_wasm::hta::encode(&map_value(vec![
+        (keyword("format"), Value::Number(2)),
+        (keyword("apps"), Value::Vector(apps)),
+    ]))
 }
 
 pub fn openapi(app: &App) -> String {
@@ -465,6 +518,20 @@ mod tests {
         assert_eq!(
             runtime.eval_native_value(CORE_TEST_SOURCE).unwrap(),
             Value::Bool(true)
+        );
+    }
+
+    #[test]
+    fn raw_hal_accessors_evaluate_from_disk() {
+        let mut runtime = Runtime::new();
+        runtime.register_resource("hoplite.raw", RAW_SOURCE);
+        assert_eq!(
+            runtime
+                .eval_native_value(
+                    "(ns sample.raw (:require [hoplite.raw :as raw])) [(raw/method {:method \"GET\" :headers {\"x-test\" \"yes\"}}) (raw/header {:method \"GET\" :headers {\"x-test\" \"yes\"}} \"x-test\")]",
+                )
+                .unwrap(),
+            Value::Vector(vec![Value::String("GET".into()), Value::String("yes".into())].into())
         );
     }
 

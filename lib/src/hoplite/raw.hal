@@ -1,0 +1,37 @@
+(ns hoplite.raw)
+
+(defn method [exchange]
+  (:method exchange))
+
+(defn uri [exchange]
+  (:uri exchange))
+
+(defn path [exchange]
+  (:path exchange))
+
+(defn query-string [exchange]
+  (:query-string exchange))
+
+(defn remote-address [exchange]
+  (:remote-address exchange))
+
+(defn header [exchange name]
+  (get (:headers exchange) name))
+
+(defn headers [exchange]
+  (:headers exchange))
+
+(defn respond!
+  ([exchange status body]
+   (hoplite.raw.native/respond exchange status {} body))
+  ([exchange status headers body]
+   (hoplite.raw.native/respond exchange status headers body)))
+
+(defn start! [exchange status headers]
+  (hoplite.raw.native/start exchange status headers))
+
+(defn write! [exchange chunk]
+  (hoplite.raw.native/write exchange chunk))
+
+(defn finish! [exchange]
+  (hoplite.raw.native/finish exchange))
