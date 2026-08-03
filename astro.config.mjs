@@ -51,6 +51,7 @@ export default defineConfig({
         {
           label: "Guides",
           items: [
+            { label: "Writing web services", slug: "guides/writing-web-services" },
             { label: "Async handlers", slug: "guides/async-handlers" },
             { label: "Development console", slug: "guides/development-console" },
             { label: "Multiple applications", slug: "guides/multiple-applications" },
