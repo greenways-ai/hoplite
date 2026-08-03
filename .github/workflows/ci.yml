@@ -1,5 +1,11 @@
 name: Hoplite
 
+env:
+  # Hoplite currently consumes the source checkout while the new runtime ABI
+  # is being released from Hara. Keep CI reproducible and in sync with the
+  # version used to develop this branch.
+  HARA_REF: ba52a6bfce31aeff7359d0e60d7f8d1538204694
+
 on:
   push:
   pull_request:
@@ -18,6 +24,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
+          ref: ${{ env.HARA_REF }}
           path: hara.lang
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
@@ -32,6 +39,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
+          ref: ${{ env.HARA_REF }}
           path: hara.lang
           submodules: recursive
       - run: docker build -f hoplite/docker/Dockerfile -t hoplite-ci .
