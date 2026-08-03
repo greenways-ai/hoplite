@@ -5,7 +5,9 @@ description: Current Hoplite maturity, platform support, active milestones, and 
 
 <span class="doc-badge doc-badge--caution">Pre-release</span> <span class="doc-badge doc-badge--note">Active development</span>
 
-Hoplite is usable from source for development and integration work. It is not yet a tagged stable distribution, and its interfaces may change.
+Hoplite is usable from source for development and integration work. The first
+pre-release HARP artifacts are published, but the interfaces may still change
+before a stable release.
 
 ![A network of bronze and verdigris mosaic shields connected as technical nodes](/images/hoplite-shield-network.webp)
 
@@ -19,13 +21,14 @@ Hoplite is usable from source for development and integration work. It is not ye
 | Embedded Nginx | Statically linked into the standalone executable |
 | Hara application bytecode | Generated and validated |
 | Nginx bytecode bootstrap ABI | Integration in progress; HAL bootstrap remains active |
-| Homebrew | Formula automation prepared; first tagged release pending |
+| HARP | `gh:greenways-ai:hoplite` and the SQLite store addon have immutable v0.1.0 release artifacts |
+| Homebrew | Formula automation prepared; binary distribution pending |
 | Authentication | HAL policy and store adapters are exact-version, archive-digest, content-integrity, and contract-version checked before gateway activation |
 
 ## Active milestones
 
 <div class="doc-card-grid">
-  <article class="doc-card"><h3>First tagged release</h3><p>Publish verified arm64 and Intel macOS artifacts and the generated Homebrew formula.</p></article>
+  <article class="doc-card"><h3>Binary distribution</h3><p>Publish verified arm64 and Intel macOS artifacts and the generated Homebrew formula.</p></article>
   <article class="doc-card"><h3>Bytecode bootstrap</h3><p>Move the Nginx worker bootstrap from HAL source to the validated HBC artifact.</p></article>
   <article class="doc-card"><h3>Linux packaging</h3><p>Promote Linux from CI and Docker validation to a supported distribution path.</p></article>
   <article class="doc-card"><h3>Interface stabilization</h3><p>Exercise and specify streaming, middleware, service, and internal hosting contracts.</p></article>

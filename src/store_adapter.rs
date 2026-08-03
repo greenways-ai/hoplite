@@ -1,5 +1,18 @@
 use hara_wasm::core::{self, Value};
 use hara_wasm::Runtime;
+use std::collections::BTreeSet;
+
+const AUTH_STORE_OPERATIONS: [&str; 9] = [
+    "auth/audit-append",
+    "auth/challenge-consume",
+    "auth/challenge-put",
+    "auth/device-put",
+    "auth/refresh-rotate",
+    "auth/session-put",
+    "auth/session-revoke",
+    "auth/user-create",
+    "auth/user-find",
+];
 
 pub fn validate(composition: &crate::platform::AuthComposition) -> Result<(), String> {
     if !composition.explicit {
@@ -34,6 +47,7 @@ fn validate_root(
         "hoplite/auth-store",
         crate::platform::PRINCIPAL_CONTRACT,
     )?;
+    expect_operations(&value)?;
     Ok(())
 }
 
@@ -61,7 +75,7 @@ mod tests {
         .unwrap();
         fs::write(
             root.join("src/hoplite/store/sqlite.hal"),
-            "(ns hoplite.store.sqlite (:require [hoplite.core :as h])) (def adapter (h/adapter {:adapter/export :hoplite/store :adapter/implements {:hoplite/auth-store \"1.0.0\"}}))",
+            "(ns hoplite.store.sqlite (:require [hoplite.core :as h])) (def adapter (h/adapter {:adapter/export :hoplite/store :adapter/implements {:hoplite/auth-store \"1.0.0\"} :adapter/operations #{:auth/user-create :auth/user-find :auth/device-put :auth/challenge-put :auth/challenge-consume :auth/session-put :auth/refresh-rotate :auth/session-revoke :auth/audit-append}}))",
         )
         .unwrap();
         let composition = crate::platform::AuthComposition {
@@ -79,12 +93,21 @@ mod tests {
 
         fs::write(
             root.join("src/hoplite/store/sqlite.hal"),
-            "(ns hoplite.store.sqlite (:require [hoplite.core :as h])) (def adapter (h/adapter {:adapter/export :hoplite/store :adapter/implements {:hoplite/auth-store \"2.0.0\"}}))",
+            "(ns hoplite.store.sqlite (:require [hoplite.core :as h])) (def adapter (h/adapter {:adapter/export :hoplite/store :adapter/implements {:hoplite/auth-store \"2.0.0\"} :adapter/operations #{:auth/user-create :auth/user-find :auth/device-put :auth/challenge-put :auth/challenge-consume :auth/session-put :auth/refresh-rotate :auth/session-revoke :auth/audit-append}}))",
         )
         .unwrap();
         assert!(validate_root(&composition, &root)
             .unwrap_err()
             .contains("must be \"1.0.0\""));
+
+        fs::write(
+            root.join("src/hoplite/store/sqlite.hal"),
+            "(ns hoplite.store.sqlite (:require [hoplite.core :as h])) (def adapter (h/adapter {:adapter/export :hoplite/store :adapter/implements {:hoplite/auth-store \"1.0.0\"} :adapter/operations #{:auth/user-find}}))",
+        )
+        .unwrap();
+        assert!(validate_root(&composition, &root)
+            .unwrap_err()
+            .contains("operations must exactly implement"));
         fs::remove_dir_all(root).unwrap();
     }
 }
@@ -119,6 +142,46 @@ fn expect_string(value: &Value, field_name: &str, expected: &str) -> Result<(), 
         Some(Value::String(value)) if value == expected => Ok(()),
         value => Err(format!(
             "store adapter :{field_name} must be {expected:?}, got {value:?}"
+        )),
+    }
+}
+
+fn expect_operations(value: &Value) -> Result<(), String> {
+    let operations =
+        field(value, "adapter/operations").ok_or("store adapter is missing :adapter/operations")?;
+    let actual: BTreeSet<String> = match &operations {
+        Value::Set(values) => values
+            .iter()
+            .map(operation_name)
+            .collect::<Result<_, _>>()?,
+        Value::OrderedSet(values) => values
+            .iter()
+            .map(operation_name)
+            .collect::<Result<_, _>>()?,
+        Value::SortedSet(values) => values
+            .iter()
+            .map(operation_name)
+            .collect::<Result<_, _>>()?,
+        _ => return Err("store adapter :adapter/operations must be a set of keywords".into()),
+    };
+    let expected = AUTH_STORE_OPERATIONS
+        .iter()
+        .map(|operation| (*operation).to_owned())
+        .collect::<BTreeSet<_>>();
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(format!(
+            "store adapter operations must exactly implement hoplite/auth-store 1.0.0; expected {expected:?}, got {actual:?}"
+        ))
+    }
+}
+
+fn operation_name(value: &Value) -> Result<String, String> {
+    match value {
+        Value::Keyword(keyword) => Ok(keyword.as_str().to_owned()),
+        value => Err(format!(
+            "store adapter :adapter/operations contains a non-keyword value: {value:?}"
         )),
     }
 }

@@ -94,7 +94,7 @@ fn run_auth_command(arguments: &[String]) -> Result<(), String> {
                 .get(1)
                 .map(PathBuf::from)
                 .unwrap_or(env::current_dir().map_err(io)?);
-            let mut store = auth::Store::open(auth_store_path(&root))?;
+            let mut store = open_auth_service(&root)?;
             match store.initialize()? {
                 Some(token) => {
                     println!("Hoplite management authentication initialized.");
@@ -119,7 +119,7 @@ fn run_auth_command(arguments: &[String]) -> Result<(), String> {
                 .get(3)
                 .map(PathBuf::from)
                 .unwrap_or(env::current_dir().map_err(io)?);
-            let mut store = auth::Store::open(auth_store_path(&root))?;
+            let mut store = open_auth_service(&root)?;
             let principal = store.enroll_management_device(token, public_key)?;
             println!(
                 "enrolled management user {} with device {}",
@@ -133,7 +133,7 @@ fn run_auth_command(arguments: &[String]) -> Result<(), String> {
                 .unwrap_or(env::current_dir().map_err(io)?);
             let path = auth_store_path(&root);
             if path.is_file() {
-                let store = auth::Store::open(&path)?;
+                let store = open_auth_service(&root)?;
                 println!("authentication store: {}", store.path().display());
             } else {
                 println!("authentication is not initialized; run `hoplite auth init`");
@@ -174,6 +174,13 @@ fn auth_store_path(root: &Path) -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| root.join(".hoplite"))
         .join("control.db")
+}
+
+fn open_auth_service(root: &Path) -> Result<auth::Service, String> {
+    let project = project::discover(root)?;
+    let platform = platform::load(&project, None)?;
+    let composition = platform.auth_composition()?;
+    auth::Service::open_for(auth_store_path(root), &composition)
 }
 
 fn auth_usage() {
