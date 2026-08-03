@@ -13,6 +13,7 @@ use std::time::Duration;
 mod app;
 mod auth;
 mod dev_console;
+mod host;
 mod management;
 mod platform;
 mod repl;

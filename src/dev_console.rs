@@ -26,6 +26,7 @@ struct Console {
 
 pub fn install(runtime: &mut Runtime) {
     runtime.register_resource("hoplite.core", super::app::CORE_SOURCE);
+    runtime.register_resource("hoplite.host", super::app::HOST_SOURCE);
     runtime.register_resource("hoplite.internal", super::app::INTERNAL_SOURCE);
     runtime.register_resource("hoplite.dev", SOURCE);
     if let Ok(directory) = env::current_dir() {
@@ -35,6 +36,9 @@ pub fn install(runtime: &mut Runtime) {
     }
     let console = Rc::new(RefCell::new(Console::default()));
     runtime.install_native_host_handler(Rc::new(move |service, method, args| {
+        if service == "hoplite.host" {
+            return super::host::dispatch(service, method, args);
+        }
         if service != "hoplite.dev" {
             return Err(format!("unknown Hoplite console service {service:?}"));
         }
