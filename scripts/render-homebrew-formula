@@ -4,6 +4,7 @@ set -eu
 : "${VERSION:?set VERSION}"
 : "${HOPLITE_REVISION:?set HOPLITE_REVISION}"
 : "${HARA_REVISION:?set HARA_REVISION}"
+: "${HARA_SHA256:?set HARA_SHA256}"
 : "${LICENSE:?set LICENSE}"
 : "${NGINX_VERSION:?set NGINX_VERSION}"
 : "${NGINX_SHA256:?set NGINX_SHA256}"
@@ -25,8 +26,8 @@ class Hoplite < Formula
   depends_on "zlib"
 
   resource "hara" do
-    url "https://github.com/hara-lang/hara.git",
-        revision: "${HARA_REVISION}"
+    url "https://github.com/hara-lang/hara/archive/${HARA_REVISION}.tar.gz"
+    sha256 "${HARA_SHA256}"
   end
 
   resource "nginx" do
