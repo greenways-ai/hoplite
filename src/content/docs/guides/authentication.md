@@ -9,6 +9,18 @@ a package loaded into the application.
 
 ## Bootstrap management access
 
+Install the native SQLite store addon pinned to its published bytes:
+
+```sh
+hoplite package install gh:greenways-ai:hoplite-store-sqlite 0.2.2 \
+  --sha256 15a7c0f4fedc2dc84e1f532db01906050b1fc14b9bf02063be079da19d493555
+```
+
+Activate its `:hoplite/store` export in `project.edn` and bind the core auth
+module's `:auth/store` configuration to that module alias. Hoplite verifies the
+archive contents, HAL operation set, native crate name, and ABI before opening
+the control database.
+
 Generate an Ed25519 key on the administrator device, then initialize the node:
 
 ```sh
