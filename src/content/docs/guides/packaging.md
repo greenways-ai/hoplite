@@ -41,6 +41,17 @@ Installation verifies and expands the archive into Hara's content-addressed
 distribution directory. A configured exact module version must already be
 installed when Hoplite starts; package activation never downloads from GitHub.
 
+Install a published GitHub release while pinning the bytes before download:
+
+```sh
+hoplite package install gh:greenways-ai:hoplite 0.1.0 \
+  --sha256 22ce8db7ea50b006813ab32d0eef211bbda469a41b6b175f19c7d111977d6075
+```
+
+The command derives the HTTPS release URL, refuses non-HTTPS transport,
+verifies the supplied digest, and only then invokes the local installer.
+Startup remains network-free.
+
 ## Standalone executable
 
 ```sh

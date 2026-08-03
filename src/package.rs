@@ -4,8 +4,16 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 pub fn run(arguments: &[String]) -> Result<(), String> {
+    if arguments.first().map(String::as_str) == Some("install")
+        && arguments
+            .get(1)
+            .is_some_and(|value| value.starts_with("gh:"))
+    {
+        return install_github(arguments);
+    }
     if arguments.first().map(String::as_str) == Some("verify") {
         let coordinate = arguments
             .get(1)
@@ -25,6 +33,92 @@ pub fn run(arguments: &[String]) -> Result<(), String> {
         return Ok(());
     }
     hara_wasm::package::run(arguments)
+}
+
+fn install_github(arguments: &[String]) -> Result<(), String> {
+    let coordinate = arguments
+        .get(1)
+        .ok_or("hoplite package install requires a GitHub coordinate")?;
+    let version_text = arguments
+        .get(2)
+        .ok_or("GitHub package install requires an exact VERSION")?;
+    let version = Version::parse(version_text)
+        .map_err(|error| format!("invalid package version: {error}"))?;
+    let supplied = option(arguments, "--sha256")?;
+    let expected = supplied.strip_prefix("sha256:").unwrap_or(supplied);
+    if expected.len() != 64 || !expected.chars().all(|value| value.is_ascii_hexdigit()) {
+        return Err("--sha256 must be a 64-character SHA-256 digest".into());
+    }
+    let (owner, repository) = github_repository(coordinate)?;
+    let asset = format!("{repository}-{version}.harp");
+    let url =
+        format!("https://github.com/{owner}/{repository}/releases/download/v{version}/{asset}");
+    let temporary =
+        std::env::temp_dir().join(format!("hoplite-package-{}-{asset}", std::process::id()));
+    let status = Command::new("curl")
+        .args([
+            "--fail",
+            "--location",
+            "--silent",
+            "--show-error",
+            "--proto",
+            "=https",
+            "--tlsv1.2",
+            "--output",
+        ])
+        .arg(&temporary)
+        .arg(&url)
+        .status()
+        .map_err(|error| format!("cannot execute curl for package download: {error}"))?;
+    if !status.success() {
+        let _ = fs::remove_file(&temporary);
+        return Err(format!("cannot download package release {url}"));
+    }
+    let actual = encode_hex(&Sha256::digest(fs::read(&temporary).map_err(io)?));
+    if !actual.eq_ignore_ascii_case(expected) {
+        let _ = fs::remove_file(&temporary);
+        return Err(format!(
+            "downloaded package digest mismatch: expected sha256:{expected}, got sha256:{actual}"
+        ));
+    }
+    let result =
+        hara_wasm::package::run(&["install".into(), temporary.to_string_lossy().into_owned()]);
+    let _ = fs::remove_file(&temporary);
+    result?;
+    println!("package source: {url}");
+    println!("package digest: sha256:{actual}");
+    Ok(())
+}
+
+fn github_repository(coordinate: &str) -> Result<(&str, &str), String> {
+    let repository = coordinate
+        .strip_prefix("gh:")
+        .ok_or("GitHub package coordinate must start with gh:")?;
+    let mut parts = repository.split(':');
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some(owner), Some(repository), None)
+            if valid_github_component(owner) && valid_github_component(repository) =>
+        {
+            Ok((owner, repository))
+        }
+        _ => Err("GitHub package coordinate must be gh:OWNER:REPOSITORY".into()),
+    }
+}
+
+fn valid_github_component(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|value| value.is_ascii_alphanumeric() || matches!(value, '-' | '_' | '.'))
+}
+
+fn option<'a>(arguments: &'a [String], name: &str) -> Result<&'a str, String> {
+    arguments
+        .iter()
+        .position(|value| value == name)
+        .and_then(|index| arguments.get(index + 1))
+        .map(String::as_str)
+        .ok_or_else(|| format!("GitHub package install requires {name} DIGEST"))
 }
 
 pub fn installed_root(coordinate: &str, version: &Version) -> Result<PathBuf, String> {
@@ -250,6 +344,16 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("is not installed"));
+    }
+
+    #[test]
+    fn github_coordinates_only_allow_derived_release_paths() {
+        assert_eq!(
+            github_repository("gh:greenways-ai:hoplite").unwrap(),
+            ("greenways-ai", "hoplite")
+        );
+        assert!(github_repository("gh:greenways-ai:../hoplite").is_err());
+        assert!(github_repository("https://example.com/archive").is_err());
     }
 
     #[test]
