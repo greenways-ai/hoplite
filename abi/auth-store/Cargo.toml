@@ -7,5 +7,5 @@ rust-version = "1.78"
 description = "Canonical HTA wire contract for Hoplite authentication stores"
 
 [dependencies]
-hara-wasm = { path = "../../../hara.lang/rust" }
+hara-wasm = { git = "https://github.com/hara-lang/hara", rev = "17a48fdfa2cc7a119aed2ddd38eb2c73ea743c31" }
 sha2 = "0.10"

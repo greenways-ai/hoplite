@@ -28,3 +28,6 @@ ed25519-dalek = "2.2"
 getrandom = "0.2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 sha2 = "0.10"
+
+[patch."https://github.com/hara-lang/hara"]
+hara-wasm = { path = "../hara.lang/rust" }
