@@ -11,32 +11,36 @@ request -> nginx -> borrowed Hara request -> cached handler -> native response -
 HTA remains available as an explicit portability adapter; it is no longer the
 mandatory boundary for every request.
 
-Hoplite is currently macOS-first. Linux is exercised by CI and Docker, but the
-standalone packaged executable and Homebrew distribution target macOS.
+Hoplite supports macOS and Linux. Tagged releases publish standalone binaries
+for Apple Silicon, Intel macOS, ARM64 Linux and x86-64 Linux; the Homebrew
+formula builds from the exact tagged Hoplite source, matching Hara revision and
+checksummed nginx source on either operating system.
 
 ## Install
 
-After the first tagged release is published:
+Use the fully qualified central-tap formula so Homebrew trusts only Hoplite:
 
 ```shell
-brew tap greenways-ai/hoplite
-brew install hoplite
+brew install greenways-ai/tap/hoplite
 hoplite version
 ```
 
-Until then, build from sibling checkouts of Hoplite and Hara:
+To build from sibling checkouts of Hoplite and Hara instead:
 
 ```shell
 git clone https://github.com/hara-lang/hara.git hara.lang
 git clone https://github.com/greenways-ai/hoplite.git hoplite
 cd hoplite
-make setup
 make check
-make macos
+make embedded-cli
+./target/release/hoplite version
 ```
 
-`make help` lists the common development, packaging, example, and benchmark
-targets. `make install PREFIX=/usr/local` installs the standalone executable.
+On macOS, `make setup` installs the build dependencies and `make macos`
+produces the packaged standalone executable. On Linux, install a C toolchain,
+OpenSSL, PCRE2 and zlib development packages before `make embedded-cli`.
+`make help` lists the common development, packaging, example and benchmark
+targets.
 
 ## Define an application
 
@@ -245,14 +249,15 @@ already-decoded execution for `hoplite.core`, `hoplite.internal`, and
 
 The tagged release workflow:
 
-1. verifies that the tag matches `Cargo.toml`;
-2. builds arm64 and Intel standalone macOS executables;
-3. publishes both files in a GitHub release;
-4. calculates their SHA-256 checksums;
-5. generates and publishes `Formula/hoplite.rb`;
-6. updates `greenways-ai/homebrew-hoplite` when `HOMEBREW_TAP_TOKEN` is set.
+1. verifies that the tag matches `Cargo.toml` and resolves immutable Hoplite and Hara commits;
+2. builds the deterministic HARP package and container image;
+3. builds and smoke-tests standalone binaries for both macOS architectures and both Linux architectures;
+4. creates or updates the GitHub release without replacing the tag;
+5. renders a source formula pinned to the exact release inputs;
+6. updates `greenways-ai/homebrew-tap` when `HOMEBREW_TAP_TOKEN` is set.
 
-Tap setup and local formula instructions live in
+The workflow can be dispatched manually for an existing tag when release
+infrastructure changes. Tap setup and local formula instructions live in
 [`packaging/homebrew/README.md`](packaging/homebrew/README.md).
 
 ## Runtime model
@@ -285,4 +290,4 @@ for the detailed contract and trade-offs.
 
 ## License
 
-Eclipse Public License 2.0.
+Apache License 2.0.

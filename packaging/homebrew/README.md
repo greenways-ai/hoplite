@@ -1,36 +1,56 @@
-# Hoplite Homebrew tap
+# Hoplite Homebrew release integration
 
-The public tap lives at `greenways-ai/homebrew-hoplite`. Once the first tagged
-release has run successfully, users install Hoplite with:
+The canonical public tap is `greenways-ai/homebrew-tap`. Users install Hoplite on macOS or Linux with the fully qualified formula name:
 
 ```shell
-brew tap greenways-ai/hoplite
-brew install hoplite
+brew install greenways-ai/tap/hoplite
+hoplite version
 ```
 
-The release workflow builds standalone arm64 and x86_64 macOS executables,
-attaches them to the GitHub release, renders `Formula/hoplite.rb` with their
-real SHA-256 checksums, tests the formula, and pushes it to the tap.
+The formula builds from immutable Hoplite and Hara revisions and the checksummed nginx source. This keeps one formula valid across Apple Silicon, Intel macOS, x86-64 Linux and ARM64 Linux while release binaries remain available as convenience artifacts.
 
-## One-time tap setup
+## Release workflow
 
-1. Create the public repository `greenways-ai/homebrew-hoplite`.
-2. Add an empty `Formula/` directory or an initial README.
-3. Create a fine-grained GitHub token with contents write access to that repo.
-4. Add it to the Hoplite repository as the `HOMEBREW_TAP_TOKEN` Actions secret.
-5. Push a tag matching `Cargo.toml`, for example `v0.1.0`.
+For every `v*` tag, `.github/workflows/release.yml`:
 
-Without the secret, release binaries are still published and the workflow
-emits the rendered formula as an artifact; it simply does not push the tap.
+1. verifies that the tag matches `Cargo.toml`;
+2. resolves the Hara commit pinned in `packaging/hara-revision` and reuses it in every job;
+3. builds the deterministic HARP package and container image;
+4. builds and smoke-tests standalone binaries for both macOS and Linux architectures;
+5. creates or updates the GitHub release idempotently;
+6. renders a source formula pinned to the exact Hoplite and Hara commits;
+7. updates `greenways-ai/homebrew-tap` after every release job succeeds.
+
+Update `packaging/hara-revision` deliberately whenever Hoplite moves to a new Hara revision. The file must contain one complete 40-character commit SHA. For historical Hoplite tags that predate the file, the workflow first looks for a Hara tag with the same name and only falls back to the fetched Hara head with an explicit warning.
+
+The workflow can also be run manually against an existing tag. This is useful for rebuilding an older tag after release automation changes without moving or recreating that tag. Manual rebuilds use the release automation from the branch where the workflow is dispatched, while all application source remains pinned to the requested tag. When a legacy tag needs a different Hara source than its matching tag, provide the optional `hara_revision` input with the complete compatible Hara commit SHA. For example, rebuilding Hoplite `v0.1.0` requires `ba52a6bfce31aeff7359d0e60d7f8d1538204694`.
+
+## Repository setup
+
+1. Keep `greenways-ai/homebrew-tap` public so unauthenticated Homebrew clients can clone it.
+2. Create a fine-grained GitHub token with contents write access to that repository.
+3. Add it to the Hoplite repository as the `HOMEBREW_TAP_TOKEN` Actions secret.
+4. Ensure the token can push to `main`, or adapt the final workflow step to the tap's protected-branch policy.
+
+Without the secret, release assets and the rendered formula artifact are still published; only the central-tap update is skipped.
 
 ## Local formula rendering
 
+Use sibling Hoplite and Hara checkouts, then run:
+
 ```shell
-VERSION=0.1.0 \
-ARM64_SHA256=<sha256> \
-X86_64_SHA256=<sha256> \
-make formula
+cd hoplite/packaging/homebrew
+make check
 ```
 
-Use `make audit` from this directory after placing the generated formula in a
-local checkout of `homebrew-hoplite`.
+The Makefile derives the current versions, licence, nginx checksum and Git revisions and writes `Formula/hoplite.rb`. Override any value explicitly when reproducing a historical release:
+
+```shell
+make check \
+  VERSION=0.1.0 \
+  HOPLITE_REVISION=eaa09a2e3a54edce8a7d68d1cb887bb700a24afe \
+  HARA_REVISION=ba52a6bfce31aeff7359d0e60d7f8d1538204694 \
+  LICENSE=EPL-2.0
+```
+
+Copy the generated formula into a checkout of `greenways-ai/homebrew-tap`, then run that repository's macOS and Linux test workflow before merging it.

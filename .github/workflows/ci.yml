@@ -44,6 +44,23 @@ jobs:
           submodules: recursive
       - run: docker build -f hoplite/docker/Dockerfile -t hoplite-ci .
 
+  packaging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Render and validate the Homebrew formula
+        run: |
+          VERSION=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2) \
+          HOPLITE_REVISION=$(git rev-parse HEAD) \
+          HARA_REVISION="$HARA_REF" \
+          HARA_SHA256=db113e15ec3e1404897bd66b99d4196ae1676d032275cd72e4c09baf8ab4296d \
+          LICENSE=$(grep -m1 '^license = ' Cargo.toml | cut -d'"' -f2) \
+          NGINX_VERSION=$(sed -n 's/^NGINX_VERSION := //p' Makefile) \
+          NGINX_SHA256=$(sed -n 's/^NGINX_SHA256 := //p' Makefile) \
+            scripts/render-homebrew-formula > /tmp/hoplite.rb
+          ruby -c /tmp/hoplite.rb
+          grep -F "$HARA_REF" /tmp/hoplite.rb
+
   docs:
     runs-on: ubuntu-latest
     steps:
