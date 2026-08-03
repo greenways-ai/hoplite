@@ -27,11 +27,24 @@ pub fn serve(
     listen: &str,
     session_policy: &SessionPolicy,
 ) -> Result<(), String> {
+    let listener = bind(listen)?;
+    serve_listener(store_path, listener, listen, session_policy)
+}
+
+pub fn bind(listen: &str) -> Result<TcpListener, String> {
     if !is_loopback_address(listen) {
         return Err("the management gateway must bind to a loopback address".into());
     }
-    let listener = TcpListener::bind(listen)
-        .map_err(|error| format!("cannot bind Hoplite management gateway at {listen}: {error}"))?;
+    TcpListener::bind(listen)
+        .map_err(|error| format!("cannot bind Hoplite management gateway at {listen}: {error}"))
+}
+
+pub fn serve_listener(
+    store_path: &Path,
+    listener: TcpListener,
+    listen: &str,
+    session_policy: &SessionPolicy,
+) -> Result<(), String> {
     let mut store = Store::open(store_path)?;
     println!("Hoplite management gateway listening on http://{listen}");
     for connection in listener.incoming() {

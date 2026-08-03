@@ -64,6 +64,11 @@ Start the loopback-only API from a configured Hoplite project:
 hoplite auth serve --listen 127.0.0.1:9090 PROJECT
 ```
 
+`hoplite serve foreground` starts the same gateway automatically. Its address
+defaults to `127.0.0.1:9090` and can be changed with
+`HOPLITE_MANAGEMENT_LISTEN`; set that variable to `off` to disable the embedded
+gateway when running a separate management process.
+
 | Method and path | Authentication | Purpose |
 | --- | --- | --- |
 | `GET /health` | Public, loopback only | Process health |

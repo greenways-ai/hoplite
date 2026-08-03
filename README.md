@@ -125,6 +125,11 @@ make example-prod
 hoplite serve foreground --mode prod --profile server /path/to/project
 ```
 
+Foreground mode runs the application and the Hoplite management gateway in one
+process. Management listens on `127.0.0.1:9090` by default; use
+`HOPLITE_MANAGEMENT_LISTEN` to select another loopback socket or `off` to run
+without the embedded management surface.
+
 Build output is placed under the application's `.hoplite/` directory:
 
 ```text

@@ -74,6 +74,7 @@ rejected before the socket is opened.
 | --- | --- |
 | `HOPLITE_NGINX` | Select an external development Nginx executable instead of the embedded binary |
 | `HOPLITE_STATE_DIR` | Override the directory containing `control.db`; containers use `/var/lib/hoplite` |
+| `HOPLITE_MANAGEMENT_LISTEN` | Foreground management socket; defaults to `127.0.0.1:9090`, accepts loopback addresses or `off` |
 
 Use `HOPLITE_NGINX` deliberately; normal installations should use the embedded host.
 

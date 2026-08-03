@@ -351,6 +351,7 @@ fn serve(root: &Path, settings: &BuildSettings) -> Result<(), String> {
 fn run_foreground(root: &Path, settings: &BuildSettings) -> Result<(), String> {
     let output = build(root, settings)?;
     let project_root = output.parent().ok_or("invalid Hoplite output path")?;
+    start_embedded_management_gateway(project_root, settings)?;
     let mut command = Command::new(nginx_binary()?);
     command
         .arg("-p")
@@ -360,23 +361,39 @@ fn run_foreground(root: &Path, settings: &BuildSettings) -> Result<(), String> {
         .arg("-e")
         .arg(".hoplite/error.log")
         .args(["-g", "daemon off;"]);
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        let error = command.exec();
-        Err(format!("cannot exec Hoplite Nginx: {error}"))
+    let exit = command
+        .status()
+        .map_err(|error| format!("cannot run Hoplite Nginx: {error}"))?;
+    if exit.success() {
+        Ok(())
+    } else {
+        Err(format!("Nginx exited with {exit}"))
     }
-    #[cfg(not(unix))]
-    {
-        let exit = command
-            .status()
-            .map_err(|error| format!("cannot run Hoplite Nginx: {error}"))?;
-        if exit.success() {
-            Ok(())
-        } else {
-            Err(format!("Nginx exited with {exit}"))
-        }
+}
+
+fn start_embedded_management_gateway(
+    project_root: &Path,
+    settings: &BuildSettings,
+) -> Result<(), String> {
+    let listen = env::var("HOPLITE_MANAGEMENT_LISTEN").unwrap_or_else(|_| "127.0.0.1:9090".into());
+    if listen == "off" {
+        return Ok(());
     }
+    let listener = management::bind(&listen)?;
+    let project = project::discover(project_root)?;
+    let platform = platform::load(&project, settings.profile.as_deref())?;
+    let policy = platform.authentication.realms["management"].session.clone();
+    let store_path = auth_store_path(project_root);
+    thread::Builder::new()
+        .name("hoplite-management".into())
+        .spawn(move || {
+            if let Err(error) = management::serve_listener(&store_path, listener, &listen, &policy)
+            {
+                eprintln!("hoplite: management gateway stopped: {error}");
+            }
+        })
+        .map_err(|error| format!("cannot start Hoplite management gateway: {error}"))?;
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]

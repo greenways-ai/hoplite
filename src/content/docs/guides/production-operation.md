@@ -13,6 +13,11 @@ hoplite serve foreground --mode prod PROJECT
 
 Production mode uses available CPU parallelism unless the selected profile or advanced host configuration specifies a worker count. It does not expose the development-only default OpenAPI route.
 
+Foreground operation also starts the Hoplite management gateway on
+`127.0.0.1:9090`. Set `HOPLITE_MANAGEMENT_LISTEN` to another loopback socket,
+or to `off` when a separate `hoplite auth serve` process owns management.
+Non-loopback values are rejected.
+
 ## Managed background process
 
 ```sh
