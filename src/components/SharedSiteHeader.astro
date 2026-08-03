@@ -1,0 +1,5 @@
+---
+import SharedHeader from "@greenways-ai/visual-language/SharedHeader.astro";
+const base = import.meta.env.BASE_URL;
+---
+<SharedHeader project="hoplite" title="Hoplite" homeHref={base} searchBase={base.replace(/\/$/, "")} nav={[{label:"Start",href:`${base}getting-started/`},{label:"Concepts",href:`${base}concepts/runtime-model/`},{label:"Guides",href:`${base}guides/production-operation/`},{label:"Reference",href:`${base}reference/cli/`}]} githubHref="https://github.com/greenways-ai/hoplite" />

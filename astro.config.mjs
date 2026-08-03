@@ -10,6 +10,7 @@ export default defineConfig({
     starlight({
       title: "Hoplite",
       components: {
+        Header: "./src/components/SharedSiteHeader.astro",
         ThemeProvider: "./src/components/GreenwaysThemeProvider.astro",
         ThemeSelect: "./src/components/GreenwaysThemeSelect.astro",
       },

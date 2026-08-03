@@ -10,7 +10,7 @@ class Hoplite < Formula
   desc "Hara application server on nginx"
   homepage "https://github.com/greenways-ai/hoplite"
   version "${VERSION}"
-  license "EPL-2.0"
+  license "Apache-2.0"
 
   on_arm do
     url "https://github.com/greenways-ai/hoplite/releases/download/v${VERSION}/hoplite-v${VERSION}-aarch64-apple-darwin"
