@@ -74,6 +74,75 @@ pub struct Transaction {
     pub operations: Vec<Request>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Response {
+    pub id: String,
+    pub result_hta: Option<Vec<u8>>,
+    pub error: Option<Error>,
+}
+
+impl Response {
+    pub fn success(id: impl Into<String>, result_hta: Vec<u8>) -> Result<Self, Error> {
+        let id = id.into();
+        validate_id(&id, "response")?;
+        validate_hta(&result_hta)?;
+        Ok(Self {
+            id,
+            result_hta: Some(result_hta),
+            error: None,
+        })
+    }
+
+    pub fn failure(id: impl Into<String>, error: Error) -> Result<Self, Error> {
+        let id = id.into();
+        validate_id(&id, "response")?;
+        Ok(Self {
+            id,
+            result_hta: None,
+            error: Some(error),
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TransactionResponse {
+    pub id: String,
+    pub responses: Vec<Response>,
+}
+
+impl TransactionResponse {
+    pub fn new(transaction: &Transaction, responses: Vec<Response>) -> Result<Self, Error> {
+        if responses.len() != transaction.operations.len() {
+            return Err(Error::new(
+                "transaction-response-count",
+                format!(
+                    "expected {} responses, got {}",
+                    transaction.operations.len(),
+                    responses.len()
+                ),
+            ));
+        }
+        for (request, response) in transaction.operations.iter().zip(&responses) {
+            if request.id != response.id {
+                return Err(Error::new(
+                    "response-id-mismatch",
+                    format!("expected {}, got {}", request.id, response.id),
+                ));
+            }
+        }
+        Ok(Self {
+            id: transaction.id.clone(),
+            responses,
+        })
+    }
+}
+
+pub trait Adapter {
+    fn execute(&mut self, request: Request) -> Result<Response, Error>;
+
+    fn transact(&mut self, transaction: Transaction) -> Result<TransactionResponse, Error>;
+}
+
 impl Transaction {
     pub fn new(id: impl Into<String>, operations: Vec<Request>) -> Result<Self, Error> {
         let id = id.into();
@@ -96,14 +165,14 @@ impl Transaction {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Error {
-    pub code: &'static str,
+    pub code: String,
     pub detail: String,
 }
 
 impl Error {
-    pub fn new(code: &'static str, detail: impl Into<String>) -> Self {
+    pub fn new(code: impl Into<String>, detail: impl Into<String>) -> Self {
         Self {
-            code,
+            code: code.into(),
             detail: detail.into(),
         }
     }
@@ -381,6 +450,26 @@ mod tests {
                 .unwrap_err()
                 .code,
             "payload-not-hta"
+        );
+    }
+
+    #[test]
+    fn responses_preserve_request_and_transaction_identity() {
+        let request = Request::new("req-1", "auth/user-create", b"HTA1input".to_vec()).unwrap();
+        let transaction = Transaction::new("txn-1", vec![request]).unwrap();
+        let response = Response::success("req-1", b"HTA1output".to_vec()).unwrap();
+        assert_eq!(
+            TransactionResponse::new(&transaction, vec![response])
+                .unwrap()
+                .id,
+            "txn-1"
+        );
+        let mismatch = Response::failure("req-2", Error::new("conflict", "duplicate")).unwrap();
+        assert_eq!(
+            TransactionResponse::new(&transaction, vec![mismatch])
+                .unwrap_err()
+                .code,
+            "response-id-mismatch"
         );
     }
 }

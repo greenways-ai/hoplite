@@ -49,6 +49,12 @@ Before dispatch, Hoplite decodes the payload frame and enforces those record
 shapes: keyword field names, required fields, declared scalar or nested record
 types, and no adapter-specific extra fields.
 
+Native addons implement the object-safe `hoplite_auth_store_abi::Adapter`
+boundary. A single request returns a correlated success or error response;
+transactions must return one ordered response for every mutation. Hoplite checks
+response identity and validates successful HTA results against the operation's
+declared output record before exposing them to `.hal` policy code.
+
 The boundary uses logical authentication operations, including user and device
 records, one-time challenges, sessions, refresh rotation, revocation, and audit
 append. An implementation must preserve the compare-and-set and transaction

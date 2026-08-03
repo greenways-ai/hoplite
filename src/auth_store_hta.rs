@@ -19,6 +19,31 @@ pub fn decode_request_payload(
     Ok(value)
 }
 
+pub fn decode_response_result(
+    request: &hoplite_auth_store_abi::Request,
+    response: &hoplite_auth_store_abi::Response,
+) -> Result<Option<Value>, hoplite_auth_store_abi::Error> {
+    if response.id != request.id {
+        return Err(hoplite_auth_store_abi::Error::new(
+            "response-id-mismatch",
+            format!("expected {}, got {}", request.id, response.id),
+        ));
+    }
+    match (&response.result_hta, &response.error) {
+        (Some(result), None) => {
+            let value = hara_wasm::hta::decode(result)
+                .map_err(|error| hoplite_auth_store_abi::Error::new("result-invalid", error))?;
+            validate_record(request.operation.output, &value)?;
+            Ok(Some(value))
+        }
+        (None, Some(_)) => Ok(None),
+        _ => Err(hoplite_auth_store_abi::Error::new(
+            "response-invalid",
+            "response must contain exactly one of result or error",
+        )),
+    }
+}
+
 fn validate_record(record_name: &str, value: &Value) -> Result<(), hoplite_auth_store_abi::Error> {
     let record = hoplite_auth_store_abi::record_type(record_name)
         .ok_or_else(|| hoplite_auth_store_abi::Error::new("type-unknown", record_name))?;
@@ -238,6 +263,40 @@ mod tests {
         assert_eq!(
             decode_request_payload(&request).unwrap_err().code,
             "field-required"
+        );
+    }
+
+    #[test]
+    fn response_results_are_checked_against_the_operation_output() {
+        let request = hoplite_auth_store_abi::Request::new(
+            "req-1",
+            "auth/user-find",
+            hara_wasm::hta::encode(&map(vec![
+                (keyword("user/realm"), Value::String("management".into())),
+                (keyword("device/public-key"), Value::Bytes(vec![1; 32])),
+            ]))
+            .unwrap(),
+        )
+        .unwrap();
+        let result = map(vec![(
+            keyword("result/value"),
+            map(vec![
+                (keyword("user/id"), Value::String("usr_1".into())),
+                (keyword("user/realm"), Value::String("management".into())),
+                (keyword("user/created-at"), Value::Number(42)),
+            ]),
+        )]);
+        let response = hoplite_auth_store_abi::Response::success(
+            "req-1",
+            hara_wasm::hta::encode(&result).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            decode_response_result(&request, &response)
+                .unwrap()
+                .unwrap()
+                .display(),
+            result.display()
         );
     }
 }
