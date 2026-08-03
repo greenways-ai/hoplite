@@ -48,6 +48,7 @@ fn validate_root(
         crate::platform::PRINCIPAL_CONTRACT,
     )?;
     expect_operations(&value)?;
+    expect_native_artifact(&value, &composition.store_package)?;
     Ok(())
 }
 
@@ -75,7 +76,7 @@ mod tests {
         .unwrap();
         fs::write(
             root.join("src/hoplite/store/sqlite.hal"),
-            "(ns hoplite.store.sqlite (:require [hoplite.core :as h])) (def adapter (h/adapter {:adapter/export :hoplite/store :adapter/implements {:hoplite/auth-store \"1.0.0\"} :adapter/operations #{:auth/user-create :auth/user-find :auth/device-put :auth/challenge-put :auth/challenge-consume :auth/session-put :auth/refresh-rotate :auth/session-revoke :auth/audit-append}}))",
+            "(ns hoplite.store.sqlite (:require [hoplite.core :as h])) (def adapter (h/adapter {:adapter/export :hoplite/store :adapter/implements {:hoplite/auth-store \"1.0.0\"} :adapter/operations #{:auth/user-create :auth/user-find :auth/device-put :auth/challenge-put :auth/challenge-consume :auth/session-put :auth/refresh-rotate :auth/session-revoke :auth/audit-append} :adapter/native {:crate \"hoplite-store-sqlite\" :abi \"hoplite-auth-store/1\"}}))",
         )
         .unwrap();
         let composition = crate::platform::AuthComposition {
@@ -93,7 +94,7 @@ mod tests {
 
         fs::write(
             root.join("src/hoplite/store/sqlite.hal"),
-            "(ns hoplite.store.sqlite (:require [hoplite.core :as h])) (def adapter (h/adapter {:adapter/export :hoplite/store :adapter/implements {:hoplite/auth-store \"2.0.0\"} :adapter/operations #{:auth/user-create :auth/user-find :auth/device-put :auth/challenge-put :auth/challenge-consume :auth/session-put :auth/refresh-rotate :auth/session-revoke :auth/audit-append}}))",
+            "(ns hoplite.store.sqlite (:require [hoplite.core :as h])) (def adapter (h/adapter {:adapter/export :hoplite/store :adapter/implements {:hoplite/auth-store \"2.0.0\"} :adapter/operations #{:auth/user-create :auth/user-find :auth/device-put :auth/challenge-put :auth/challenge-consume :auth/session-put :auth/refresh-rotate :auth/session-revoke :auth/audit-append} :adapter/native {:crate \"hoplite-store-sqlite\" :abi \"hoplite-auth-store/1\"}}))",
         )
         .unwrap();
         assert!(validate_root(&composition, &root)
@@ -108,6 +109,15 @@ mod tests {
         assert!(validate_root(&composition, &root)
             .unwrap_err()
             .contains("operations must exactly implement"));
+
+        fs::write(
+            root.join("src/hoplite/store/sqlite.hal"),
+            "(ns hoplite.store.sqlite (:require [hoplite.core :as h])) (def adapter (h/adapter {:adapter/export :hoplite/store :adapter/implements {:hoplite/auth-store \"1.0.0\"} :adapter/operations #{:auth/user-create :auth/user-find :auth/device-put :auth/challenge-put :auth/challenge-consume :auth/session-put :auth/refresh-rotate :auth/session-revoke :auth/audit-append} :adapter/native {:crate \"hoplite-store-sqlite\" :abi \"hoplite-auth-store/2\"}}))",
+        )
+        .unwrap();
+        assert!(validate_root(&composition, &root)
+            .unwrap_err()
+            .contains(":abi must be \"hoplite-auth-store/1\""));
         fs::remove_dir_all(root).unwrap();
     }
 }
@@ -184,4 +194,15 @@ fn operation_name(value: &Value) -> Result<String, String> {
             "store adapter :adapter/operations contains a non-keyword value: {value:?}"
         )),
     }
+}
+
+fn expect_native_artifact(value: &Value, package: &str) -> Result<(), String> {
+    let native = field(value, "adapter/native")
+        .ok_or("store adapter is missing :adapter/native artifact metadata")?;
+    let expected_crate = package
+        .rsplit([':', '/'])
+        .next()
+        .ok_or("store adapter package coordinate has no artifact name")?;
+    expect_string(&native, "crate", expected_crate)?;
+    expect_string(&native, "abi", "hoplite-auth-store/1")
 }

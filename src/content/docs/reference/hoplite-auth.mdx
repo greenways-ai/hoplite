@@ -20,10 +20,11 @@ capabilities needed for randomness, hashing, signature verification, and time.
 A `.harp` addon implements the store contract for a chosen persistence engine.
 Before opening the backend, Hoplite evaluates the installed adapter export and
 checks its type, export identity, exact `:hoplite/auth-store` contract version,
-and complete operation set. A matching coordinate alone is not sufficient
-activation authority. The `init`, `enroll`, `status`, and management-server
-paths all use this same composition; bootstrap commands cannot bypass the
-adapter selected by `project.edn`.
+complete operation set, native crate identity, and `hoplite-auth-store/1` ABI.
+A matching coordinate alone is not sufficient activation authority. The
+`init`, `enroll`, `status`, and management-server paths all use this same
+composition; bootstrap commands cannot bypass the adapter selected by
+`project.edn`.
 
 ## `AuthStore`
 
