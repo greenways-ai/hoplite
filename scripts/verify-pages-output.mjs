@@ -9,8 +9,16 @@ const required = [
 ];
 const expectedGuideUrl =
   "https://opensource.greenways.ai/hoplite/guides/writing-web-services";
+const expectedNavigationLinks = [
+  "/hoplite/getting-started/",
+  "/hoplite/concepts/runtime-model/",
+  "/hoplite/guides/production-operation/",
+  "/hoplite/reference/cli/",
+];
 const unscopedRootLink =
-  /(href|src|srcset|action)="\/(?!hoplite(?:\/|"))/g;
+  /(href|src|srcset|action)="\/(?!hoplite(?:\/|"))/;
+const duplicatedScope =
+  /(href|src|srcset|action)="\/hoplite\/hoplite(?:\/|[A-Za-z0-9_-])/;
 
 async function htmlFiles(directory) {
   const output = [];
@@ -33,9 +41,26 @@ if (files.length === 0) {
 
 for (const path of files) {
   const source = await readFile(path, "utf8");
-  const match = source.match(unscopedRootLink);
-  if (match) {
-    throw new Error(`Pages verification found an unscoped root link in ${path}: ${match[0]}`);
+  const unscoped = source.match(unscopedRootLink);
+  if (unscoped) {
+    throw new Error(
+      `Pages verification found an unscoped root link in ${path}: ${unscoped[0]}`,
+    );
+  }
+  const duplicated = source.match(duplicatedScope);
+  if (duplicated) {
+    throw new Error(
+      `Pages verification found a duplicated base path in ${path}: ${duplicated[0]}`,
+    );
+  }
+}
+
+const home = await readFile(join(root, "index.html"), "utf8");
+for (const href of expectedNavigationLinks) {
+  if (!home.includes(`href="${href}"`)) {
+    throw new Error(
+      `Pages verification did not find the expected navigation link: ${href}`,
+    );
   }
 }
 
@@ -44,9 +69,11 @@ const guide = await readFile(
   "utf8",
 );
 if (!guide.includes(expectedGuideUrl)) {
-  throw new Error(`Pages verification did not find the canonical guide URL: ${expectedGuideUrl}`);
+  throw new Error(
+    `Pages verification did not find the canonical guide URL: ${expectedGuideUrl}`,
+  );
 }
 
 console.log(
-  `Verified ${files.length} Pages documents under /hoplite, including the web services guide.`,
+  `Verified ${files.length} Pages documents under /hoplite, including navigation and the web services guide.`,
 );
