@@ -2,33 +2,69 @@
 set -eu
 
 : "${VERSION:?set VERSION}"
-: "${ARM64_SHA256:?set ARM64_SHA256}"
-: "${X86_64_SHA256:?set X86_64_SHA256}"
+: "${HOPLITE_REVISION:?set HOPLITE_REVISION}"
+: "${HARA_REVISION:?set HARA_REVISION}"
+: "${LICENSE:?set LICENSE}"
+: "${NGINX_VERSION:?set NGINX_VERSION}"
+: "${NGINX_SHA256:?set NGINX_SHA256}"
 
 cat <<FORMULA
 class Hoplite < Formula
-  desc "Hara application server on nginx"
+  desc "Hara application server built into nginx"
   homepage "https://github.com/greenways-ai/hoplite"
-  version "${VERSION}"
-  license "Apache-2.0"
+  url "https://github.com/greenways-ai/hoplite.git",
+      tag:      "v${VERSION}",
+      revision: "${HOPLITE_REVISION}"
+  license "${LICENSE}"
+  head "https://github.com/greenways-ai/hoplite.git", branch: "main"
 
-  on_arm do
-    url "https://github.com/greenways-ai/hoplite/releases/download/v${VERSION}/hoplite-v${VERSION}-aarch64-apple-darwin"
-    sha256 "${ARM64_SHA256}"
+  depends_on "pkgconf" => :build
+  depends_on "rust" => :build
+  depends_on "openssl@3"
+  depends_on "pcre2"
+  depends_on "zlib"
+
+  resource "hara" do
+    url "https://github.com/hara-lang/hara.git",
+        revision: "${HARA_REVISION}"
   end
 
-  on_intel do
-    url "https://github.com/greenways-ai/hoplite/releases/download/v${VERSION}/hoplite-v${VERSION}-x86_64-apple-darwin"
-    sha256 "${X86_64_SHA256}"
+  resource "nginx" do
+    url "https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz"
+    sha256 "${NGINX_SHA256}"
   end
 
   def install
-    artifact = Dir["hoplite-v#{version}-*"].first
-    bin.install artifact => "hoplite"
+    resource("hara").stage do
+      (buildpath/"hara.lang").install Pathname.pwd.children
+    end
+
+    nginx_source = buildpath/"target/sources/nginx-${NGINX_VERSION}"
+    resource("nginx").stage do
+      nginx_source.install Pathname.pwd.children
+    end
+
+    inreplace "Cargo.toml", "../hara.lang/rust", "hara.lang/rust"
+
+    openssl = Formula["openssl@3"]
+    pcre2 = Formula["pcre2"]
+    zlib = Formula["zlib"]
+
+    include_paths = [openssl.opt_include, pcre2.opt_include, zlib.opt_include]
+    library_paths = [openssl.opt_lib, pcre2.opt_lib, zlib.opt_lib]
+    include_flags = include_paths.map { |path| "-I#{path}" }.join(" ")
+    library_flags = library_paths.flat_map { |path| ["-L#{path}", "-Wl,-rpath,#{path}"] }.join(" ")
+
+    system "make", "embedded-cli",
+           "NGINX_SRC=#{nginx_source}",
+           "NGINX_CC_OPT=#{include_flags}",
+           "NGINX_LD_OPT=#{library_flags}"
+
+    bin.install "target/release/hoplite"
   end
 
   test do
-    assert_match "42", shell_output("#{bin}/hoplite eval '(+ 19 23)'")
+    assert_equal "42", shell_output("#{bin}/hoplite eval '(+ 19 23)'").strip
     assert_match "Hoplite", shell_output("#{bin}/hoplite version")
   end
 end
