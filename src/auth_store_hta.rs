@@ -48,8 +48,14 @@ pub fn execute<A: hoplite_auth_store_abi::Adapter + ?Sized>(
     adapter: &mut A,
     request: hoplite_auth_store_abi::Request,
 ) -> Result<hoplite_auth_store_abi::Response, hoplite_auth_store_abi::Error> {
-    decode_request_payload(&request)?;
-    let response = adapter.execute(request.clone())?;
+    let payload = decode_request_payload(&request)?;
+    let native_request = hoplite_auth_store_abi::NativeRequest {
+        id: request.id.clone(),
+        operation: request.operation,
+        payload: to_native_record(request.operation.input, &payload)?,
+    };
+    let native_response = adapter.execute(native_request)?;
+    let response = wire_response(request.operation.output, native_response)?;
     decode_response_result(&request, &response)?;
     Ok(response)
 }
@@ -58,21 +64,141 @@ pub fn transact<A: hoplite_auth_store_abi::Adapter + ?Sized>(
     adapter: &mut A,
     transaction: hoplite_auth_store_abi::Transaction,
 ) -> Result<hoplite_auth_store_abi::TransactionResponse, hoplite_auth_store_abi::Error> {
-    for request in &transaction.operations {
-        decode_request_payload(request)?;
-    }
-    let response = adapter.transact(transaction.clone())?;
-    if response.id != transaction.id {
+    let native_operations = transaction
+        .operations
+        .iter()
+        .map(|request| {
+            let payload = decode_request_payload(request)?;
+            Ok(hoplite_auth_store_abi::NativeRequest {
+                id: request.id.clone(),
+                operation: request.operation,
+                payload: to_native_record(request.operation.input, &payload)?,
+            })
+        })
+        .collect::<Result<Vec<_>, hoplite_auth_store_abi::Error>>()?;
+    let native_response = adapter.transact(hoplite_auth_store_abi::NativeTransaction {
+        id: transaction.id.clone(),
+        operations: native_operations,
+    })?;
+    if native_response.id != transaction.id {
         return Err(hoplite_auth_store_abi::Error::new(
             "transaction-response-id-mismatch",
-            format!("expected {}, got {}", transaction.id, response.id),
+            format!("expected {}, got {}", transaction.id, native_response.id),
         ));
     }
+    let responses = transaction
+        .operations
+        .iter()
+        .zip(native_response.responses)
+        .map(|(request, response)| wire_response(request.operation.output, response))
+        .collect::<Result<Vec<_>, _>>()?;
+    let response = hoplite_auth_store_abi::TransactionResponse {
+        id: native_response.id,
+        responses,
+    };
     hoplite_auth_store_abi::TransactionResponse::new(&transaction, response.responses.clone())?;
     for (request, response) in transaction.operations.iter().zip(&response.responses) {
         decode_response_result(request, response)?;
     }
     Ok(response)
+}
+
+fn wire_response(
+    output_type: &str,
+    response: hoplite_auth_store_abi::NativeResponse,
+) -> Result<hoplite_auth_store_abi::Response, hoplite_auth_store_abi::Error> {
+    match (response.result, response.error) {
+        (Some(result), None) => {
+            let value = from_native_record(output_type, &result)?;
+            hoplite_auth_store_abi::Response::success(
+                response.id,
+                hara_wasm::hta::encode(&value)
+                    .map_err(|error| hoplite_auth_store_abi::Error::new("result-encode", error))?,
+            )
+        }
+        (None, Some(error)) => hoplite_auth_store_abi::Response::failure(response.id, error),
+        _ => Err(hoplite_auth_store_abi::Error::new(
+            "response-invalid",
+            "native response must contain exactly one of result or error",
+        )),
+    }
+}
+
+fn to_native_record(
+    record_name: &str,
+    value: &Value,
+) -> Result<hoplite_auth_store_abi::RecordValue, hoplite_auth_store_abi::Error> {
+    validate_record(record_name, value)?;
+    hara_wasm::core::map_entries(value)
+        .unwrap()
+        .into_iter()
+        .map(|(key, value)| {
+            let Value::Keyword(key) = key else {
+                unreachable!()
+            };
+            Ok((key.as_str().to_owned(), to_native_value(&value)?))
+        })
+        .collect()
+}
+
+fn to_native_value(
+    value: &Value,
+) -> Result<hoplite_auth_store_abi::Value, hoplite_auth_store_abi::Error> {
+    match value {
+        Value::String(value) => Ok(hoplite_auth_store_abi::Value::String(value.clone())),
+        Value::Number(value) => Ok(hoplite_auth_store_abi::Value::Integer(*value)),
+        Value::Bytes(value) => Ok(hoplite_auth_store_abi::Value::Bytes(value.clone())),
+        Value::ByteBuffer(value) => {
+            Ok(hoplite_auth_store_abi::Value::Bytes(value.borrow().clone()))
+        }
+        value if hara_wasm::core::map_entries(value).is_some() => Ok(
+            hoplite_auth_store_abi::Value::Record(to_native_record_value(value)?),
+        ),
+        _ => Err(hoplite_auth_store_abi::Error::new(
+            "native-value-unsupported",
+            "validated value has no native representation",
+        )),
+    }
+}
+
+fn to_native_record_value(
+    value: &Value,
+) -> Result<hoplite_auth_store_abi::RecordValue, hoplite_auth_store_abi::Error> {
+    hara_wasm::core::map_entries(value)
+        .unwrap()
+        .into_iter()
+        .map(|(key, value)| match key {
+            Value::Keyword(key) => Ok((key.as_str().to_owned(), to_native_value(&value)?)),
+            _ => Err(hoplite_auth_store_abi::Error::new(
+                "field-name",
+                "native records require keyword fields",
+            )),
+        })
+        .collect()
+}
+
+fn from_native_record(
+    record_name: &str,
+    record: &hoplite_auth_store_abi::RecordValue,
+) -> Result<Value, hoplite_auth_store_abi::Error> {
+    let value = map(record
+        .iter()
+        .map(|(name, value)| (keyword(name), from_native_value(value)))
+        .collect());
+    validate_record(record_name, &value)?;
+    Ok(value)
+}
+
+fn from_native_value(value: &hoplite_auth_store_abi::Value) -> Value {
+    match value {
+        hoplite_auth_store_abi::Value::String(value) => Value::String(value.clone()),
+        hoplite_auth_store_abi::Value::Integer(value) => Value::Number(*value),
+        hoplite_auth_store_abi::Value::Bytes(value) => Value::Bytes(value.clone()),
+        hoplite_auth_store_abi::Value::Record(record) => map(record
+            .iter()
+            .map(|(name, value)| (keyword(name), from_native_value(value)))
+            .collect()),
+    }
 }
 
 fn validate_record(record_name: &str, value: &Value) -> Result<(), hoplite_auth_store_abi::Error> {
@@ -332,36 +458,39 @@ mod tests {
     }
 
     struct EchoAdapter {
-        result: Vec<u8>,
+        result: hoplite_auth_store_abi::RecordValue,
         called: bool,
     }
 
     impl hoplite_auth_store_abi::Adapter for EchoAdapter {
         fn execute(
             &mut self,
-            request: hoplite_auth_store_abi::Request,
-        ) -> Result<hoplite_auth_store_abi::Response, hoplite_auth_store_abi::Error> {
+            request: hoplite_auth_store_abi::NativeRequest,
+        ) -> Result<hoplite_auth_store_abi::NativeResponse, hoplite_auth_store_abi::Error> {
             self.called = true;
-            hoplite_auth_store_abi::Response::success(request.id, self.result.clone())
+            hoplite_auth_store_abi::NativeResponse::success(request.id, self.result.clone())
         }
 
         fn transact(
             &mut self,
-            transaction: hoplite_auth_store_abi::Transaction,
-        ) -> Result<hoplite_auth_store_abi::TransactionResponse, hoplite_auth_store_abi::Error>
+            transaction: hoplite_auth_store_abi::NativeTransaction,
+        ) -> Result<hoplite_auth_store_abi::NativeTransactionResponse, hoplite_auth_store_abi::Error>
         {
             self.called = true;
             let responses = transaction
                 .operations
                 .iter()
                 .map(|request| {
-                    hoplite_auth_store_abi::Response::success(
+                    hoplite_auth_store_abi::NativeResponse::success(
                         request.id.clone(),
                         self.result.clone(),
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            hoplite_auth_store_abi::TransactionResponse::new(&transaction, responses)
+            Ok(hoplite_auth_store_abi::NativeTransactionResponse {
+                id: transaction.id,
+                responses,
+            })
         }
     }
 
@@ -379,7 +508,11 @@ mod tests {
         )
         .unwrap();
         let mut adapter = EchoAdapter {
-            result: request.payload_hta.clone(),
+            result: to_native_record(
+                request.operation.input,
+                &decode_request_payload(&request).unwrap(),
+            )
+            .unwrap(),
             called: false,
         };
         assert_eq!(execute(&mut adapter, request).unwrap().id, "req-1");
@@ -401,7 +534,8 @@ mod tests {
         let mutation = hoplite_auth_store_abi::Request::new(
             "req-3",
             "auth/user-create",
-            adapter.result.clone(),
+            hara_wasm::hta::encode(&from_native_record("auth/User", &adapter.result).unwrap())
+                .unwrap(),
         )
         .unwrap();
         let transaction =

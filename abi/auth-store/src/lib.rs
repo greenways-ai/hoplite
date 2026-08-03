@@ -1,5 +1,7 @@
 //! Dependency-free model for the `hoplite-auth-store/1` HTA ABI.
 
+use std::collections::BTreeMap;
+
 pub const ABI_ID: &str = "hoplite/auth-store";
 pub const ABI_VERSION: &str = "1.0.0";
 pub const TRANSPORT: &str = "hta.v1";
@@ -39,6 +41,64 @@ pub struct Field {
 pub struct Record {
     pub name: &'static str,
     pub fields: &'static [Field],
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Value {
+    String(String),
+    Integer(i64),
+    Bytes(Vec<u8>),
+    Record(RecordValue),
+}
+
+pub type RecordValue = BTreeMap<String, Value>;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeRequest {
+    pub id: String,
+    pub operation: Operation,
+    pub payload: RecordValue,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeTransaction {
+    pub id: String,
+    pub operations: Vec<NativeRequest>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeResponse {
+    pub id: String,
+    pub result: Option<RecordValue>,
+    pub error: Option<Error>,
+}
+
+impl NativeResponse {
+    pub fn success(id: impl Into<String>, result: RecordValue) -> Result<Self, Error> {
+        let id = id.into();
+        validate_id(&id, "response")?;
+        Ok(Self {
+            id,
+            result: Some(result),
+            error: None,
+        })
+    }
+
+    pub fn failure(id: impl Into<String>, error: Error) -> Result<Self, Error> {
+        let id = id.into();
+        validate_id(&id, "response")?;
+        Ok(Self {
+            id,
+            result: None,
+            error: Some(error),
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeTransactionResponse {
+    pub id: String,
+    pub responses: Vec<NativeResponse>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -138,9 +198,12 @@ impl TransactionResponse {
 }
 
 pub trait Adapter {
-    fn execute(&mut self, request: Request) -> Result<Response, Error>;
+    fn execute(&mut self, request: NativeRequest) -> Result<NativeResponse, Error>;
 
-    fn transact(&mut self, transaction: Transaction) -> Result<TransactionResponse, Error>;
+    fn transact(
+        &mut self,
+        transaction: NativeTransaction,
+    ) -> Result<NativeTransactionResponse, Error>;
 }
 
 impl Transaction {
