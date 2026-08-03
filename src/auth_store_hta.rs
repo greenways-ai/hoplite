@@ -10,6 +10,82 @@ pub fn sha256() -> Result<String, String> {
     Ok(format!("sha256:{:x}", Sha256::digest(contract()?)))
 }
 
+pub fn decode_request_payload(
+    request: &hoplite_auth_store_abi::Request,
+) -> Result<Value, hoplite_auth_store_abi::Error> {
+    let value = hara_wasm::hta::decode(&request.payload_hta)
+        .map_err(|error| hoplite_auth_store_abi::Error::new("payload-invalid", error))?;
+    validate_record(request.operation.input, &value)?;
+    Ok(value)
+}
+
+fn validate_record(record_name: &str, value: &Value) -> Result<(), hoplite_auth_store_abi::Error> {
+    let record = hoplite_auth_store_abi::record_type(record_name)
+        .ok_or_else(|| hoplite_auth_store_abi::Error::new("type-unknown", record_name))?;
+    let entries = hara_wasm::core::map_entries(value).ok_or_else(|| {
+        hoplite_auth_store_abi::Error::new(
+            "payload-type",
+            format!("{record_name} must be an HTA map"),
+        )
+    })?;
+    let mut present = std::collections::BTreeMap::new();
+    for (key, value) in entries {
+        let Value::Keyword(key) = key else {
+            return Err(hoplite_auth_store_abi::Error::new(
+                "field-name",
+                format!("{record_name} fields must use keywords"),
+            ));
+        };
+        let name = key.as_str().to_owned();
+        if !record.fields.iter().any(|field| field.name == name) {
+            return Err(hoplite_auth_store_abi::Error::new(
+                "field-unknown",
+                format!("{record_name} does not define :{name}"),
+            ));
+        }
+        if present.insert(name.clone(), value).is_some() {
+            return Err(hoplite_auth_store_abi::Error::new(
+                "field-duplicate",
+                format!("{record_name} contains :{name} more than once"),
+            ));
+        }
+    }
+    for field in record.fields {
+        match present.get(field.name) {
+            None if field.required => {
+                return Err(hoplite_auth_store_abi::Error::new(
+                    "field-required",
+                    format!("{record_name} requires :{}", field.name),
+                ))
+            }
+            Some(value) if !value_matches(field.field_type, value)? => {
+                return Err(hoplite_auth_store_abi::Error::new(
+                    "field-type",
+                    format!("{record_name} :{} must be {}", field.name, field.field_type),
+                ))
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn value_matches(field_type: &str, value: &Value) -> Result<bool, hoplite_auth_store_abi::Error> {
+    match field_type {
+        "string" => Ok(matches!(value, Value::String(_))),
+        "integer" => Ok(matches!(value, Value::Number(_))),
+        "bytes" => Ok(matches!(value, Value::Bytes(_) | Value::ByteBuffer(_))),
+        record_name if record_name.starts_with("auth/") => {
+            validate_record(record_name, value)?;
+            Ok(true)
+        }
+        _ => Err(hoplite_auth_store_abi::Error::new(
+            "type-unknown",
+            field_type,
+        )),
+    }
+}
+
 fn value() -> Value {
     map(vec![
         (keyword("abi/id"), keyword(hoplite_auth_store_abi::ABI_ID)),
@@ -132,6 +208,37 @@ mod tests {
                 |(name, _)| matches!(name, Value::Keyword(name) if name.as_str() == record.name)
             ));
         }
+    }
+
+    #[test]
+    fn request_payloads_are_checked_against_the_operation_input() {
+        let payload = map(vec![
+            (keyword("user/id"), Value::String("usr_1".into())),
+            (keyword("user/realm"), Value::String("management".into())),
+            (keyword("user/created-at"), Value::Number(42)),
+        ]);
+        let request = hoplite_auth_store_abi::Request::new(
+            "req-1",
+            "auth/user-create",
+            hara_wasm::hta::encode(&payload).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            decode_request_payload(&request).unwrap().display(),
+            payload.display()
+        );
+
+        let incomplete = map(vec![(keyword("user/id"), Value::String("usr_1".into()))]);
+        let request = hoplite_auth_store_abi::Request::new(
+            "req-2",
+            "auth/user-create",
+            hara_wasm::hta::encode(&incomplete).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            decode_request_payload(&request).unwrap_err().code,
+            "field-required"
+        );
     }
 }
 

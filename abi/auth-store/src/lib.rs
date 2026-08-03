@@ -101,7 +101,7 @@ pub struct Error {
 }
 
 impl Error {
-    fn new(code: &'static str, detail: impl Into<String>) -> Self {
+    pub fn new(code: &'static str, detail: impl Into<String>) -> Self {
         Self {
             code,
             detail: detail.into(),

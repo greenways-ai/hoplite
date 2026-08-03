@@ -45,6 +45,9 @@ output record. Addons compile against the dependency-free Rust descriptors in
 `hoplite-auth-store-abi`; Hoplite emits the same descriptors under `:abi/types`
 in `auth-store.hta`. Optional fields represent absent values directly, including
 the `auth/UserMaybe` query result, rather than using backend-specific nulls.
+Before dispatch, Hoplite decodes the payload frame and enforces those record
+shapes: keyword field names, required fields, declared scalar or nested record
+types, and no adapter-specific extra fields.
 
 The boundary uses logical authentication operations, including user and device
 records, one-time challenges, sessions, refresh rotation, revocation, and audit
