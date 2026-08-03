@@ -36,6 +36,7 @@ jobs:
           repository: hara-lang/hara
           path: hara.lang
           submodules: recursive
+          fetch-depth: 0
       - name: Resolve immutable release inputs
         id: metadata
         working-directory: hoplite
@@ -46,9 +47,26 @@ jobs:
             v*) ;;
             *) echo "release tag must start with v: $RELEASE_TAG" >&2; exit 1 ;;
           esac
+
           version=${RELEASE_TAG#v}
           crate_version=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
           test "$version" = "$crate_version"
+
+          if test -s packaging/hara-revision; then
+            hara_revision=$(tr -d '[:space:]' < packaging/hara-revision)
+          elif hara_revision=$(git -C ../hara.lang rev-parse -q --verify "refs/tags/${RELEASE_TAG}^{commit}"); then
+            echo "Using matching Hara tag ${RELEASE_TAG} for this legacy release"
+          else
+            hara_revision=$(git -C ../hara.lang rev-parse HEAD)
+            echo "::warning::No pinned or matching-tag Hara revision; using ${hara_revision}"
+          fi
+
+          case "$hara_revision" in
+            ''|*[!0-9a-f]*) echo "invalid Hara revision: $hara_revision" >&2; exit 1 ;;
+          esac
+          test "${#hara_revision}" -eq 40
+          git -C ../hara.lang cat-file -e "${hara_revision}^{commit}"
+          git -C ../hara.lang checkout --detach "$hara_revision"
 
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -211,14 +229,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ needs.prepare.outputs.tag }}
-          path: hoplite
-      - uses: actions/checkout@v5
-        with:
-          repository: hara-lang/hara
-          ref: ${{ needs.prepare.outputs.hara_revision }}
-          path: hara.lang
-          submodules: recursive
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || needs.prepare.outputs.tag }}
+          path: release-automation
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -244,7 +256,7 @@ jobs:
           LICENSE="${{ needs.prepare.outputs.license }}" \
           NGINX_VERSION="${{ needs.prepare.outputs.nginx_version }}" \
           NGINX_SHA256="${{ needs.prepare.outputs.nginx_sha256 }}" \
-            hoplite/scripts/render-homebrew-formula > rendered/Formula/hoplite.rb
+            release-automation/scripts/render-homebrew-formula > rendered/Formula/hoplite.rb
           ruby -c rendered/Formula/hoplite.rb
       - uses: actions/upload-artifact@v4
         with:
