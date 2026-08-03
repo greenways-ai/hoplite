@@ -1,18 +1,28 @@
 VERSION ?= $(shell grep -m1 '^version = ' ../../Cargo.toml | cut -d'"' -f2)
+HOPLITE_REVISION ?= $(shell git -C ../.. rev-parse HEAD 2>/dev/null)
+HARA_REVISION ?= $(shell git -C ../../../hara.lang rev-parse HEAD 2>/dev/null)
+LICENSE ?= $(shell grep -m1 '^license = ' ../../Cargo.toml | cut -d'"' -f2)
+NGINX_VERSION ?= $(shell sed -n 's/^NGINX_VERSION := //p' ../../Makefile)
+NGINX_SHA256 ?= $(shell sed -n 's/^NGINX_SHA256 := //p' ../../Makefile)
 FORMULA ?= Formula/hoplite.rb
 
-.PHONY: formula audit install-test
+.PHONY: formula check
 
 formula:
-	@test -n "$(ARM64_SHA256)" || (printf '%s\n' 'ARM64_SHA256 is required' && exit 1)
-	@test -n "$(X86_64_SHA256)" || (printf '%s\n' 'X86_64_SHA256 is required' && exit 1)
-	mkdir -p Formula
-	VERSION=$(VERSION) ARM64_SHA256=$(ARM64_SHA256) X86_64_SHA256=$(X86_64_SHA256) \
+	@test -n "$(VERSION)" || (printf '%s\n' 'VERSION is required' && exit 1)
+	@test -n "$(HOPLITE_REVISION)" || (printf '%s\n' 'HOPLITE_REVISION is required' && exit 1)
+	@test -n "$(HARA_REVISION)" || (printf '%s\n' 'HARA_REVISION is required' && exit 1)
+	@test -n "$(LICENSE)" || (printf '%s\n' 'LICENSE is required' && exit 1)
+	@test -n "$(NGINX_VERSION)" || (printf '%s\n' 'NGINX_VERSION is required' && exit 1)
+	@test -n "$(NGINX_SHA256)" || (printf '%s\n' 'NGINX_SHA256 is required' && exit 1)
+	mkdir -p $(dir $(FORMULA))
+	VERSION=$(VERSION) \
+	HOPLITE_REVISION=$(HOPLITE_REVISION) \
+	HARA_REVISION=$(HARA_REVISION) \
+	LICENSE=$(LICENSE) \
+	NGINX_VERSION=$(NGINX_VERSION) \
+	NGINX_SHA256=$(NGINX_SHA256) \
 		../../scripts/render-homebrew-formula > $(FORMULA)
 
-audit:
-	brew audit --strict --online $(FORMULA)
-
-install-test:
-	brew install --build-from-source $(FORMULA)
-	brew test hoplite
+check: formula
+	ruby -c $(FORMULA)
