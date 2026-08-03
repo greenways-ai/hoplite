@@ -571,6 +571,7 @@ dependencies = [
  "hara-wasm",
  "home",
  "hoplite-auth-store-abi",
+ "hoplite-store-sqlite",
  "rusqlite",
  "rustyline",
  "semver",
@@ -587,6 +588,15 @@ name = "hoplite-runtime"
 version = "0.1.0"
 dependencies = [
  "hara-wasm",
+]
+
+[[package]]
+name = "hoplite-store-sqlite"
+version = "0.4.1"
+source = "git+https://github.com/greenways-ai/hoplite-store-sqlite?rev=6ef90070e0fa7ffbc2f2dbcb9832d4f2b14ac29b#6ef90070e0fa7ffbc2f2dbcb9832d4f2b14ac29b"
+dependencies = [
+ "hoplite-auth-store-abi",
+ "rusqlite",
 ]
 
 [[package]]

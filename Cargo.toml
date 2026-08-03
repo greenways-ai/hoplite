@@ -20,6 +20,7 @@ embedded-nginx = []
 [dependencies]
 hara-wasm = { path = "../hara.lang/rust", features = ["bytecode-vm"] }
 hoplite-auth-store-abi = { path = "abi/auth-store" }
+hoplite-store-sqlite = { git = "https://github.com/greenways-ai/hoplite-store-sqlite", rev = "6ef90070e0fa7ffbc2f2dbcb9832d4f2b14ac29b" }
 rustyline = "14.0.0"
 home = "=0.5.9"
 serde_json = "1.0"
@@ -28,3 +29,6 @@ ed25519-dalek = "2.2"
 getrandom = "0.2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 sha2 = "0.10"
+
+[patch."https://github.com/greenways-ai/hoplite"]
+hoplite-auth-store-abi = { path = "abi/auth-store" }

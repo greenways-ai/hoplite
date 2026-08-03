@@ -9,6 +9,7 @@ struct NativeBackend {
     crate_name: &'static str,
     abi: &'static str,
     open: fn(&Path) -> Result<Box<dyn crate::auth::AuthStore>, String>,
+    open_native: fn(&Path) -> Result<Box<dyn hoplite_auth_store_abi::Adapter>, String>,
 }
 
 const NATIVE_BACKENDS: &[NativeBackend] = &[NativeBackend {
@@ -17,6 +18,7 @@ const NATIVE_BACKENDS: &[NativeBackend] = &[NativeBackend {
     crate_name: "hoplite-store-sqlite",
     abi: hoplite_auth_store_abi::NATIVE_ABI,
     open: open_bundled_sqlite,
+    open_native: open_linked_sqlite,
 }];
 
 pub fn open(
@@ -40,6 +42,31 @@ pub fn open(
 
 fn open_bundled_sqlite(path: &Path) -> Result<Box<dyn crate::auth::AuthStore>, String> {
     Ok(Box::new(crate::auth::SqliteStore::open(path)?))
+}
+
+fn open_linked_sqlite(path: &Path) -> Result<Box<dyn hoplite_auth_store_abi::Adapter>, String> {
+    Ok(Box::new(hoplite_store_sqlite::SqliteAuthStore::open(path)?))
+}
+
+pub fn open_native(
+    path: &Path,
+    composition: &crate::platform::AuthComposition,
+) -> Result<Box<dyn hoplite_auth_store_abi::Adapter>, String> {
+    validate(composition)?;
+    let backend = NATIVE_BACKENDS
+        .iter()
+        .find(|backend| {
+            backend.package == composition.store_package
+                && backend.export == composition.store_export
+                && backend.abi == hoplite_auth_store_abi::NATIVE_ABI
+        })
+        .ok_or_else(|| {
+            format!(
+                "authentication store adapter {} :{} is not linked",
+                composition.store_package, composition.store_export
+            )
+        })?;
+    (backend.open_native)(path)
 }
 
 pub struct NativeLinkPlan {
@@ -243,6 +270,26 @@ mod tests {
         assert!(plan.manifest_edn.contains(":native/source :bundled"));
         assert!(plan.manifest_edn.contains("hoplite-auth-store/1"));
         assert!(plan.cargo_toml.contains("No external native adapters"));
+        let mut adapter = open_native(Path::new(":memory:"), &composition).unwrap();
+        let request = hoplite_auth_store_abi::NativeRequest {
+            id: "registry-test".into(),
+            operation: *hoplite_auth_store_abi::operation("auth/user-create").unwrap(),
+            payload: std::collections::BTreeMap::from([
+                (
+                    "user/id".into(),
+                    hoplite_auth_store_abi::Value::String("usr_registry".into()),
+                ),
+                (
+                    "user/realm".into(),
+                    hoplite_auth_store_abi::Value::String("management".into()),
+                ),
+                (
+                    "user/created-at".into(),
+                    hoplite_auth_store_abi::Value::Integer(1),
+                ),
+            ]),
+        };
+        assert_eq!(adapter.execute(request).unwrap().id, "registry-test");
     }
 }
 
