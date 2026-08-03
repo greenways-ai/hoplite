@@ -341,6 +341,7 @@ const DEVICE_FIELDS: &[Field] = &[
     field("device/revoked-at", "integer", false),
 ];
 const REFRESH_ROTATE_FIELDS: &[Field] = &[
+    field("refresh/session-id", "string", true),
     field("refresh/token-hash", "bytes", true),
     field("refresh/replacement-hash", "bytes", true),
     field("refresh/issued-at", "integer", true),

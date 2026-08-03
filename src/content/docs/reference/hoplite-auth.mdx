@@ -60,6 +60,8 @@ therefore cannot cross either side of the addon boundary.
 The native call receives dependency-free `RecordValue` and `Value` data rather
 than Hara runtime objects or raw HTA bytes. Hoplite alone owns HTA decoding and
 encoding, so storage crates remain small and do not link the language runtime.
+Refresh rotation explicitly carries `:refresh/session-id`; adapters can bind the
+consumed token, replacement token, and updated access grant in one transaction.
 
 The boundary uses logical authentication operations, including user and device
 records, one-time challenges, sessions, refresh rotation, revocation, and audit
