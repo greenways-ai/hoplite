@@ -581,10 +581,6 @@ dependencies = [
 [[package]]
 name = "hoplite-auth-store-abi"
 version = "0.1.0"
-dependencies = [
- "hara-wasm",
- "sha2",
-]
 
 [[package]]
 name = "hoplite-runtime"

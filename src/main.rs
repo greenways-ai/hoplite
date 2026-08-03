@@ -13,6 +13,7 @@ use std::time::Duration;
 mod app;
 mod auth;
 mod auth_policy;
+mod auth_store_hta;
 mod dev_console;
 mod host;
 mod management;
@@ -327,14 +328,10 @@ fn build(root: &Path, settings: &BuildSettings) -> Result<PathBuf, String> {
         platform::manifest(&platform_config)?,
     )
     .map_err(io)?;
-    fs::write(
-        output.join("auth-store.hta"),
-        hoplite_auth_store_abi::contract()?,
-    )
-    .map_err(io)?;
+    fs::write(output.join("auth-store.hta"), auth_store_hta::contract()?).map_err(io)?;
     fs::write(
         output.join("auth-store.hta.sha256"),
-        format!("{}\n", hoplite_auth_store_abi::sha256()?),
+        format!("{}\n", auth_store_hta::sha256()?),
     )
     .map_err(io)?;
     let openapi_dir = output.join("openapi");
