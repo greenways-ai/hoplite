@@ -1,7 +1,9 @@
+use crate::auth_policy::{AuthPolicy, ChallengeDecision, RefreshDecision};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use sha2::{Digest, Sha256};
 use std::fs;
+use std::ops::{Deref, DerefMut};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -30,6 +32,11 @@ pub struct SessionTokens {
 pub struct Store {
     path: PathBuf,
     connection: Connection,
+}
+
+pub struct Service {
+    store: Store,
+    policy: AuthPolicy,
 }
 
 impl Store {
@@ -231,6 +238,7 @@ impl Store {
 
     pub fn exchange_challenge(
         &mut self,
+        policy: &mut AuthPolicy,
         challenge_id: &str,
         signature_hex: &str,
         access_ttl_seconds: u32,
@@ -256,8 +264,12 @@ impl Store {
             .optional()
             .map_err(db)?
             .ok_or("invalid or already-used authentication challenge")?;
-        if challenge.3 < now {
-            return Err("authentication challenge has expired".into());
+        match policy.consume_challenge(challenge_id, challenge.3, None, now)? {
+            ChallengeDecision::Accept => {}
+            ChallengeDecision::Used => {
+                return Err("invalid or already-used authentication challenge".into())
+            }
+            ChallengeDecision::Expired => return Err("authentication challenge has expired".into()),
         }
         let public_key: [u8; 32] = challenge
             .1
@@ -326,6 +338,7 @@ impl Store {
 
     pub fn rotate_refresh_token(
         &mut self,
+        policy: &mut AuthPolicy,
         refresh_token: &str,
         access_ttl_seconds: u32,
         refresh_ttl_seconds: u32,
@@ -357,11 +370,16 @@ impl Store {
             .optional()
             .map_err(db)?
             .ok_or("invalid refresh token")?;
-        if current.6.is_some() || current.5 < now {
-            return Err("expired or revoked refresh token".into());
-        }
-        if let Some(used_at) = current.1 {
-            if now - used_at > i64::from(reuse_interval_seconds) {
+        match policy.rotate_refresh(
+            &current.0,
+            &token_hash(refresh_token),
+            current.1,
+            current.5,
+            current.6,
+            now,
+            reuse_interval_seconds,
+        )? {
+            RefreshDecision::Reuse => {
                 transaction
                     .execute(
                         "UPDATE sessions SET revoked_at = ?1 WHERE id = ?2",
@@ -379,9 +397,15 @@ impl Store {
                 transaction.commit().map_err(db)?;
                 return Err("refresh token reuse detected; session revoked".into());
             }
-            return Err(
-                "refresh token was already rotated; retry with the replacement token".into(),
-            );
+            RefreshDecision::Retry => {
+                return Err(
+                    "refresh token was already rotated; retry with the replacement token".into(),
+                )
+            }
+            RefreshDecision::Revoked | RefreshDecision::Expired => {
+                return Err("expired or revoked refresh token".into())
+            }
+            RefreshDecision::Accept => {}
         }
         transaction
             .execute(
@@ -449,6 +473,72 @@ impl Store {
         detail: &str,
     ) -> Result<(), String> {
         insert_audit(&self.connection, now()?, kind, realm, subject, detail)
+    }
+}
+
+impl Service {
+    pub fn open_for(
+        path: impl AsRef<Path>,
+        composition: &crate::platform::AuthComposition,
+    ) -> Result<Self, String> {
+        if composition.store_package != crate::platform::SQLITE_STORE_PACKAGE
+            || composition.store_export != crate::platform::STORE_EXPORT
+        {
+            return Err(format!(
+                "authentication store adapter {} :{} is resolved but not installed",
+                composition.store_package, composition.store_export
+            ));
+        }
+        Ok(Self {
+            store: Store::open(path)?,
+            policy: AuthPolicy::new(composition)?,
+        })
+    }
+
+    pub fn exchange_challenge(
+        &mut self,
+        challenge_id: &str,
+        signature_hex: &str,
+        access_ttl_seconds: u32,
+        refresh_ttl_seconds: u32,
+    ) -> Result<SessionTokens, String> {
+        self.store.exchange_challenge(
+            &mut self.policy,
+            challenge_id,
+            signature_hex,
+            access_ttl_seconds,
+            refresh_ttl_seconds,
+        )
+    }
+
+    pub fn rotate_refresh_token(
+        &mut self,
+        refresh_token: &str,
+        access_ttl_seconds: u32,
+        refresh_ttl_seconds: u32,
+        reuse_interval_seconds: u32,
+    ) -> Result<SessionTokens, String> {
+        self.store.rotate_refresh_token(
+            &mut self.policy,
+            refresh_token,
+            access_ttl_seconds,
+            refresh_ttl_seconds,
+            reuse_interval_seconds,
+        )
+    }
+}
+
+impl Deref for Service {
+    type Target = Store;
+
+    fn deref(&self) -> &Self::Target {
+        &self.store
+    }
+}
+
+impl DerefMut for Service {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.store
     }
 }
 
@@ -610,8 +700,14 @@ mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
 
-    fn store() -> Store {
-        Store::open(":memory:").unwrap()
+    fn store() -> Service {
+        Service::open_for(
+            ":memory:",
+            &crate::platform::Config::default()
+                .auth_composition()
+                .unwrap(),
+        )
+        .unwrap()
     }
 
     fn signing_key() -> SigningKey {

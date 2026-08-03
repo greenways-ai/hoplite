@@ -14,6 +14,18 @@ pub const PRINCIPAL_FIELDS: &[&str] = &[
     "principal/claims",
 ];
 pub const KEY_PROVIDER: &str = "auth/key";
+pub const CORE_PACKAGE: &str = "gh:greenways-ai:hoplite";
+pub const CORE_AUTH_EXPORT: &str = "hoplite/auth";
+pub const SQLITE_STORE_PACKAGE: &str = "gh:greenways-ai:hoplite-store-sqlite";
+pub const STORE_EXPORT: &str = "hoplite/store";
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuthComposition {
+    pub policy_package: String,
+    pub policy_export: String,
+    pub store_package: String,
+    pub store_export: String,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Config {
@@ -92,6 +104,39 @@ impl Default for Config {
             modules: Vec::new(),
             authentication: Authentication::default(),
         }
+    }
+}
+
+impl Config {
+    pub fn auth_composition(&self) -> Result<AuthComposition, String> {
+        let Some(policy) = self
+            .modules
+            .iter()
+            .find(|module| module.export == CORE_AUTH_EXPORT)
+        else {
+            return Ok(AuthComposition {
+                policy_package: CORE_PACKAGE.into(),
+                policy_export: CORE_AUTH_EXPORT.into(),
+                store_package: SQLITE_STORE_PACKAGE.into(),
+                store_export: STORE_EXPORT.into(),
+            });
+        };
+        let config = form_map(&policy.config, ":hoplite/auth module config must be a map")?;
+        let store_alias = scalar(
+            required(config, "auth/store", ":hoplite/auth module config")?,
+            ":auth/store",
+        )?;
+        let store = self
+            .modules
+            .iter()
+            .find(|module| module.alias == store_alias)
+            .ok_or_else(|| format!("authentication store alias :{store_alias} is not activated"))?;
+        Ok(AuthComposition {
+            policy_package: policy.id.clone(),
+            policy_export: policy.export.clone(),
+            store_package: store.id.clone(),
+            store_export: store.export.clone(),
+        })
     }
 }
 
@@ -726,6 +771,45 @@ mod tests {
         assert!(readable.contains(":principal/session-id"));
         assert!(readable.contains(":session/rotate-refresh-tokens true"));
         assert!(super::manifest(&config).unwrap().starts_with(b"HTA1"));
+    }
+
+    #[test]
+    fn resolves_auth_policy_and_store_adapter_by_alias() {
+        let source = r#"
+        {:hoplite/modules
+         [{:module/id "gh:greenways-ai:hoplite"
+           :module/version "0.1.0"
+           :module/export :hoplite/auth
+           :module/as :auth
+           :module/config {:auth/store :auth-store}}
+          {:module/id "gh:greenways-ai:hoplite-store-sqlite"
+           :module/version "0.1.0"
+           :module/export :hoplite/store
+           :module/as :auth-store
+           :module/config {}}]}
+        "#;
+        let config = parse_profile(&project_manifest(source), "server").unwrap();
+        assert_eq!(
+            config.auth_composition().unwrap(),
+            AuthComposition {
+                policy_package: CORE_PACKAGE.into(),
+                policy_export: CORE_AUTH_EXPORT.into(),
+                store_package: SQLITE_STORE_PACKAGE.into(),
+                store_export: STORE_EXPORT.into(),
+            }
+        );
+
+        let missing = parse_profile(
+            &project_manifest(
+                r#"{:hoplite/modules [{:module/id "gh:greenways-ai:hoplite" :module/version "0.1.0" :module/export :hoplite/auth :module/as :auth :module/config {:auth/store :missing}}]}"#,
+            ),
+            "server",
+        )
+        .unwrap();
+        assert!(missing
+            .auth_composition()
+            .unwrap_err()
+            .contains("store alias :missing"));
     }
 
     #[test]

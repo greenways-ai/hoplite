@@ -1,4 +1,4 @@
-use crate::auth::{Principal, Store};
+use crate::auth::{Principal, Service};
 use crate::platform::SessionPolicy;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -26,9 +26,10 @@ pub fn serve(
     store_path: &Path,
     listen: &str,
     session_policy: &SessionPolicy,
+    composition: &crate::platform::AuthComposition,
 ) -> Result<(), String> {
     let listener = bind(listen)?;
-    serve_listener(store_path, listener, listen, session_policy)
+    serve_listener(store_path, listener, listen, session_policy, composition)
 }
 
 pub fn bind(listen: &str) -> Result<TcpListener, String> {
@@ -44,8 +45,9 @@ pub fn serve_listener(
     listener: TcpListener,
     listen: &str,
     session_policy: &SessionPolicy,
+    composition: &crate::platform::AuthComposition,
 ) -> Result<(), String> {
-    let mut store = Store::open(store_path)?;
+    let mut store = Service::open_for(store_path, composition)?;
     println!("Hoplite management gateway listening on http://{listen}");
     for connection in listener.incoming() {
         match connection {
@@ -67,7 +69,7 @@ pub fn serve_listener(
 }
 
 fn route(
-    store: &mut Store,
+    store: &mut Service,
     request: Request,
     session_policy: &SessionPolicy,
 ) -> Result<Response, ApiError> {
@@ -147,7 +149,7 @@ fn route(
     }
 }
 
-fn authenticate_management(store: &Store, request: &Request) -> Result<Principal, ApiError> {
+fn authenticate_management(store: &Service, request: &Request) -> Result<Principal, ApiError> {
     let authorization = request
         .headers
         .get("authorization")
@@ -387,7 +389,13 @@ mod tests {
 
     #[test]
     fn health_is_public_but_management_identity_is_not() {
-        let mut store = Store::open(":memory:").unwrap();
+        let mut store = Service::open_for(
+            ":memory:",
+            &crate::platform::Config::default()
+                .auth_composition()
+                .unwrap(),
+        )
+        .unwrap();
         assert_eq!(
             route(
                 &mut store,

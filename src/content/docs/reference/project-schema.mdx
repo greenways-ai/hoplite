@@ -60,6 +60,12 @@ live installation at runtime. Storage is always selected through an addon such
 as `hoplite-store-memory`, SQLite or PGlite and is not embedded into the auth
 export.
 
+The auth module refers to its store by local alias (`:auth/store
+:auth-store`). Composition resolves that alias to the activated store export
+before the management gateway starts. The gateway rejects missing aliases and
+installed runtimes reject store packages they cannot execute; there is no
+silent fallback after an explicit adapter is selected.
+
 ## One authored manifest
 
 Hoplite does not load a root `hara.extension.edn`. HTA or WASM extension

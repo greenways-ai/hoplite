@@ -12,6 +12,7 @@ use std::time::Duration;
 
 mod app;
 mod auth;
+mod auth_policy;
 mod dev_console;
 mod host;
 mod management;
@@ -156,7 +157,8 @@ fn run_auth_command(arguments: &[String]) -> Result<(), String> {
             let project = project::discover(&root)?;
             let platform = platform::load(&project, None)?;
             let policy = &platform.authentication.realms["management"].session;
-            management::serve(&auth_store_path(&root), &listen, policy)?;
+            let composition = platform.auth_composition()?;
+            management::serve(&auth_store_path(&root), &listen, policy, &composition)?;
         }
         value => return Err(format!("unknown auth command: {value}")),
     }
@@ -384,11 +386,13 @@ fn start_embedded_management_gateway(
     let project = project::discover(project_root)?;
     let platform = platform::load(&project, settings.profile.as_deref())?;
     let policy = platform.authentication.realms["management"].session.clone();
+    let composition = platform.auth_composition()?;
     let store_path = auth_store_path(project_root);
     thread::Builder::new()
         .name("hoplite-management".into())
         .spawn(move || {
-            if let Err(error) = management::serve_listener(&store_path, listener, &listen, &policy)
+            if let Err(error) =
+                management::serve_listener(&store_path, listener, &listen, &policy, &composition)
             {
                 eprintln!("hoplite: management gateway stopped: {error}");
             }
