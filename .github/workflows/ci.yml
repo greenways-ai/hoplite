@@ -8,10 +8,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           path: hoplite
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
           path: hara.lang
@@ -22,10 +22,10 @@ jobs:
   nginx-module:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           path: hoplite
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
           path: hara.lang
