@@ -24,9 +24,11 @@ pub struct AuthComposition {
     pub policy_package: String,
     pub policy_version: Version,
     pub policy_export: String,
+    pub policy_archive_sha256: Option<String>,
     pub store_package: String,
     pub store_version: Version,
     pub store_export: String,
+    pub store_archive_sha256: Option<String>,
     pub explicit: bool,
 }
 
@@ -43,6 +45,7 @@ pub struct ModuleActivation {
     pub export: String,
     pub alias: String,
     pub config: Form,
+    pub archive_sha256: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -121,9 +124,11 @@ impl Config {
                 policy_package: CORE_PACKAGE.into(),
                 policy_version: Version::parse("0.1.0").expect("valid bundled version"),
                 policy_export: CORE_AUTH_EXPORT.into(),
+                policy_archive_sha256: None,
                 store_package: SQLITE_STORE_PACKAGE.into(),
                 store_version: Version::parse("0.1.0").expect("valid bundled version"),
                 store_export: STORE_EXPORT.into(),
+                store_archive_sha256: None,
                 explicit: false,
             });
         };
@@ -141,9 +146,11 @@ impl Config {
             policy_package: policy.id.clone(),
             policy_version: policy.version.clone(),
             policy_export: policy.export.clone(),
+            policy_archive_sha256: policy.archive_sha256.clone(),
             store_package: store.id.clone(),
             store_version: store.version.clone(),
             store_export: store.export.clone(),
+            store_archive_sha256: store.archive_sha256.clone(),
             explicit: true,
         })
     }
@@ -157,7 +164,78 @@ pub fn load(project: &Project, requested_profile: Option<&str>) -> Result<Config
         .map_err(|error| format!("cannot read {}: {error}", project.manifest_path.display()))?;
     let manifest =
         parse(&source).map_err(|error| format!("{}: {error}", project.manifest_path.display()))?;
-    parse_profile(&manifest, &selected.name)
+    let mut config = parse_profile(&manifest, &selected.name)?;
+    bind_lock(project, &mut config)?;
+    Ok(config)
+}
+
+fn bind_lock(project: &Project, config: &mut Config) -> Result<(), String> {
+    if config.modules.is_empty() {
+        return Ok(());
+    }
+    let path = project.root.join("project.lock.edn");
+    let source = fs::read_to_string(&path).map_err(|error| {
+        format!(
+            "explicit Hoplite modules require {}: {error}",
+            path.display()
+        )
+    })?;
+    let form = parse(&source).map_err(|error| format!("{}: {error}", path.display()))?;
+    let lock = form_map(&form, "project.lock.edn must be an EDN map")?;
+    if !matches!(lookup(lock, "lock/format"), Some(Form::Number(1))) {
+        return Err("project.lock.edn requires :lock/format 1".into());
+    }
+    let packages = form_map(
+        required(lock, "packages", "project.lock.edn")?,
+        "project.lock.edn :packages must be a map",
+    )?;
+    let mut resolved = BTreeMap::new();
+    for (coordinate, descriptor) in packages {
+        let coordinate = normalize_module_coordinate(&scalar(
+            coordinate,
+            "project.lock.edn package coordinate",
+        )?)?;
+        let descriptor = form_map(descriptor, "locked package descriptor must be a map")?;
+        let version = Version::parse(&string(
+            required(descriptor, "version", "locked package")?,
+            "locked package :version",
+        )?)
+        .map_err(|error| format!("locked package version is invalid: {error}"))?;
+        let digest = string(
+            required(descriptor, "archive-sha256", "locked package")?,
+            "locked package :archive-sha256",
+        )?;
+        if !valid_sha256(&digest) {
+            return Err(format!(
+                "locked package {coordinate} has invalid :archive-sha256"
+            ));
+        }
+        if resolved
+            .insert(coordinate.clone(), (version, digest))
+            .is_some()
+        {
+            return Err(format!("duplicate locked package {coordinate}"));
+        }
+    }
+    for module in &mut config.modules {
+        let (version, digest) = resolved
+            .get(&module.id)
+            .ok_or_else(|| format!("project.lock.edn does not lock module {}", module.id))?;
+        if version != &module.version {
+            return Err(format!(
+                "module {} requests {} but project.lock.edn pins {}",
+                module.id, module.version, version
+            ));
+        }
+        module.archive_sha256 = Some(digest.clone());
+    }
+    Ok(())
+}
+
+fn valid_sha256(value: &str) -> bool {
+    value.strip_prefix("sha256:").is_some_and(|digest| {
+        digest.len() == 64 && digest.chars().all(|value| value.is_ascii_hexdigit())
+    })
 }
 
 fn parse_profile(manifest: &Form, profile_name: &str) -> Result<Config, String> {
@@ -272,6 +350,7 @@ fn parse_modules(value: &Form) -> Result<Vec<ModuleActivation>, String> {
             export,
             alias,
             config,
+            archive_sha256: None,
         });
     }
     Ok(modules)
@@ -475,7 +554,7 @@ fn to_form(config: &Config) -> Form {
                     .modules
                     .iter()
                     .map(|module| {
-                        Form::Map(vec![
+                        let mut fields = vec![
                             (keyword("module/id"), Form::String(module.id.clone())),
                             (
                                 keyword("module/version"),
@@ -484,7 +563,14 @@ fn to_form(config: &Config) -> Form {
                             (keyword("module/export"), keyword(&module.export)),
                             (keyword("module/as"), keyword(&module.alias)),
                             (keyword("module/config"), module.config.clone()),
-                        ])
+                        ];
+                        if let Some(digest) = &module.archive_sha256 {
+                            fields.push((
+                                keyword("module/archive-sha256"),
+                                Form::String(digest.clone()),
+                            ));
+                        }
+                        Form::Map(fields)
                     })
                     .collect(),
             ),
@@ -804,9 +890,11 @@ mod tests {
                 policy_package: CORE_PACKAGE.into(),
                 policy_version: Version::parse("0.1.0").unwrap(),
                 policy_export: CORE_AUTH_EXPORT.into(),
+                policy_archive_sha256: None,
                 store_package: SQLITE_STORE_PACKAGE.into(),
                 store_version: Version::parse("0.1.0").unwrap(),
                 store_export: STORE_EXPORT.into(),
+                store_archive_sha256: None,
                 explicit: true,
             }
         );
@@ -822,6 +910,54 @@ mod tests {
             .auth_composition()
             .unwrap_err()
             .contains("store alias :missing"));
+    }
+
+    #[test]
+    fn explicit_modules_are_bound_to_locked_archive_digests() {
+        let root = std::env::temp_dir().join(format!(
+            "hoplite-platform-lock-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("project.edn"),
+            r#"{:hara/type :project :hara/version "1.0.0" :project/id demo/app :project/version "0.1.0" :project/source-paths [] :project/test-paths [] :project/extension-paths [] :project/capabilities #{} :project/default-profile :server :project/profiles {:server {:profile/language :hoplite :profile/main demo/app :profile/extensions {:extension/hoplite {:hoplite/modules [{:module/id "gh:greenways-ai:hoplite" :module/version "0.1.0" :module/export :hoplite/auth :module/as :auth :module/config {:auth/store :auth-store}} {:module/id "gh:greenways-ai:hoplite-store-sqlite" :module/version "0.1.0" :module/export :hoplite/store :module/as :auth-store :module/config {}}]}}}}}"#,
+        )
+        .unwrap();
+        let core_digest = format!("sha256:{}", "1".repeat(64));
+        let store_digest = format!("sha256:{}", "2".repeat(64));
+        fs::write(
+            root.join("project.lock.edn"),
+            format!(
+                "{{:lock/format 1 :packages {{\"gh:greenways-ai:hoplite\" {{:version \"0.1.0\" :archive-sha256 \"{core_digest}\"}} \"gh:greenways-ai:hoplite-store-sqlite\" {{:version \"0.1.0\" :archive-sha256 \"{store_digest}\"}}}}}}"
+            ),
+        )
+        .unwrap();
+        let project = project::read(&root).unwrap();
+        let config = load(&project, None).unwrap();
+        let composition = config.auth_composition().unwrap();
+        assert_eq!(
+            composition.policy_archive_sha256.as_deref(),
+            Some(core_digest.as_str())
+        );
+        assert_eq!(
+            composition.store_archive_sha256.as_deref(),
+            Some(store_digest.as_str())
+        );
+        assert!(readable_manifest(&config).contains(":module/archive-sha256"));
+
+        fs::write(
+            root.join("project.lock.edn"),
+            "{:lock/format 1 :packages {}}",
+        )
+        .unwrap();
+        assert!(load(&project, None)
+            .unwrap_err()
+            .contains("does not lock module"));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

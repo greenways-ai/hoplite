@@ -28,6 +28,14 @@ pub fn run(arguments: &[String]) -> Result<(), String> {
 }
 
 pub fn installed_root(coordinate: &str, version: &Version) -> Result<PathBuf, String> {
+    installed_root_locked(coordinate, version, None)
+}
+
+pub fn installed_root_locked(
+    coordinate: &str,
+    version: &Version,
+    expected_archive_sha256: Option<&str>,
+) -> Result<PathBuf, String> {
     let installed_coordinate = installed_coordinate(coordinate)?;
     let (tap, package) = installed_coordinate
         .split_once(':')
@@ -66,6 +74,11 @@ pub fn installed_root(coordinate: &str, version: &Version) -> Result<PathBuf, St
     let digest = archive_digest
         .strip_prefix("sha256:")
         .ok_or_else(|| format!("{} has an invalid archive digest", registration.display()))?;
+    if expected_archive_sha256.is_some_and(|expected| expected != archive_digest) {
+        return Err(format!(
+            "installed package {coordinate} {version} archive digest does not match project.lock.edn"
+        ));
+    }
     if root.file_name().and_then(|name| name.to_str()) != Some(digest) {
         return Err(format!(
             "installed package root {} does not match registered archive digest",

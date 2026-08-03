@@ -5,8 +5,11 @@ pub fn validate(composition: &crate::platform::AuthComposition) -> Result<(), St
     if !composition.explicit {
         return Ok(());
     }
-    let root =
-        crate::package::installed_root(&composition.store_package, &composition.store_version)?;
+    let root = crate::package::installed_root_locked(
+        &composition.store_package,
+        &composition.store_version,
+        composition.store_archive_sha256.as_deref(),
+    )?;
     validate_root(composition, &root)
 }
 
@@ -65,9 +68,11 @@ mod tests {
             policy_package: crate::platform::CORE_PACKAGE.into(),
             policy_version: Version::parse("0.1.0").unwrap(),
             policy_export: crate::platform::CORE_AUTH_EXPORT.into(),
+            policy_archive_sha256: None,
             store_package: crate::platform::SQLITE_STORE_PACKAGE.into(),
             store_version: Version::parse("0.1.0").unwrap(),
             store_export: crate::platform::STORE_EXPORT.into(),
+            store_archive_sha256: None,
             explicit: true,
         };
         validate_root(&composition, &root).unwrap();

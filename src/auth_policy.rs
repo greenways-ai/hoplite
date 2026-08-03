@@ -23,22 +23,21 @@ pub enum RefreshDecision {
 
 impl AuthPolicy {
     pub fn new(composition: &crate::platform::AuthComposition) -> Result<Self, String> {
-        if composition.policy_package != crate::platform::CORE_PACKAGE
-            || composition.policy_export != crate::platform::CORE_AUTH_EXPORT
-        {
+        if composition.policy_export != crate::platform::CORE_AUTH_EXPORT {
             return Err(format!(
-                "authentication policy {} :{} is resolved but external .harp loading is not implemented",
+                "authentication policy {} exports unsupported :{}",
                 composition.policy_package, composition.policy_export
             ));
         }
         let mut runtime = Runtime::new();
         runtime.register_resource("hoplite.core", super::app::CORE_SOURCE);
-        if composition.policy_package == crate::platform::CORE_PACKAGE {
+        if !composition.explicit {
             runtime.register_resource("hoplite.auth", super::app::AUTH_SOURCE);
         } else {
-            let root = crate::package::installed_root(
+            let root = crate::package::installed_root_locked(
                 &composition.policy_package,
                 &composition.policy_version,
+                composition.policy_archive_sha256.as_deref(),
             )?;
             let project = hara_wasm::project::read(&root)?;
             hara_wasm::project::register_sources(&project, &mut runtime)?;

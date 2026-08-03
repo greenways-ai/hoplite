@@ -66,6 +66,26 @@ before the management gateway starts. The gateway rejects missing aliases and
 installed runtimes reject store packages they cannot execute; there is no
 silent fallback after an explicit adapter is selected.
 
+## Package lock
+
+Every explicit module must have an exact archive binding in
+`project.lock.edn`:
+
+```clojure
+{:lock/format 1
+ :packages
+ {"gh:greenways-ai:hoplite"
+  {:version "0.1.0"
+   :archive-sha256 "sha256:22ce8db7ea50b006813ab32d0eef211bbda469a41b6b175f19c7d111977d6075"}
+  "gh:greenways-ai:hoplite-store-sqlite"
+  {:version "0.1.0"
+   :archive-sha256 "sha256:13570ef5570361f0ee82a56fcb5259160abfec536546db280b0a6f06e60ff1ab"}}}
+```
+
+The requested version, lock entry, installed registration, content-addressed
+root name, HARP identity, and every file digest must all agree before module
+code is evaluated.
+
 ## One authored manifest
 
 Hoplite does not load a root `hara.extension.edn`. HTA or WASM extension
