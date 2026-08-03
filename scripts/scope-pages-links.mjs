@@ -7,7 +7,7 @@ const prefix = "/hoplite";
 const malformedPrefix =
   /(href|src|srcset|action)="\/hoplite(?!\/|")/;
 const duplicatedPrefix =
-  /(href|src|srcset|action)="\/hoplite\/hoplite(?:\/|[A-Za-z0-9_-])/;
+  /(href|src|srcset|action)="\/hoplite\/hoplite(?=\/|[A-Za-z0-9_-])/g;
 const unscopedRootLink =
   /(href|src|srcset|action)="\/(?!hoplite(?:\/|"))/g;
 
@@ -25,7 +25,11 @@ async function visit(directory) {
       );
     }
 
-    const scoped = source.replace(unscopedRootLink, `$1="${prefix}/`);
+    // Astro and custom components can both apply the configured base path.
+    // Collapse exactly one duplicate before adding the prefix to genuinely
+    // unscoped root links, then fail if a duplicate still remains.
+    const normalized = source.replace(duplicatedPrefix, `$1="${prefix}`);
+    const scoped = normalized.replace(unscopedRootLink, `$1="${prefix}/`);
     const duplicated = scoped.match(duplicatedPrefix);
     if (duplicated) {
       throw new Error(
