@@ -54,6 +54,9 @@ boundary. A single request returns a correlated success or error response;
 transactions must return one ordered response for every mutation. Hoplite checks
 response identity and validates successful HTA results against the operation's
 declared output record before exposing them to `.hal` policy code.
+The host's guarded `execute` and `transact` entry points validate inputs before
+calling native code and validate every correlated result afterward. Invalid HTA
+therefore cannot cross either side of the addon boundary.
 
 The boundary uses logical authentication operations, including user and device
 records, one-time challenges, sessions, refresh rotation, revocation, and audit

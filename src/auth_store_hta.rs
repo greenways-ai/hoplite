@@ -44,6 +44,37 @@ pub fn decode_response_result(
     }
 }
 
+pub fn execute<A: hoplite_auth_store_abi::Adapter + ?Sized>(
+    adapter: &mut A,
+    request: hoplite_auth_store_abi::Request,
+) -> Result<hoplite_auth_store_abi::Response, hoplite_auth_store_abi::Error> {
+    decode_request_payload(&request)?;
+    let response = adapter.execute(request.clone())?;
+    decode_response_result(&request, &response)?;
+    Ok(response)
+}
+
+pub fn transact<A: hoplite_auth_store_abi::Adapter + ?Sized>(
+    adapter: &mut A,
+    transaction: hoplite_auth_store_abi::Transaction,
+) -> Result<hoplite_auth_store_abi::TransactionResponse, hoplite_auth_store_abi::Error> {
+    for request in &transaction.operations {
+        decode_request_payload(request)?;
+    }
+    let response = adapter.transact(transaction.clone())?;
+    if response.id != transaction.id {
+        return Err(hoplite_auth_store_abi::Error::new(
+            "transaction-response-id-mismatch",
+            format!("expected {}, got {}", transaction.id, response.id),
+        ));
+    }
+    hoplite_auth_store_abi::TransactionResponse::new(&transaction, response.responses.clone())?;
+    for (request, response) in transaction.operations.iter().zip(&response.responses) {
+        decode_response_result(request, response)?;
+    }
+    Ok(response)
+}
+
 fn validate_record(record_name: &str, value: &Value) -> Result<(), hoplite_auth_store_abi::Error> {
     let record = hoplite_auth_store_abi::record_type(record_name)
         .ok_or_else(|| hoplite_auth_store_abi::Error::new("type-unknown", record_name))?;
@@ -297,6 +328,87 @@ mod tests {
                 .unwrap()
                 .display(),
             result.display()
+        );
+    }
+
+    struct EchoAdapter {
+        result: Vec<u8>,
+        called: bool,
+    }
+
+    impl hoplite_auth_store_abi::Adapter for EchoAdapter {
+        fn execute(
+            &mut self,
+            request: hoplite_auth_store_abi::Request,
+        ) -> Result<hoplite_auth_store_abi::Response, hoplite_auth_store_abi::Error> {
+            self.called = true;
+            hoplite_auth_store_abi::Response::success(request.id, self.result.clone())
+        }
+
+        fn transact(
+            &mut self,
+            transaction: hoplite_auth_store_abi::Transaction,
+        ) -> Result<hoplite_auth_store_abi::TransactionResponse, hoplite_auth_store_abi::Error>
+        {
+            self.called = true;
+            let responses = transaction
+                .operations
+                .iter()
+                .map(|request| {
+                    hoplite_auth_store_abi::Response::success(
+                        request.id.clone(),
+                        self.result.clone(),
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            hoplite_auth_store_abi::TransactionResponse::new(&transaction, responses)
+        }
+    }
+
+    #[test]
+    fn guarded_dispatch_validates_both_sides_of_an_adapter_call() {
+        let request = hoplite_auth_store_abi::Request::new(
+            "req-1",
+            "auth/user-create",
+            hara_wasm::hta::encode(&map(vec![
+                (keyword("user/id"), Value::String("usr_1".into())),
+                (keyword("user/realm"), Value::String("management".into())),
+                (keyword("user/created-at"), Value::Number(42)),
+            ]))
+            .unwrap(),
+        )
+        .unwrap();
+        let mut adapter = EchoAdapter {
+            result: request.payload_hta.clone(),
+            called: false,
+        };
+        assert_eq!(execute(&mut adapter, request).unwrap().id, "req-1");
+        assert!(adapter.called);
+
+        let invalid = hoplite_auth_store_abi::Request::new(
+            "req-2",
+            "auth/user-create",
+            hara_wasm::hta::encode(&map(vec![])).unwrap(),
+        )
+        .unwrap();
+        adapter.called = false;
+        assert_eq!(
+            execute(&mut adapter, invalid).unwrap_err().code,
+            "field-required"
+        );
+        assert!(!adapter.called);
+
+        let mutation = hoplite_auth_store_abi::Request::new(
+            "req-3",
+            "auth/user-create",
+            adapter.result.clone(),
+        )
+        .unwrap();
+        let transaction =
+            hoplite_auth_store_abi::Transaction::new("txn-1", vec![mutation]).unwrap();
+        assert_eq!(
+            transact(&mut adapter, transaction).unwrap().responses.len(),
+            1
         );
     }
 }
