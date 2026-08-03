@@ -3,7 +3,6 @@ use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::ops::{Deref, DerefMut};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -34,8 +33,41 @@ pub struct Store {
     connection: Connection,
 }
 
+pub(crate) trait AuthStore {
+    fn path(&self) -> &Path;
+    fn initialize(&mut self) -> Result<Option<String>, String>;
+    fn enroll_management_device(
+        &mut self,
+        bootstrap_token: &str,
+        public_key_hex: &str,
+    ) -> Result<Principal, String>;
+    fn create_challenge(
+        &mut self,
+        realm: &str,
+        public_key_hex: &str,
+    ) -> Result<(String, String), String>;
+    fn exchange_challenge(
+        &mut self,
+        policy: &mut AuthPolicy,
+        challenge_id: &str,
+        signature_hex: &str,
+        access_ttl_seconds: u32,
+        refresh_ttl_seconds: u32,
+    ) -> Result<SessionTokens, String>;
+    fn authenticate(&self, realm: &str, access_token: &str) -> Result<Principal, String>;
+    fn rotate_refresh_token(
+        &mut self,
+        policy: &mut AuthPolicy,
+        refresh_token: &str,
+        access_ttl_seconds: u32,
+        refresh_ttl_seconds: u32,
+        reuse_interval_seconds: u32,
+    ) -> Result<SessionTokens, String>;
+    fn revoke_session(&mut self, session_id: &str) -> Result<bool, String>;
+}
+
 pub struct Service {
-    store: Store,
+    store: Box<dyn AuthStore>,
     policy: AuthPolicy,
 }
 
@@ -476,24 +508,110 @@ impl Store {
     }
 }
 
+impl AuthStore for Store {
+    fn path(&self) -> &Path {
+        Store::path(self)
+    }
+
+    fn initialize(&mut self) -> Result<Option<String>, String> {
+        Store::initialize(self)
+    }
+
+    fn enroll_management_device(
+        &mut self,
+        bootstrap_token: &str,
+        public_key_hex: &str,
+    ) -> Result<Principal, String> {
+        Store::enroll_management_device(self, bootstrap_token, public_key_hex)
+    }
+
+    fn create_challenge(
+        &mut self,
+        realm: &str,
+        public_key_hex: &str,
+    ) -> Result<(String, String), String> {
+        Store::create_challenge(self, realm, public_key_hex)
+    }
+
+    fn exchange_challenge(
+        &mut self,
+        policy: &mut AuthPolicy,
+        challenge_id: &str,
+        signature_hex: &str,
+        access_ttl_seconds: u32,
+        refresh_ttl_seconds: u32,
+    ) -> Result<SessionTokens, String> {
+        Store::exchange_challenge(
+            self,
+            policy,
+            challenge_id,
+            signature_hex,
+            access_ttl_seconds,
+            refresh_ttl_seconds,
+        )
+    }
+
+    fn authenticate(&self, realm: &str, access_token: &str) -> Result<Principal, String> {
+        Store::authenticate(self, realm, access_token)
+    }
+
+    fn rotate_refresh_token(
+        &mut self,
+        policy: &mut AuthPolicy,
+        refresh_token: &str,
+        access_ttl_seconds: u32,
+        refresh_ttl_seconds: u32,
+        reuse_interval_seconds: u32,
+    ) -> Result<SessionTokens, String> {
+        Store::rotate_refresh_token(
+            self,
+            policy,
+            refresh_token,
+            access_ttl_seconds,
+            refresh_ttl_seconds,
+            reuse_interval_seconds,
+        )
+    }
+
+    fn revoke_session(&mut self, session_id: &str) -> Result<bool, String> {
+        Store::revoke_session(self, session_id)
+    }
+}
+
 impl Service {
     pub fn open_for(
         path: impl AsRef<Path>,
         composition: &crate::platform::AuthComposition,
     ) -> Result<Self, String> {
-        if composition.store_package != crate::platform::SQLITE_STORE_PACKAGE
-            || composition.store_export != crate::platform::STORE_EXPORT
-        {
-            return Err(format!(
-                "authentication store adapter {} :{} is resolved but not installed",
-                composition.store_package, composition.store_export
-            ));
-        }
-        crate::store_adapter::validate(composition)?;
         Ok(Self {
-            store: Store::open(path)?,
+            store: crate::store_adapter::open(path.as_ref(), composition)?,
             policy: AuthPolicy::new(composition)?,
         })
+    }
+
+    pub fn path(&self) -> &Path {
+        self.store.path()
+    }
+
+    pub fn initialize(&mut self) -> Result<Option<String>, String> {
+        self.store.initialize()
+    }
+
+    pub fn enroll_management_device(
+        &mut self,
+        bootstrap_token: &str,
+        public_key_hex: &str,
+    ) -> Result<Principal, String> {
+        self.store
+            .enroll_management_device(bootstrap_token, public_key_hex)
+    }
+
+    pub fn create_challenge(
+        &mut self,
+        realm: &str,
+        public_key_hex: &str,
+    ) -> Result<(String, String), String> {
+        self.store.create_challenge(realm, public_key_hex)
     }
 
     pub fn exchange_challenge(
@@ -527,19 +645,13 @@ impl Service {
             reuse_interval_seconds,
         )
     }
-}
 
-impl Deref for Service {
-    type Target = Store;
-
-    fn deref(&self) -> &Self::Target {
-        &self.store
+    pub fn authenticate(&self, realm: &str, access_token: &str) -> Result<Principal, String> {
+        self.store.authenticate(realm, access_token)
     }
-}
 
-impl DerefMut for Service {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.store
+    pub fn revoke_session(&mut self, session_id: &str) -> Result<bool, String> {
+        self.store.revoke_session(session_id)
     }
 }
 

@@ -34,7 +34,7 @@ All Hoplite platform configuration remains inside `project.edn`:
      :module/as :auth
      :module/config {:auth/store :auth-store}}
 
-    {:module/id "gh:greenways-ai:hoplite-store-memory"
+    {:module/id "gh:greenways-ai:hoplite-store-sqlite"
      :module/version "0.1.0"
      :module/export :hoplite/store
      :module/as :auth-store
@@ -62,9 +62,11 @@ export.
 
 The auth module refers to its store by local alias (`:auth/store
 :auth-store`). Composition resolves that alias to the activated store export
-before the management gateway starts. The gateway rejects missing aliases and
-installed runtimes reject store packages they cannot execute; there is no
-silent fallback after an explicit adapter is selected.
+before the management gateway starts. The gateway crosses an explicit native
+`AuthStore` interface for every bootstrap, challenge, session, refresh, and
+revocation operation. Backend selection belongs to the adapter registry, and
+an installed package without a matching native backend is rejected; there is
+no silent SQLite fallback after another adapter is selected.
 
 ## Package lock
 

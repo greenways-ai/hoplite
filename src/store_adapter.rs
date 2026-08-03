@@ -1,6 +1,7 @@
 use hara_wasm::core::{self, Value};
 use hara_wasm::Runtime;
 use std::collections::BTreeSet;
+use std::path::Path;
 
 const AUTH_STORE_OPERATIONS: [&str; 9] = [
     "auth/audit-append",
@@ -13,6 +14,24 @@ const AUTH_STORE_OPERATIONS: [&str; 9] = [
     "auth/user-create",
     "auth/user-find",
 ];
+
+pub fn open(
+    path: &Path,
+    composition: &crate::platform::AuthComposition,
+) -> Result<Box<dyn crate::auth::AuthStore>, String> {
+    validate(composition)?;
+    match (
+        composition.store_package.as_str(),
+        composition.store_export.as_str(),
+    ) {
+        (crate::platform::SQLITE_STORE_PACKAGE, crate::platform::STORE_EXPORT) => {
+            Ok(Box::new(crate::auth::Store::open(path)?))
+        }
+        (package, export) => Err(format!(
+            "authentication store adapter {package} :{export} is resolved but has no native backend"
+        )),
+    }
+}
 
 pub fn validate(composition: &crate::platform::AuthComposition) -> Result<(), String> {
     if !composition.explicit {
@@ -119,6 +138,26 @@ mod tests {
             .unwrap_err()
             .contains(":abi must be \"hoplite-auth-store/1\""));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn resolved_adapters_never_fall_back_to_sqlite() {
+        let composition = crate::platform::AuthComposition {
+            policy_package: crate::platform::CORE_PACKAGE.into(),
+            policy_version: Version::parse("0.1.0").unwrap(),
+            policy_export: crate::platform::CORE_AUTH_EXPORT.into(),
+            policy_archive_sha256: None,
+            store_package: "gh:greenways-ai:hoplite-store-pglite".into(),
+            store_version: Version::parse("0.1.0").unwrap(),
+            store_export: crate::platform::STORE_EXPORT.into(),
+            store_archive_sha256: None,
+            explicit: false,
+        };
+        let error = match open(Path::new(":memory:"), &composition) {
+            Ok(_) => panic!("unknown adapter unexpectedly opened"),
+            Err(error) => error,
+        };
+        assert!(error.contains("has no native backend"));
     }
 }
 
