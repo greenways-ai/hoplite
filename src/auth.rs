@@ -489,9 +489,7 @@ impl Service {
                 composition.store_package, composition.store_export
             ));
         }
-        if composition.explicit {
-            crate::package::installed_root(&composition.store_package, &composition.store_version)?;
-        }
+        crate::store_adapter::validate(composition)?;
         Ok(Self {
             store: Store::open(path)?,
             policy: AuthPolicy::new(composition)?,

@@ -19,6 +19,7 @@ mod management;
 mod package;
 mod platform;
 mod repl;
+mod store_adapter;
 
 const NGINX_VERSION: &str = "1.30.4";
 
