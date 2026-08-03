@@ -21,8 +21,7 @@ if [ -z "${HARA_SHA256:-}" ]; then
 fi
 
 case "$HARA_SHA256" in
-  [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]* ) ;;
-  * ) echo "invalid Hara SHA-256: $HARA_SHA256" >&2; exit 1 ;;
+  ""|*[!0-9a-f]*) echo "invalid Hara SHA-256: $HARA_SHA256" >&2; exit 1 ;;
 esac
 [ "${#HARA_SHA256}" -eq 64 ] || { echo "invalid Hara SHA-256 length" >&2; exit 1; }
 
@@ -63,6 +62,7 @@ class Hoplite < Formula
     end
 
     inreplace "Cargo.toml", "../hara.lang/rust", "hara.lang/rust"
+    inreplace "runtime/Cargo.toml", "../../hara.lang/rust", "../hara.lang/rust"
 
     openssl = Formula["openssl@3"]
     pcre2 = Formula["pcre2"]
