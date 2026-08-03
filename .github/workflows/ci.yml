@@ -35,3 +35,18 @@ jobs:
           path: hara.lang
           submodules: recursive
       - run: docker build -f hoplite/docker/Dockerfile -t hoplite-ci .
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Use HTTPS for public Git dependencies
+        run: |
+          git config --global url."https://github.com/".insteadOf "git+ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+      - run: npm ci && npm run build
