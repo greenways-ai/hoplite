@@ -10,6 +10,10 @@ on:
         description: Existing release tag to rebuild, for example v0.1.0
         required: true
         type: string
+      hara_revision:
+        description: Optional complete Hara commit SHA for rebuilding a legacy tag
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -42,6 +46,7 @@ jobs:
         working-directory: hoplite
         env:
           RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          HARA_REVISION_OVERRIDE: ${{ github.event_name == 'workflow_dispatch' && inputs.hara_revision || '' }}
         run: |
           case "$RELEASE_TAG" in
             v*) ;;
@@ -52,7 +57,10 @@ jobs:
           crate_version=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
           test "$version" = "$crate_version"
 
-          if test -s packaging/hara-revision; then
+          if test -n "$HARA_REVISION_OVERRIDE"; then
+            hara_revision=$HARA_REVISION_OVERRIDE
+            echo "Using explicitly requested Hara revision ${hara_revision}"
+          elif test -s packaging/hara-revision; then
             hara_revision=$(tr -d '[:space:]' < packaging/hara-revision)
           elif hara_revision=$(git -C ../hara.lang rev-parse -q --verify "refs/tags/${RELEASE_TAG}^{commit}"); then
             echo "Using matching Hara tag ${RELEASE_TAG} for this legacy release"
