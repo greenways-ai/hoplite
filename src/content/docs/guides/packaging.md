@@ -21,6 +21,10 @@ A `.harp` may contain HAL sources, a `project.edn`, specs, migrations, assets,
 Rust sources, and signed WASM or HTA artifacts. Rust crates are publication-time
 build inputs; Hoplite activates their locked artifacts rather than compiling or
 downloading native code at runtime.
+`hoplite build` writes `native-adapters.edn` plus a Cargo dependency fragment.
+The latter points only at verified, content-addressed installed HARP roots and
+patches the addon to the host's exact ABI crate. Release builds consume that
+fragment to link factory functions into the closed native registry.
 
 Exports are independently composable. The core Hoplite archive is expected to
 export `:hoplite/auth`, `:hoplite/management`, `:hoplite/gateway`, and

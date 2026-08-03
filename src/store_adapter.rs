@@ -3,22 +3,108 @@ use hara_wasm::Runtime;
 use std::collections::BTreeSet;
 use std::path::Path;
 
+struct NativeBackend {
+    package: &'static str,
+    export: &'static str,
+    crate_name: &'static str,
+    abi: &'static str,
+    open: fn(&Path) -> Result<Box<dyn crate::auth::AuthStore>, String>,
+}
+
+const NATIVE_BACKENDS: &[NativeBackend] = &[NativeBackend {
+    package: crate::platform::SQLITE_STORE_PACKAGE,
+    export: crate::platform::STORE_EXPORT,
+    crate_name: "hoplite-store-sqlite",
+    abi: hoplite_auth_store_abi::NATIVE_ABI,
+    open: open_bundled_sqlite,
+}];
+
 pub fn open(
     path: &Path,
     composition: &crate::platform::AuthComposition,
 ) -> Result<Box<dyn crate::auth::AuthStore>, String> {
     validate(composition)?;
-    match (
-        composition.store_package.as_str(),
-        composition.store_export.as_str(),
-    ) {
-        (crate::platform::SQLITE_STORE_PACKAGE, crate::platform::STORE_EXPORT) => {
-            Ok(Box::new(crate::auth::SqliteStore::open(path)?))
-        }
-        (package, export) => Err(format!(
-            "authentication store adapter {package} :{export} is resolved but has no native backend"
-        )),
+    let backend = NATIVE_BACKENDS
+        .iter()
+        .find(|backend| {
+            backend.package == composition.store_package
+                && backend.export == composition.store_export
+                && backend.abi == hoplite_auth_store_abi::NATIVE_ABI
+        })
+        .ok_or_else(|| format!(
+            "authentication store adapter {} :{} is resolved but was not linked into the native registry",
+            composition.store_package, composition.store_export
+        ))?;
+    (backend.open)(path)
+}
+
+fn open_bundled_sqlite(path: &Path) -> Result<Box<dyn crate::auth::AuthStore>, String> {
+    Ok(Box::new(crate::auth::SqliteStore::open(path)?))
+}
+
+pub struct NativeLinkPlan {
+    pub manifest_edn: String,
+    pub cargo_toml: String,
+}
+
+pub fn native_link_plan(
+    composition: &crate::platform::AuthComposition,
+) -> Result<NativeLinkPlan, String> {
+    if !composition.explicit {
+        let backend = NATIVE_BACKENDS
+            .iter()
+            .find(|backend| backend.package == composition.store_package)
+            .ok_or("default authentication backend is not linked")?;
+        return Ok(NativeLinkPlan {
+            manifest_edn: format!(
+                "{{:native/format 1 :native/adapters [{{:package/id {:?} :package/version {:?} :adapter/export :{} :native/crate {:?} :native/abi {:?} :native/source :bundled}}]}}\n",
+                composition.store_package,
+                composition.store_version.to_string(),
+                composition.store_export,
+                backend.crate_name,
+                backend.abi
+            ),
+            cargo_toml: "# No external native adapters; SQLite is bundled.\n".into(),
+        });
     }
+    validate(composition)?;
+    let root = crate::package::installed_root_locked(
+        &composition.store_package,
+        &composition.store_version,
+        composition.store_archive_sha256.as_deref(),
+    )?;
+    let crate_name = composition
+        .store_package
+        .rsplit([':', '/'])
+        .next()
+        .ok_or("store package coordinate has no crate name")?;
+    let crate_root = root.join("crate");
+    if !crate_root.join("Cargo.toml").is_file() {
+        return Err(format!(
+            "native adapter {} has no crate/Cargo.toml",
+            composition.store_package
+        ));
+    }
+    let cargo_path = toml_string(&crate_root.to_string_lossy());
+    Ok(NativeLinkPlan {
+        manifest_edn: format!(
+            "{{:native/format 1 :native/adapters [{{:package/id {:?} :package/version {:?} :package/archive-sha256 {:?} :adapter/export :{} :native/crate {:?} :native/abi {:?} :native/source :harp}}]}}\n",
+            composition.store_package,
+            composition.store_version.to_string(),
+            composition.store_archive_sha256,
+            composition.store_export,
+            crate_name,
+            hoplite_auth_store_abi::NATIVE_ABI
+        ),
+        cargo_toml: format!(
+            "[dependencies]\n{crate_name} = {{ path = {cargo_path:?} }}\n\n[patch.\"https://github.com/greenways-ai/hoplite\"]\nhoplite-auth-store-abi = {{ path = {:?} }}\n",
+            format!("{}/abi/auth-store", env!("CARGO_MANIFEST_DIR"))
+        ),
+    })
+}
+
+fn toml_string(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 pub fn validate(composition: &crate::platform::AuthComposition) -> Result<(), String> {
@@ -145,7 +231,18 @@ mod tests {
             Ok(_) => panic!("unknown adapter unexpectedly opened"),
             Err(error) => error,
         };
-        assert!(error.contains("has no native backend"));
+        assert!(error.contains("was not linked into the native registry"));
+    }
+
+    #[test]
+    fn bundled_backend_has_a_closed_native_link_plan() {
+        let composition = crate::platform::Config::default()
+            .auth_composition()
+            .unwrap();
+        let plan = native_link_plan(&composition).unwrap();
+        assert!(plan.manifest_edn.contains(":native/source :bundled"));
+        assert!(plan.manifest_edn.contains("hoplite-auth-store/1"));
+        assert!(plan.cargo_toml.contains("No external native adapters"));
     }
 }
 

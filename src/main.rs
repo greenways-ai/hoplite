@@ -334,6 +334,13 @@ fn build(root: &Path, settings: &BuildSettings) -> Result<PathBuf, String> {
         format!("{}\n", auth_store_hta::sha256()?),
     )
     .map_err(io)?;
+    let native_plan = store_adapter::native_link_plan(&platform_config.auth_composition()?)?;
+    fs::write(output.join("native-adapters.edn"), native_plan.manifest_edn).map_err(io)?;
+    fs::write(
+        output.join("native-adapters.Cargo.toml"),
+        native_plan.cargo_toml,
+    )
+    .map_err(io)?;
     let openapi_dir = output.join("openapi");
     fs::create_dir_all(&openapi_dir).map_err(io)?;
     for application in &app_config.apps {
