@@ -14,8 +14,8 @@ export default defineConfig({
         ThemeSelect: "./src/components/GreenwaysThemeSelect.astro",
       },
       description: "A lightweight, fast and deeply customizable Nginx application container.",
-      logo: { src: "./public/favicon.svg", replacesTitle: false },
-      favicon: "/favicon.svg",
+      logo: { src: "./public/sigil.svg", replacesTitle: false },
+      favicon: "/hoplite/sigil.svg",
       customCss: ["./src/styles/custom.css"],
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/greenways-ai/hoplite" },
