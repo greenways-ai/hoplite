@@ -4,14 +4,35 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../dist/", import.meta.url));
 const prefix = "/hoplite";
+const malformedPrefix =
+  /(href|src|srcset|action)="\/hoplite(?!\/|")/;
+const duplicatedPrefix =
+  /(href|src|srcset|action)="\/hoplite\/hoplite(?:\/|[A-Za-z0-9_-])/;
+const unscopedRootLink =
+  /(href|src|srcset|action)="\/(?!hoplite(?:\/|"))/g;
 
 async function visit(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) await visit(path);
     if (!entry.isFile() || !entry.name.endsWith(".html")) continue;
+
     const source = await readFile(path, "utf8");
-    const scoped = source.replace(/(href|src|srcset|action)="\/(?!hoplite(?:\/|"))/g, `$1="${prefix}/`);
+    const malformed = source.match(malformedPrefix);
+    if (malformed) {
+      throw new Error(
+        `Malformed Pages base path in ${path}: ${malformed[0]}`,
+      );
+    }
+
+    const scoped = source.replace(unscopedRootLink, `$1="${prefix}/`);
+    const duplicated = scoped.match(duplicatedPrefix);
+    if (duplicated) {
+      throw new Error(
+        `Duplicated Pages base path in ${path}: ${duplicated[0]}`,
+      );
+    }
+
     if (scoped !== source) await writeFile(path, scoped);
   }
 }
