@@ -1,0 +1,38 @@
+name: HTTP benchmark
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ba52a6bfce31aeff7359d0e60d7f8d1538204694
+          path: hara.lang
+          submodules: recursive
+      - name: Install benchmark tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends wrk jq curl
+      - name: Build the measured image
+        run: docker build -f hoplite/docker/Dockerfile -t hoplite-benchmark .
+      - name: Record raw HTTP measurements
+        working-directory: hoplite
+        run: scripts/benchmark-http.sh hoplite-benchmark benchmark-output/http-benchmark.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hoplite-http-benchmark-${{ github.sha }}
+          path: hoplite/benchmark-output/http-benchmark.json
+          if-no-files-found: error
