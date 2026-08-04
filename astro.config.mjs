@@ -16,7 +16,7 @@ export default defineConfig({
       },
       description: "A lightweight, fast and deeply customizable Nginx application container.",
       logo: { src: "./public/sigil.svg", replacesTitle: false },
-      favicon: "/hoplite/sigil.svg",
+      favicon: "/hoplite/favicon.svg",
       customCss: [
         "./src/styles/custom.css",
         "./src/styles/starlight-shell.css",
@@ -89,10 +89,10 @@ export default defineConfig({
         },
       ],
       head: [
-        { tag: "meta", attrs: { property: "og:image", content: "https://opensource.greenways.ai/visual-language/artwork/hoplite/rabbit-courtyard-day.webp" } },
-        { tag: "meta", attrs: { property: "og:image:alt", content: "A rabbit grazing in Hoplite's gold and bottle-green mosaic courtyard" } },
-        { tag: "meta", attrs: { name: "twitter:image", content: "https://opensource.greenways.ai/visual-language/artwork/hoplite/rabbit-courtyard-day.webp" } },
-        { tag: "meta", attrs: { name: "twitter:image:alt", content: "A rabbit grazing in Hoplite's gold and bottle-green mosaic courtyard" } },
+        { tag: "meta", attrs: { property: "og:image", content: "https://opensource.greenways.ai/visual-language/assets/og-hoplite.png" } },
+        { tag: "meta", attrs: { property: "og:image:alt", content: "Hoplite's cyan compass-star sigil over the rabbit courtyard" } },
+        { tag: "meta", attrs: { name: "twitter:image", content: "https://opensource.greenways.ai/visual-language/assets/og-hoplite.png" } },
+        { tag: "meta", attrs: { name: "twitter:image:alt", content: "Hoplite's cyan compass-star sigil over the rabbit courtyard" } },
         { tag: "meta", attrs: { name: "twitter:card", content: "summary_large_image" } },
       ],
     }),
