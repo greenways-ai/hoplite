@@ -115,7 +115,7 @@ h1, h2, h3, .site-title { font-family: "Marcellus", Georgia, serif; font-weight:
 .request-flow__core :is(small,b,em) { color: #07100e; }
 .technical-link { display: block; margin-top: 1.2rem; color: #e0b56f; text-align: right; text-decoration: none; font: .62rem "IBM Plex Mono", monospace; text-transform: uppercase; }
 .mosaic-feature { position: relative; width: min(100% - 3rem, 1280px); min-height: 380px; margin: 0 auto 2rem; overflow: hidden; border: 1px solid rgba(231,223,202,.16); }
-.mosaic-feature img { width: 100%; height: 100%; max-height: 600px; object-fit: cover; }
+.mosaic-feature__art { width: 100%; min-height: min(600px, 58vw); }
 .mosaic-feature figcaption { position: absolute; right: 1rem; bottom: 1rem; padding: .5rem .7rem; color: #d6d0bd; background: rgba(7,16,14,.82); font: .55rem "IBM Plex Mono", monospace; text-transform: uppercase; }
 .technical-index { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid rgba(231,223,202,.16); border-left: 1px solid rgba(231,223,202,.16); }
 .technical-index a { min-height: 280px; display: grid; grid-template-rows: auto 1fr auto auto; padding: 2rem; color: inherit; border-right: 1px solid rgba(231,223,202,.16); border-bottom: 1px solid rgba(231,223,202,.16); text-decoration: none; }
@@ -124,7 +124,7 @@ h1, h2, h3, .site-title { font-family: "Marcellus", Georgia, serif; font-weight:
 .technical-index strong { align-self: center; color: #fff9e9; font: 2.2rem "Marcellus", serif; }
 .technical-index p { color: #aaa58f; font-size: .88rem; }
 .status-feature { position: relative; min-height: 680px; display: grid; place-items: center; overflow: hidden; }
-.status-feature > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .52; }
+.status-feature__art { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .52; }
 .status-feature::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(7,16,14,.98), rgba(7,16,14,.58)); }
 .status-feature > div { position: relative; z-index: 2; width: min(100% - 3rem, 1280px); }
 .status-feature > div > p:not(.technical-kicker) { max-width: 660px; color: #c0baa7; }
@@ -152,6 +152,7 @@ main:has(.hoplite-hero) footer { display: none; }
   .hero-links { flex-direction: column; }
   .hero-command { display: grid; }
   .home-section, .mosaic-feature, .status-feature > div { width: calc(100% - 1.75rem); }
+  .mosaic-feature__art { min-height: 520px; }
   .home-section { padding: 5rem 0; }
   .technical-index { grid-template-columns: 1fr; }
   .status-feature dl { grid-template-columns: 1fr; }
