@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../dist/", import.meta.url));
 const marker = "data-gw-legacy-host-redirect";
 const legacyHosts = ["hoplite.greenways.ai", "www.hoplite.greenways.ai"];
-const canonicalOrigin = "https://opensource.greenways.ai";
+const canonicalOrigin = "https://oss.greenways.ai";
 const canonicalBase = "/hoplite";
 const redirectScript = `<script ${marker}>(()=>{const h=new Set(${JSON.stringify(legacyHosts)});if(!h.has(window.location.hostname))return;const b=${JSON.stringify(canonicalBase)};const p=window.location.pathname||"/";const t=p==="/"||p===b?b+"/":p.startsWith(b+"/")?p:b+(p.startsWith("/")?p:"/"+p);window.location.replace(${JSON.stringify(canonicalOrigin)}+t+window.location.search+window.location.hash)})();</script>`;
 

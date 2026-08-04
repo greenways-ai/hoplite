@@ -3,7 +3,7 @@ import starlight from "@astrojs/starlight";
 import mdx from "@astrojs/mdx";
 
 export default defineConfig({
-  site: "https://opensource.greenways.ai",
+  site: "https://oss.greenways.ai",
   base: "/hoplite",
   vite: { build: { assetsInlineLimit: 0 } },
   integrations: [
@@ -83,15 +83,15 @@ export default defineConfig({
             { label: "Status & roadmap", slug: "project/status" },
             { label: "Contributing", slug: "project/contributing" },
             { label: "Source ↗", link: "https://github.com/greenways-ai/hoplite" },
-            { label: "Greenways ↗", link: "https://opensource.greenways.ai/" },
+            { label: "Greenways ↗", link: "https://oss.greenways.ai/" },
             { label: "Hara ↗", link: "https://hara-lang.org" },
           ],
         },
       ],
       head: [
-        { tag: "meta", attrs: { property: "og:image", content: "https://opensource.greenways.ai/visual-language/assets/og-hoplite.png" } },
+        { tag: "meta", attrs: { property: "og:image", content: "https://oss.greenways.ai/visual-language/assets/og-hoplite.png" } },
         { tag: "meta", attrs: { property: "og:image:alt", content: "Hoplite's cyan compass-star sigil over the rabbit courtyard" } },
-        { tag: "meta", attrs: { name: "twitter:image", content: "https://opensource.greenways.ai/visual-language/assets/og-hoplite.png" } },
+        { tag: "meta", attrs: { name: "twitter:image", content: "https://oss.greenways.ai/visual-language/assets/og-hoplite.png" } },
         { tag: "meta", attrs: { name: "twitter:image:alt", content: "Hoplite's cyan compass-star sigil over the rabbit courtyard" } },
         { tag: "meta", attrs: { name: "twitter:card", content: "summary_large_image" } },
       ],

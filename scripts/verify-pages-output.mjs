@@ -13,7 +13,7 @@ const required = [
   legacyRuntimeModelPath,
 ];
 const artworkBase =
-  "https://opensource.greenways.ai/visual-language/artwork/hoplite/";
+  "https://oss.greenways.ai/visual-language/artwork/hoplite/";
 const expectedArtwork = [
   "rabbit-courtyard",
   "open-gate",
@@ -26,13 +26,13 @@ const expectedArtwork = [
   `${artworkBase}${scene}-night-mobile.webp`,
 ]);
 const expectedGuideUrl =
-  "https://opensource.greenways.ai/hoplite/guides/writing-web-services";
+  "https://oss.greenways.ai/hoplite/guides/writing-web-services";
 const expectedNavigationLinks = [
   "/hoplite/",
   "/hoplite/getting-started/",
   "/hoplite/guides/writing-web-services/",
   "/hoplite/reference/cli/",
-  "https://opensource.greenways.ai/",
+  "https://oss.greenways.ai/",
 ];
 const unscopedRootLink =
   /(href|src|srcset|action)="\/(?!hoplite(?:\/|"))/;
@@ -54,7 +54,7 @@ function pageUrl(path) {
   const pathname = documentPath === "index.html"
     ? "/hoplite/"
     : `/hoplite/${documentPath.replace(/index\.html$/, "")}`;
-  return new URL(pathname, "https://opensource.greenways.ai");
+  return new URL(pathname, "https://oss.greenways.ai");
 }
 
 async function localTarget(pathname) {
@@ -109,7 +109,7 @@ for (const path of files) {
   for (const href of links) {
     if (/^(?:mailto:|tel:|javascript:)/.test(href)) continue;
     const url = new URL(href, pageUrl(path));
-    if (url.origin !== "https://opensource.greenways.ai") continue;
+    if (url.origin !== "https://oss.greenways.ai") continue;
     if (!url.pathname.startsWith("/hoplite")) continue;
     if (!(await localTarget(url.pathname))) {
       throw new Error(
