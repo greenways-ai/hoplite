@@ -3,7 +3,7 @@ title: Installation
 description: Build Hoplite from source and understand the planned packaged installation.
 ---
 
-<span class="doc-badge doc-badge--success">Source build available</span> <span class="doc-badge doc-badge--caution">Tagged package pending</span>
+<span class="doc-badge doc-badge--success">Source build available</span> <span class="doc-badge doc-badge--success">Homebrew package available</span>
 
 ## Build from source
 
@@ -38,15 +38,28 @@ make install PREFIX=/usr/local
 
 ## Homebrew package
 
-After the first tagged release is published, the intended installation is:
+Hoplite is published to the `greenways-ai` Homebrew tap. Install it with the
+fully-qualified formula name:
 
 ```sh
-brew tap greenways-ai/hoplite
-brew install hoplite
+brew install greenways-ai/tap/hoplite
 hoplite version
 ```
 
-The formula and tap automation exist in the repository, but users should not rely on this path until a tagged release succeeds. See [Packaging](/guides/packaging/) for the release flow.
+Naming the tap in the command is what lets the install proceed without extra
+setup: Homebrew auto-taps `greenways-ai/homebrew-tap` and treats the explicit
+`greenways-ai/tap/hoplite` reference as consent to load the formula. If you
+tap first and install by the short name instead, Homebrew 6 refuses to load
+the formula until you trust the tap:
+
+```sh
+brew tap greenways-ai/tap
+brew trust greenways-ai/tap
+brew install hoplite
+```
+
+The formula builds Hoplite from source (Rust toolchain required) on macOS and
+Linux. See [Packaging](/guides/packaging/) for the release flow.
 
 ## Platform support
 
@@ -54,5 +67,5 @@ The formula and tap automation exist in the repository, but users should not rel
 | --- | --- | --- |
 | macOS arm64 | Primary | Standalone packaging target |
 | macOS Intel | Primary | Standalone packaging target |
-| Linux | Validation | CI and Docker; no packaged standalone release yet |
+| Linux | Primary | Homebrew source build; standalone executables on the release page |
 | Windows | Unsupported | No supported host lifecycle integration |
