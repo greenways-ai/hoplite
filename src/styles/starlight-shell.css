@@ -1,8 +1,10 @@
+@import "./documentation-enhancements.css";
+
 /*
- * Starlight owns the fixed page frame while the Greenways header owns the
- * visible navigation bar. Keep both systems on the same measured height so
- * the page title, mobile table of contents, sidebar, and menu button begin
- * below one header rather than overlapping an inset second bar.
+ * Starlight owns the fixed page frame while the shared documentation header
+ * owns the visible navigation bar. Keep both systems on the same measured
+ * height so the page title, mobile table of contents, sidebar and menu button
+ * begin below one header rather than overlapping an inset second bar.
  */
 :root {
   --sl-nav-height: 76px;
@@ -15,7 +17,7 @@
   background: transparent;
 }
 
-.header > .hoplite-header {
+.header > .gw-documentation-header {
   width: 100%;
   height: 100%;
   min-height: 100%;
@@ -23,18 +25,13 @@
 }
 
 /*
- * Below Starlight's sidebar breakpoint, its menu button is the useful one: it
- * opens the complete documentation tree. Hide the second Greenways hamburger
- * only when that sidebar trigger exists, then make the Starlight control look
- * and sit like a native part of the shared header.
+ * Below Starlight's sidebar breakpoint, its menu button opens the complete
+ * documentation tree. Reserve room for that control at the right edge of the
+ * shared header and make it use the same visual-language control treatment.
  */
 @media (max-width: 49.999rem) {
-  [data-has-sidebar] .hoplite-header {
+  [data-has-sidebar] .gw-documentation-header {
     padding-inline-end: calc(clamp(18px, 3vw, 48px) + var(--sl-menu-button-size) + 10px);
-  }
-
-  [data-has-sidebar] .hoplite-header__menu {
-    display: none;
   }
 
   starlight-menu-button button {
@@ -72,12 +69,12 @@
     --sl-menu-button-size: 44px;
   }
 
-  [data-has-sidebar] .hoplite-header {
+  [data-has-sidebar] .gw-documentation-header {
     padding-inline-end: 64px;
   }
 
   starlight-menu-button button {
-    inset-inline-end: 12px;
+    inset-inline-end: 10px;
     padding: 11px;
   }
 }
