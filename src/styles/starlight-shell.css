@@ -1,0 +1,83 @@
+/*
+ * Starlight owns the fixed page frame while the Greenways header owns the
+ * visible navigation bar. Keep both systems on the same measured height so
+ * the page title, mobile table of contents, sidebar, and menu button begin
+ * below one header rather than overlapping an inset second bar.
+ */
+:root {
+  --sl-nav-height: 82px;
+  --sl-menu-button-size: 48px;
+}
+
+.header {
+  padding: 0;
+  border-bottom: 0;
+  background: transparent;
+}
+
+.header > .gw-header {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  border-top: 0;
+}
+
+/*
+ * Below Starlight's sidebar breakpoint, its menu button is the useful one: it
+ * opens the complete documentation tree. Hide the second Greenways hamburger
+ * only when that sidebar trigger exists, then make the Starlight control look
+ * and sit like a native part of the shared header.
+ */
+@media (max-width: 49.999rem) {
+  [data-has-sidebar] .gw-header {
+    padding-inline-end: calc(clamp(18px, 3vw, 48px) + var(--sl-menu-button-size) + 10px);
+  }
+
+  [data-has-sidebar] .gw-menu-trigger {
+    display: none;
+  }
+
+  starlight-menu-button button {
+    top: calc((var(--sl-nav-height) - var(--sl-menu-button-size)) / 2);
+    inset-inline-end: clamp(18px, 3vw, 48px);
+    width: var(--sl-menu-button-size);
+    height: var(--sl-menu-button-size);
+    padding: 12px;
+    color: var(--gw-control-text);
+    background: var(--gw-control-bg);
+    border: 1px solid var(--gw-line-strong);
+    border-radius: 10px;
+    box-shadow: none;
+  }
+
+  starlight-menu-button button:hover,
+  starlight-menu-button[aria-expanded="true"] button {
+    background: var(--gw-control-hover);
+  }
+
+  starlight-menu-button button:focus-visible {
+    outline: 3px solid var(--gw-focus);
+    outline-offset: 3px;
+  }
+
+  starlight-menu-button button svg {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+@media (max-width: 560px) {
+  :root {
+    --sl-nav-height: 68px;
+    --sl-menu-button-size: 44px;
+  }
+
+  [data-has-sidebar] .gw-header {
+    padding-inline-end: 64px;
+  }
+
+  starlight-menu-button button {
+    inset-inline-end: 12px;
+    padding: 11px;
+  }
+}

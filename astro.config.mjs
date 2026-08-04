@@ -17,7 +17,10 @@ export default defineConfig({
       description: "A lightweight, fast and deeply customizable Nginx application container.",
       logo: { src: "./public/sigil.svg", replacesTitle: false },
       favicon: "/hoplite/sigil.svg",
-      customCss: ["./src/styles/custom.css"],
+      customCss: [
+        "./src/styles/custom.css",
+        "./src/styles/starlight-shell.css",
+      ],
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/greenways-ai/hoplite" },
       ],
@@ -86,7 +89,7 @@ export default defineConfig({
         },
       ],
       head: [
-        { tag: "meta", attrs: { property: "og:image", content: "https://hoplite.greenways.ai/images/hoplite-phalanx.webp" } },
+        { tag: "meta", attrs: { property: "og:image", content: "https://opensource.greenways.ai/hoplite/images/hoplite-phalanx.webp" } },
         { tag: "meta", attrs: { name: "twitter:card", content: "summary_large_image" } },
       ],
     }),
