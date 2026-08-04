@@ -1,18 +1,285 @@
 ---
-import SharedHeader from "@greenways-ai/visual-language/SharedHeader.astro";
+import Sigil from "@greenways-ai/visual-language/Sigil.astro";
+
 const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
 const searchBase = base.replace(/\/$/, "");
+const links = [
+  { label: "Overview", href: base },
+  { label: "Get started", href: `${base}getting-started/` },
+  { label: "Guides", href: `${base}guides/writing-web-services/` },
+  { label: "Reference", href: `${base}reference/cli/` },
+  { label: "Projects", href: "https://opensource.greenways.ai/" },
+  { label: "GitHub ↗", href: "https://github.com/greenways-ai/hoplite", external: true },
+];
 ---
-<SharedHeader
-  project="hoplite"
-  title="Hoplite"
-  homeHref={base}
-  searchBase={searchBase}
-  nav={[
-    { label: "Start", href: `${base}getting-started/` },
-    { label: "Concepts", href: `${base}concepts/runtime-model/` },
-    { label: "Guides", href: `${base}guides/production-operation/` },
-    { label: "Reference", href: `${base}reference/cli/` },
-  ]}
-  githubHref="https://github.com/greenways-ai/hoplite"
-/>
+
+<div class="hoplite-header" data-hoplite-header>
+  <a class="hoplite-header__brand" href={base} aria-label="Hoplite documentation home">
+    <Sigil project="hoplite" label="Hoplite" class="hoplite-header__sigil" />
+    <span>Hoplite</span>
+  </a>
+
+  <nav class="hoplite-header__desktop" aria-label="Hoplite documentation">
+    {links.map((link) => (
+      <a href={link.href} target={link.external ? "_blank" : undefined} rel={link.external ? "noreferrer" : undefined}>{link.label}</a>
+    ))}
+  </nav>
+
+  <button class="hoplite-header__control" type="button" data-hoplite-search-open aria-label="Search Hoplite documentation">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.25 4.25" /></svg>
+  </button>
+
+  <button class="hoplite-header__control hoplite-header__theme" type="button" data-hoplite-theme-toggle title="Toggle light or dark. Shift-click to follow the system theme.">
+    <span class="hoplite-header__sr">Toggle colour theme</span>
+    <svg class="hoplite-header__moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15.2A8.4 8.4 0 0 1 8.8 4 8.5 8.5 0 1 0 20 15.2Z" /></svg>
+    <svg class="hoplite-header__sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
+  </button>
+
+  <details class="hoplite-header__menu">
+    <summary class="hoplite-header__control" aria-label="Open navigation">
+      <span class="hoplite-header__sr">Menu</span>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+    </summary>
+    <nav aria-label="Compact Hoplite documentation navigation">
+      {links.map((link) => (
+        <a href={link.href} target={link.external ? "_blank" : undefined} rel={link.external ? "noreferrer" : undefined}>{link.label}</a>
+      ))}
+    </nav>
+  </details>
+</div>
+
+<dialog class="hoplite-search" data-hoplite-search data-search-base={searchBase} aria-label="Search Hoplite documentation">
+  <form method="dialog" class="hoplite-search__bar">
+    <label>
+      <span class="hoplite-header__sr">Search Hoplite documentation</span>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.25 4.25" /></svg>
+      <input type="search" data-hoplite-search-input autocomplete="off" placeholder="Search Hoplite documentation" />
+    </label>
+    <button class="hoplite-header__control" value="close">Close</button>
+  </form>
+  <div class="hoplite-search__results" data-hoplite-search-results aria-live="polite"><p>Begin typing to search this documentation.</p></div>
+</dialog>
+
+<script>
+  const root = document.documentElement;
+  const search = document.querySelector<HTMLDialogElement>("[data-hoplite-search]");
+  const searchInput = search?.querySelector<HTMLInputElement>("[data-hoplite-search-input]");
+  const searchResults = search?.querySelector<HTMLElement>("[data-hoplite-search-results]");
+  let searchEngine: any;
+
+  const openSearch = () => {
+    search?.showModal();
+    requestAnimationFrame(() => searchInput?.focus());
+  };
+
+  const renderTheme = () => {
+    const dark = root.dataset.theme === "dark";
+    document.querySelectorAll("[data-hoplite-theme-toggle]").forEach((button) => {
+      button.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
+      button.setAttribute("aria-pressed", dark ? "true" : "false");
+    });
+  };
+
+  const fallbackApply = (preference: "auto" | "light" | "dark") => {
+    const dark = preference === "auto"
+      ? window.matchMedia("(prefers-color-scheme: dark)").matches
+      : preference === "dark";
+    root.dataset.theme = dark ? "dark" : "light";
+    root.dataset.themePreference = preference;
+    root.style.colorScheme = dark ? "dark" : "light";
+    try { localStorage.setItem("gw-theme", preference); } catch {}
+  };
+
+  document.querySelectorAll("[data-hoplite-search-open]").forEach((button) => button.addEventListener("click", openSearch));
+  document.querySelectorAll("[data-hoplite-theme-toggle]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      const current = root.dataset.theme === "dark" ? "dark" : "light";
+      const next = (event as MouseEvent).shiftKey ? "auto" : current === "dark" ? "light" : "dark";
+      const theme = (window as any).GreenwaysTheme;
+      if (theme?.apply) theme.apply(next, true);
+      else fallbackApply(next);
+      renderTheme();
+    });
+  });
+
+  document.querySelectorAll("[data-hoplite-header] details a").forEach((link) => {
+    link.addEventListener("click", () => link.closest("details")?.removeAttribute("open"));
+  });
+
+  searchInput?.addEventListener("input", async () => {
+    const term = searchInput.value.trim();
+    if (!searchResults) return;
+    if (term.length < 2) {
+      searchResults.innerHTML = "<p>Type at least two characters.</p>";
+      return;
+    }
+    try {
+      if (!searchEngine) {
+        const path = search?.dataset.searchBase?.replace(/\/$/, "") || "";
+        searchEngine = await import(/* @vite-ignore */ `${path}/pagefind/pagefind.js`);
+      }
+      const found = await searchEngine.search(term);
+      const entries = await Promise.all(found.results.slice(0, 8).map((result: any) => result.data()));
+      searchResults.replaceChildren(...entries.map((entry: any) => {
+        const link = document.createElement("a");
+        const title = document.createElement("strong");
+        const excerpt = document.createElement("span");
+        link.href = entry.url;
+        title.textContent = entry.meta.title || "Result";
+        excerpt.innerHTML = entry.excerpt || "";
+        link.append(title, excerpt);
+        return link;
+      }));
+      if (!entries.length) searchResults.innerHTML = "<p>No results found.</p>";
+    } catch {
+      searchResults.innerHTML = "<p>Search is unavailable in this preview.</p>";
+    }
+  });
+
+  window.addEventListener("keydown", (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      openSearch();
+    }
+  });
+  window.addEventListener("gw-theme-change", renderTheme);
+  renderTheme();
+</script>
+
+<style>
+  .hoplite-header {
+    position: sticky;
+    z-index: 60;
+    top: 0;
+    min-height: 76px;
+    display: grid;
+    grid-template-columns: auto 1fr auto auto auto;
+    align-items: center;
+    gap: clamp(8px, 1.4vw, 22px);
+    padding: 12px clamp(16px, 3vw, 46px);
+    color: var(--gw-text);
+    background: var(--gw-header);
+    border-block: 1px solid var(--gw-line);
+    backdrop-filter: blur(18px);
+  }
+
+  .hoplite-header__brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    color: inherit;
+    font: 400 clamp(1.3rem, 2vw, 1.85rem) "Marcellus", Georgia, serif;
+    letter-spacing: .075em;
+    text-decoration: none;
+  }
+
+  .hoplite-header__sigil { width: 48px; height: 48px; }
+
+  .hoplite-header__desktop {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: clamp(11px, 1.35vw, 21px);
+  }
+
+  .hoplite-header__desktop a,
+  .hoplite-header__menu nav a {
+    color: inherit;
+    font: 700 .67rem "Manrope", system-ui, sans-serif;
+    letter-spacing: .075em;
+    text-decoration: none;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .hoplite-header__desktop a:hover,
+  .hoplite-header__menu nav a:hover { color: var(--gw-accent-3); }
+
+  .hoplite-header__control {
+    width: 48px;
+    height: 48px;
+    display: inline-grid;
+    place-items: center;
+    padding: 0;
+    color: var(--gw-control-text);
+    background: var(--gw-control-bg);
+    border: 1px solid var(--gw-line-strong);
+    border-radius: 10px;
+    cursor: pointer;
+  }
+
+  .hoplite-header__control:hover { background: var(--gw-control-hover); }
+  .hoplite-header__control:focus-visible,
+  .hoplite-header a:focus-visible { outline: 3px solid var(--gw-focus); outline-offset: 3px; }
+  .hoplite-header__control svg,
+  .hoplite-search__bar svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .hoplite-header__moon { display: block; fill: currentColor !important; stroke: none !important; }
+  .hoplite-header__sun { display: none; }
+  :global(:root[data-theme="dark"]) .hoplite-header__moon { display: none; }
+  :global(:root[data-theme="dark"]) .hoplite-header__sun { display: block; }
+
+  .hoplite-header__menu { position: relative; display: none; }
+  .hoplite-header__menu summary { list-style: none; }
+  .hoplite-header__menu summary::-webkit-details-marker { display: none; }
+  .hoplite-header__menu nav {
+    position: absolute;
+    top: calc(100% + 10px);
+    right: 0;
+    min-width: 220px;
+    display: grid;
+    padding: 8px;
+    background: var(--gw-surface);
+    border: 1px solid var(--gw-line-strong);
+    border-radius: 12px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, .2);
+  }
+  .hoplite-header__menu nav a { padding: 12px; border-radius: 8px; }
+  .hoplite-header__menu nav a:hover { background: var(--gw-control-hover); }
+
+  .hoplite-header__sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .hoplite-search {
+    width: min(calc(100% - 32px), 760px);
+    max-height: min(80svh, 720px);
+    padding: 0;
+    color: var(--gw-text);
+    background: var(--gw-surface);
+    border: 1px solid var(--gw-line-strong);
+    border-radius: 16px;
+    box-shadow: 0 32px 100px rgba(0, 0, 0, .32);
+  }
+  .hoplite-search::backdrop { background: rgba(2, 8, 6, .62); backdrop-filter: blur(4px); }
+  .hoplite-search__bar { display: flex; gap: 10px; padding: 12px; border-bottom: 1px solid var(--gw-line); }
+  .hoplite-search__bar label { min-width: 0; flex: 1; display: flex; align-items: center; gap: 10px; padding: 0 14px; background: var(--gw-control-bg); border: 1px solid var(--gw-line-strong); border-radius: 10px; }
+  .hoplite-search__bar input { width: 100%; min-height: 48px; color: var(--gw-text); background: transparent; border: 0; outline: 0; font: inherit; }
+  .hoplite-search__bar button { width: auto; padding-inline: 14px; }
+  .hoplite-search__results { display: grid; gap: 8px; padding: 12px; overflow: auto; }
+  .hoplite-search__results > p { padding: 16px; color: var(--gw-text-muted); }
+  .hoplite-search__results :global(a) { display: grid; gap: 3px; padding: 14px; color: var(--gw-text); border-radius: 10px; text-decoration: none; }
+  .hoplite-search__results :global(a:hover) { background: var(--gw-control-hover); }
+  .hoplite-search__results :global(span) { color: var(--gw-text-muted); font-size: .85rem; }
+
+  @media (max-width: 1160px) {
+    .hoplite-header { grid-template-columns: auto 1fr auto auto auto; }
+    .hoplite-header__desktop { display: none; }
+    .hoplite-header__menu { display: block; }
+  }
+
+  @media (max-width: 560px) {
+    .hoplite-header { min-height: 68px; padding: 9px 12px; gap: 8px; }
+    .hoplite-header__sigil { width: 42px; height: 42px; }
+    .hoplite-header__brand span { font-size: 1.05rem; }
+    .hoplite-header__control { width: 44px; height: 44px; }
+    .hoplite-header__menu nav { position: fixed; top: 68px; right: 12px; }
+    .hoplite-search__bar { align-items: stretch; }
+    .hoplite-search__bar label { padding-inline: 10px; }
+    .hoplite-search__bar button { width: 58px; overflow: hidden; font-size: 0; }
+    .hoplite-search__bar button::after { content: "×"; font-size: 1.25rem; }
+  }
+</style>

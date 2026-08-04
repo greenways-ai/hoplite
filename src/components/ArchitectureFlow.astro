@@ -1,3 +1,8 @@
+---
+import ThemedArtwork from "@greenways-ai/visual-language/ThemedArtwork.astro";
+const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
+const artworkBase = "https://opensource.greenways.ai/visual-language/artwork/hoplite/";
+---
 <section class="home-section home-architecture">
   <header><p class="technical-kicker">01 · Package to production</p><h2>Configure once. Run anywhere.</h2><p>Pull a project from GitHub, resolve its signed Hara packages, and build the same locked Hoplite service for a local process or container.</p></header>
   <div class="request-flow" aria-label="A GitHub project is resolved, composed, built, and run by Hoplite">
@@ -7,9 +12,18 @@
     <span><small>PACKAGE</small><b>Docker</b><em>OCI image</em></span><i>→</i>
     <span><small>DEPLOY</small><b>Hoplite</b><em>gateway</em></span>
   </div>
-  <a class="technical-link" href="/getting-started/development-workflow/">Follow the Git-to-runtime workflow →</a>
+  <a class="technical-link" href={`${base}getting-started/development-workflow/`}>Follow the Git-to-runtime workflow →</a>
 </section>
 <figure class="mosaic-feature">
-  <img src={`${import.meta.env.BASE_URL.replace(/\/+$/, "")}/images/hoplite-threshold.webp`} width="1536" height="1024" loading="lazy" alt="A mosaic shield bearer guarding a luminous architectural threshold" />
-  <figcaption>Capability-bound hosts keep the network boundary explicit.</figcaption>
+  <ThemedArtwork
+    class="mosaic-feature__art"
+    light={`${artworkBase}open-gate-day.webp`}
+    dark={`${artworkBase}open-gate-night.webp`}
+    lightMobile={`${artworkBase}open-gate-day-mobile.webp`}
+    darkMobile={`${artworkBase}open-gate-night-mobile.webp`}
+    lightAlt="A rabbit paused midway through a sunlit garden gate"
+    darkAlt="A rabbit sheltered inside a moonlit gatehouse niche"
+    position="center"
+  />
+  <figcaption>An explicit gate keeps every host capability visible.</figcaption>
 </figure>

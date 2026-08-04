@@ -2,9 +2,10 @@
 import ThemedArtwork from "@greenways-ai/visual-language/ThemedArtwork.astro";
 const install = "git clone https://github.com/greenways-ai/hoplite.git && cd hoplite && make example-dev";
 const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
+const artworkBase = "https://opensource.greenways.ai/visual-language/artwork/hoplite/";
 ---
 <section class="hoplite-hero">
-  <ThemedArtwork class="hoplite-hero__art" light={`${base}images/hoplite-squad-day.webp`} dark={`${base}images/hoplite-squad-night.webp`} lightAlt="An alert rabbit sitting naturally in a golden formal courtyard" darkAlt="The rabbit resting naturally in the moonlit courtyard" position="center" />
+  <ThemedArtwork class="hoplite-hero__art" light={`${artworkBase}rabbit-courtyard-day.webp`} dark={`${artworkBase}rabbit-courtyard-night.webp`} lightMobile={`${artworkBase}rabbit-courtyard-day-mobile.webp`} darkMobile={`${artworkBase}rabbit-courtyard-night-mobile.webp`} lightAlt="An alert rabbit sitting naturally in a golden formal courtyard" darkAlt="The rabbit resting naturally in the moonlit courtyard" position="center" />
   <div class="hoplite-hero__veil"></div>
   <div class="hoplite-hero__copy">
     <p class="technical-kicker"><i></i> Hara packages · Git-native deployment</p>

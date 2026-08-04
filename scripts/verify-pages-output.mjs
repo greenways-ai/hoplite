@@ -1,23 +1,38 @@
 import { access, readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../dist/", import.meta.url));
 const legacyRuntimeModelPath =
   "hopliteconcepts/runtime-model/index.html";
+const legacyHostMarker = "data-gw-legacy-host-redirect";
 const expectedRuntimeModelUrl = "/hoplite/concepts/runtime-model/";
 const required = [
   "index.html",
   "guides/writing-web-services/index.html",
   legacyRuntimeModelPath,
 ];
+const artworkBase =
+  "https://opensource.greenways.ai/visual-language/artwork/hoplite/";
+const expectedArtwork = [
+  "rabbit-courtyard",
+  "open-gate",
+  "branching-paths",
+  "wind-arcade",
+].flatMap((scene) => [
+  `${artworkBase}${scene}-day.webp`,
+  `${artworkBase}${scene}-night.webp`,
+  `${artworkBase}${scene}-day-mobile.webp`,
+  `${artworkBase}${scene}-night-mobile.webp`,
+]);
 const expectedGuideUrl =
   "https://opensource.greenways.ai/hoplite/guides/writing-web-services";
 const expectedNavigationLinks = [
+  "/hoplite/",
   "/hoplite/getting-started/",
-  expectedRuntimeModelUrl,
-  "/hoplite/guides/production-operation/",
+  "/hoplite/guides/writing-web-services/",
   "/hoplite/reference/cli/",
+  "https://opensource.greenways.ai/",
 ];
 const unscopedRootLink =
   /(href|src|srcset|action)="\/(?!hoplite(?:\/|"))/;
@@ -34,6 +49,33 @@ async function htmlFiles(directory) {
   return output;
 }
 
+function pageUrl(path) {
+  const documentPath = relative(root, path).replaceAll("\\", "/");
+  const pathname = documentPath === "index.html"
+    ? "/hoplite/"
+    : `/hoplite/${documentPath.replace(/index\.html$/, "")}`;
+  return new URL(pathname, "https://opensource.greenways.ai");
+}
+
+async function localTarget(pathname) {
+  const scoped = decodeURIComponent(pathname).replace(/^\/hoplite\/?/, "");
+  const candidates = scoped === ""
+    ? [join(root, "index.html")]
+    : pathname.endsWith("/")
+      ? [join(root, scoped, "index.html"), join(root, `${scoped.replace(/\/$/, "")}.html`)]
+      : [join(root, scoped), join(root, scoped, "index.html"), join(root, `${scoped}.html`)];
+
+  for (const candidate of candidates) {
+    try {
+      await access(candidate);
+      return candidate;
+    } catch {
+      // Try the next supported static-output shape.
+    }
+  }
+  return null;
+}
+
 for (const path of required) {
   await access(join(root, path));
 }
@@ -45,6 +87,11 @@ if (files.length === 0) {
 
 for (const path of files) {
   const source = await readFile(path, "utf8");
+  if (!source.includes(legacyHostMarker)) {
+    throw new Error(
+      `Pages verification did not find the legacy-host redirect in ${path}`,
+    );
+  }
   const unscoped = source.match(unscopedRootLink);
   if (unscoped) {
     throw new Error(
@@ -57,6 +104,19 @@ for (const path of files) {
       `Pages verification found a duplicated base path in ${path}: ${duplicated[0]}`,
     );
   }
+
+  const links = [...source.matchAll(/href="([^"]+)"/g)].map((match) => match[1]);
+  for (const href of links) {
+    if (/^(?:mailto:|tel:|javascript:)/.test(href)) continue;
+    const url = new URL(href, pageUrl(path));
+    if (url.origin !== "https://opensource.greenways.ai") continue;
+    if (!url.pathname.startsWith("/hoplite")) continue;
+    if (!(await localTarget(url.pathname))) {
+      throw new Error(
+        `Pages verification found a broken internal link in ${path}: ${href}`,
+      );
+    }
+  }
 }
 
 const home = await readFile(join(root, "index.html"), "utf8");
@@ -65,6 +125,19 @@ for (const href of expectedNavigationLinks) {
     throw new Error(
       `Pages verification did not find the expected navigation link: ${href}`,
     );
+  }
+}
+for (const marker of ["data-hoplite-search-open", "data-hoplite-theme-toggle"]) {
+  if (!home.includes(marker)) {
+    throw new Error(`Pages verification did not find the compact header control: ${marker}`);
+  }
+}
+if (!home.includes("Four expressions of air")) {
+  throw new Error("Pages verification did not find the canonical four-scene Hoplite catalogue");
+}
+for (const artwork of expectedArtwork) {
+  if (!home.includes(artwork)) {
+    throw new Error(`Pages verification did not find the canonical artwork URL: ${artwork}`);
   }
 }
 
@@ -94,5 +167,5 @@ if (!guide.includes(expectedGuideUrl)) {
 }
 
 console.log(
-  `Verified ${files.length} Pages documents under /hoplite, including navigation, the legacy runtime model redirect, and the web services guide.`,
+  `Verified ${files.length} Pages documents under /hoplite, including all internal links, compact navigation, the four-scene artwork set, the legacy runtime model redirect, and the web services guide.`,
 );

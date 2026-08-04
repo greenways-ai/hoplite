@@ -5,7 +5,7 @@
  * below one header rather than overlapping an inset second bar.
  */
 :root {
-  --sl-nav-height: 82px;
+  --sl-nav-height: 76px;
   --sl-menu-button-size: 48px;
 }
 
@@ -15,7 +15,7 @@
   background: transparent;
 }
 
-.header > .gw-header {
+.header > .hoplite-header {
   width: 100%;
   height: 100%;
   min-height: 100%;
@@ -29,11 +29,11 @@
  * and sit like a native part of the shared header.
  */
 @media (max-width: 49.999rem) {
-  [data-has-sidebar] .gw-header {
+  [data-has-sidebar] .hoplite-header {
     padding-inline-end: calc(clamp(18px, 3vw, 48px) + var(--sl-menu-button-size) + 10px);
   }
 
-  [data-has-sidebar] .gw-menu-trigger {
+  [data-has-sidebar] .hoplite-header__menu {
     display: none;
   }
 
@@ -72,7 +72,7 @@
     --sl-menu-button-size: 44px;
   }
 
-  [data-has-sidebar] .gw-header {
+  [data-has-sidebar] .hoplite-header {
     padding-inline-end: 64px;
   }
 

@@ -1,9 +1,12 @@
+---
+const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
+---
 <section class="home-section">
   <header><p class="technical-kicker">02 · Documentation</p><h2>Build at the boundary.</h2><p>Start with a working application, then follow the system down into routing, runtime behavior, operations, and interfaces.</p></header>
   <div class="technical-index">
-    <a href="/getting-started/"><small>START HERE · 5 GUIDES</small><strong>Getting started</strong><p>Install Hoplite, define an application, select a project profile, and run it.</p><span>Open section →</span></a>
-    <a href="/concepts/applications-resources/"><small>SYSTEM MODEL · 4 TOPICS</small><strong>Concepts</strong><p>Understand immutable resources, request values, capabilities, and worker-local state.</p><span>Open section →</span></a>
-    <a href="/guides/async-handlers/"><small>OPERATIONS · 6 GUIDES</small><strong>Guides</strong><p>Work with async handlers, the development console, OpenAPI, multiple apps, and production.</p><span>Open section →</span></a>
-    <a href="/reference/cli/"><small>INTERFACES · 6 REFERENCES</small><strong>Reference</strong><p>Look up every current CLI command and all visible core, development, and internal forms.</p><span>Open section →</span></a>
+    <a href={`${base}getting-started/`}><small>START HERE · 5 GUIDES</small><strong>Getting started</strong><p>Install Hoplite, define an application, select a project profile, and run it.</p><span>Open section →</span></a>
+    <a href={`${base}concepts/applications-resources/`}><small>SYSTEM MODEL · 4 TOPICS</small><strong>Concepts</strong><p>Understand immutable resources, request values, capabilities, and worker-local state.</p><span>Open section →</span></a>
+    <a href={`${base}guides/writing-web-services/`}><small>OPERATIONS · 8 GUIDES</small><strong>Guides</strong><p>Build web services, then follow routing, async handlers, authentication, OpenAPI, packaging, and production.</p><span>Open section →</span></a>
+    <a href={`${base}reference/cli/`}><small>INTERFACES · 8 REFERENCES</small><strong>Reference</strong><p>Look up every current CLI command and all visible core, authentication, host, development, and internal forms.</p><span>Open section →</span></a>
   </div>
 </section>
