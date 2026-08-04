@@ -1,0 +1,51 @@
+<section id="performance" class="home-section performance-proof">
+  <header>
+    <p class="technical-kicker">02 · Performance</p>
+    <h2>The hot path is short.</h2>
+    <p>
+      Hoplite does not sit behind Nginx as another application process. The Hara
+      handler lives in the worker, is resolved at startup, and returns directly to Nginx.
+    </p>
+  </header>
+
+  <div class="performance-path" aria-label="Hoplite request path">
+    <code>request → nginx worker → cached Hara handler → native response</code>
+  </div>
+
+  <div class="performance-metrics">
+    <article>
+      <strong>0</strong>
+      <span>proxy hops</span>
+      <p>No loopback HTTP boundary between Nginx and the application.</p>
+    </article>
+    <article>
+      <strong>1×</strong>
+      <span>compile per worker</span>
+      <p>Handler calls are resolved and compiled during worker startup.</p>
+    </article>
+    <article>
+      <strong>0</strong>
+      <span>mandatory request copies</span>
+      <p>The raw adapter can operate on the borrowed Nginx exchange.</p>
+    </article>
+    <article>
+      <strong>0</strong>
+      <span>async records on sync routes</span>
+      <p>Promise and work state appears only when a handler actually suspends.</p>
+    </article>
+  </div>
+
+  <div class="benchmark-recipe">
+    <div>
+      <p class="panel-label">Reproduce the release path</p>
+      <h3>Run it. Load it. Keep the output.</h3>
+      <p>
+        Throughput only means something beside the machine, concurrency, response
+        shape, tail latency, and resident memory.
+      </p>
+    </div>
+    <pre><code>docker run --rm -p 8080:8080 ghcr.io/greenways-ai/hoplite:latest
+
+wrk -t4 -c128 -d30s http://127.0.0.1:8080/hello</code></pre>
+  </div>
+</section>

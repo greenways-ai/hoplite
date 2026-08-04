@@ -1,18 +1,36 @@
 ---
 import ThemedArtwork from "@greenways-ai/visual-language/ThemedArtwork.astro";
+
 const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
 const artworkBase = "https://oss.greenways.ai/visual-language/artwork/hoplite/";
 ---
 <section class="status-feature">
-  <ThemedArtwork
-    class="status-feature__art"
-    light={`${artworkBase}branching-paths-day.webp`}
-    dark={`${artworkBase}branching-paths-night.webp`}
-    lightMobile={`${artworkBase}branching-paths-day-mobile.webp`}
-    darkMobile={`${artworkBase}branching-paths-night-mobile.webp`}
-    lightAlt="A rabbit moving through the junction of three sunlit mosaic garden paths"
-    darkAlt="A rabbit resting beneath a clipped hedge beside a quiet path"
-    position="center"
-  />
-  <div><p class="technical-kicker"><i></i> Current status</p><h2>Pre-release. Built in the open.</h2><p>The standalone package targets macOS today. Linux is exercised through CI and Docker while bytecode bootstrap integration and the first tagged release are prepared.</p><dl><div><dt>Distribution</dt><dd>Source build</dd></div><div><dt>Primary host</dt><dd>macOS</dd></div><div><dt>License</dt><dd>Apache-2.0</dd></div></dl><a class="action action--gold" href={`${base}project/status/`}>Project status →</a></div>
+  <div class="status-feature__copy">
+    <p class="technical-kicker"><i></i> 05 · Current release</p>
+    <h2>Published. Pre-1.0. Built in the open.</h2>
+    <p>
+      Hoplite 0.1.0 ships for Apple Silicon, Intel macOS, ARM64 Linux, and x86-64
+      Linux, with Homebrew and GHCR distribution. Interfaces remain intentionally
+      pre-1.0 while the bytecode bootstrap and hosting contracts settle.
+    </p>
+    <dl>
+      <div><dt>Release</dt><dd>0.1.0</dd></div>
+      <div><dt>Distribution</dt><dd>Homebrew · binary · OCI</dd></div>
+      <div><dt>License</dt><dd>Apache-2.0</dd></div>
+    </dl>
+    <a class="action action--primary" href={`${base}project/status/`}>Release and roadmap →</a>
+  </div>
+
+  <aside class="status-feature__accent">
+    <ThemedArtwork
+      class="status-feature__art"
+      light={`${artworkBase}branching-paths-day.webp`}
+      dark={`${artworkBase}branching-paths-night.webp`}
+      lightMobile={`${artworkBase}branching-paths-day-mobile.webp`}
+      darkMobile={`${artworkBase}branching-paths-night-mobile.webp`}
+      lightAlt="A rabbit moving through a junction of mosaic paths"
+      darkAlt="A rabbit resting beside a moonlit mosaic path"
+      position="center"
+    />
+  </aside>
 </section>

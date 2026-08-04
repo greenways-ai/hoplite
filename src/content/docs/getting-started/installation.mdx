@@ -1,71 +1,72 @@
 ---
 title: Installation
-description: Build Hoplite from source and understand the planned packaged installation.
+description: Install Hoplite with Homebrew or the published release installer.
 ---
 
-<span class="doc-badge doc-badge--success">Source build available</span> <span class="doc-badge doc-badge--success">Homebrew package available</span>
+<span class="doc-badge doc-badge--success">Homebrew</span> <span class="doc-badge doc-badge--success">macOS + Linux binaries</span> <span class="doc-badge doc-badge--note">OCI image</span>
 
-## Build from source
+## Homebrew
 
-
-1. Clone Hara and Hoplite into sibling directories.
-
-   ```sh
-   git clone https://github.com/hara-lang/hara.git hara.lang
-   git clone https://github.com/greenways-ai/hoplite.git hoplite
-   cd hoplite
-   ```
-
-2. Prepare the development dependencies.
-
-   ```sh
-   make setup
-   ```
-
-3. Run the project checks and build the standalone executable.
-
-   ```sh
-   make check
-   make macos
-   ```
-
-
-Run `make help` for the available development, packaging, example, and benchmark targets. To install a source build under a custom prefix:
-
-```sh
-make install PREFIX=/usr/local
-```
-
-## Homebrew package
-
-Hoplite is published to the `greenways-ai` Homebrew tap. Install it with the
-fully-qualified formula name:
+Use the fully qualified formula name. Homebrew installs the current Hoplite
+release and trusts only the Greenways tap entry you selected.
 
 ```sh
 brew install greenways-ai/tap/hoplite
 hoplite version
 ```
 
-Naming the tap in the command is what lets the install proceed without extra
-setup: Homebrew auto-taps `greenways-ai/homebrew-tap` and treats the explicit
-`greenways-ai/tap/hoplite` reference as consent to load the formula. If you
-tap first and install by the short name instead, Homebrew 6 refuses to load
-the formula until you trust the tap:
+## Install script
+
+On macOS or Linux, install the published binary without a package manager:
 
 ```sh
-brew tap greenways-ai/tap
-brew trust greenways-ai/tap
-brew install hoplite
+curl -fsSL https://raw.githubusercontent.com/greenways-ai/hoplite/main/scripts/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+hoplite version
 ```
 
-The formula builds Hoplite from source (Rust toolchain required) on macOS and
-Linux. See [Packaging](/guides/packaging/) for the release flow.
+Set `HOPLITE_INSTALL_DIR` to choose another destination:
+
+```sh
+HOPLITE_INSTALL_DIR=/usr/local/bin \
+  curl -fsSL https://raw.githubusercontent.com/greenways-ai/hoplite/main/scripts/install.sh | sh
+```
+
+## Create the starter application
+
+The starter script writes a minimal `app.hal` and `project.edn`; it does not
+clone or build Hoplite.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/greenways-ai/hoplite/main/scripts/new-app.sh | sh -s -- hello
+cd hello
+hoplite serve foreground --mode prod .
+```
+
+In another terminal:
+
+```sh
+curl -i http://127.0.0.1:8080/hello
+```
+
+## Run the published container
+
+```sh
+docker run --rm -p 8080:8080 ghcr.io/greenways-ai/hoplite:latest
+curl -i http://127.0.0.1:8080/hello
+```
 
 ## Platform support
 
-| Platform | Status | Notes |
+| Platform | Status | Distribution |
 | --- | --- | --- |
-| macOS arm64 | Primary | Standalone packaging target |
-| macOS Intel | Primary | Standalone packaging target |
-| Linux | Primary | Homebrew source build; standalone executables on the release page |
+| macOS arm64 | Supported | Homebrew and standalone binary |
+| macOS Intel | Supported | Homebrew and standalone binary |
+| Linux arm64 | Supported | Homebrew, installer, binary, and OCI image |
+| Linux x86-64 | Supported | Homebrew, installer, binary, and OCI image |
 | Windows | Unsupported | No supported host lifecycle integration |
+
+:::note[Building Hoplite itself]
+Source builds are a contributor workflow, not the product installation path.
+See [Contributing](/project/contributing/) and [Packaging](/guides/packaging/).
+:::
