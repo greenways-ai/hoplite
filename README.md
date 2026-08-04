@@ -1,48 +1,59 @@
 # Hoplite
 
-Hoplite is a Hara application server built into nginx. Applications are
-immutable resource trees, handlers are Hara Vars, and each nginx worker
+Hoplite is a Hara application server built directly into Nginx. Applications
+are immutable resource trees, handlers are Hara Vars, and each Nginx worker
 resolves and compiles its route handlers once during startup.
 
 ```text
-request -> nginx -> borrowed Hara request -> cached handler -> native response -> nginx
+request -> nginx worker -> cached Hara handler -> native response
 ```
 
 HTA remains available as an explicit portability adapter; it is no longer the
 mandatory boundary for every request.
 
 Hoplite supports macOS and Linux. Tagged releases publish standalone binaries
-for Apple Silicon, Intel macOS, ARM64 Linux and x86-64 Linux; the Homebrew
-formula builds from the exact tagged Hoplite source, matching Hara revision and
-checksummed nginx source on either operating system.
+for Apple Silicon, Intel macOS, ARM64 Linux and x86-64 Linux, alongside a
+Homebrew formula and the `ghcr.io/greenways-ai/hoplite` OCI image.
 
 ## Install
 
-Use the fully qualified central-tap formula so Homebrew trusts only Hoplite:
+### Homebrew
+
+Use the fully qualified formula so Homebrew trusts only the selected Greenways
+tap entry:
 
 ```shell
 brew install greenways-ai/tap/hoplite
 hoplite version
 ```
 
-To build from sibling checkouts of Hoplite and Hara instead:
+### Release installer
+
+Install the published macOS or Linux binary without a package manager:
 
 ```shell
-git clone https://github.com/hara-lang/hara.git hara.lang
-git clone https://github.com/greenways-ai/hoplite.git hoplite
-cd hoplite
-make check
-make embedded-cli
-./target/release/hoplite version
+curl -fsSL https://raw.githubusercontent.com/greenways-ai/hoplite/main/scripts/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+hoplite version
 ```
 
-On macOS, `make setup` installs the build dependencies and `make macos`
-produces the packaged standalone executable. On Linux, install a C toolchain,
-OpenSSL, PCRE2 and zlib development packages before `make embedded-cli`.
-`make help` lists the common development, packaging, example and benchmark
-targets.
+### Container
 
-## Define an application
+Run the published starter image immediately:
+
+```shell
+docker run --rm -p 8080:8080 ghcr.io/greenways-ai/hoplite:latest
+curl -i http://127.0.0.1:8080/hello
+```
+
+## Create an application
+
+Generate the two-file starter without cloning or building Hoplite:
+
+```shell
+curl -fsSL https://raw.githubusercontent.com/greenways-ai/hoplite/main/scripts/new-app.sh | sh -s -- hello
+cd hello
+```
 
 A project selects one app Var. Routes are data; calling a handler is a runtime
 operation, while referring to it with `#'` is declarative configuration.
@@ -104,33 +115,29 @@ principal; the management realm cannot be made public. Additional identity
 mechanisms are installed as versioned Hoplite modules.
 
 See [`examples/app.hal`](examples/app.hal) and
-[`examples/project.edn`](examples/project.edn) for a runnable project.
+[`examples/project.edn`](examples/project.edn) for the complete starter.
 
 ## Run it
 
-From this repository:
+Check the project, build it, and start the service:
 
 ```shell
-make example-check
-make example-build
-make example-dev
+hoplite serve check .
+hoplite serve build --mode dev .
+hoplite serve foreground --mode dev .
 ```
 
-Or from `examples/`, use its project Makefile:
+In another terminal:
 
 ```shell
-make check
-make foreground
-curl -i http://localhost:8080/hello
+curl -i http://127.0.0.1:8080/hello
 ```
 
 Production mode uses production worker defaults and disables development-only
 behavior:
 
 ```shell
-make example-prod
-# or
-hoplite serve foreground --mode prod --profile server /path/to/project
+hoplite serve foreground --mode prod --profile server .
 ```
 
 Foreground mode runs the application and the Hoplite management gateway in one
@@ -155,7 +162,7 @@ Build output is placed under the application's `.hoplite/` directory:
 `platform.hta` is the equivalent runtime transport. Both are produced from the
 selected profile in `project.edn`.
 
-The application bytecode is generated and validated today; nginx still uses
+The application bytecode is generated and validated today; Nginx still uses
 the HAL bootstrap while the bytecode bootstrap ABI is being integrated.
 
 ## Development console
@@ -183,7 +190,7 @@ be tracked by the same console.
 ## Multiple applications
 
 The normal `hoplite.core/app` interface describes one router. Advanced hosting
-uses `hoplite.internal/config` to place several declared apps into one nginx
+uses `hoplite.internal/config` to place several declared apps into one Nginx
 configuration:
 
 ```clojure
@@ -225,11 +232,15 @@ hoplite serve uninstall PROJECT
 ```
 
 Set `HOPLITE_NGINX` only when deliberately selecting an external development
-nginx executable.
+Nginx executable.
 
-## Build and test
+## Contributor build and test
+
+The following targets are for contributors working on Hoplite itself, not the
+product installation path:
 
 ```shell
+make setup
 make check
 make runtime
 make nginx
@@ -237,9 +248,9 @@ make macos
 make benchmark-bytecode
 ```
 
-`make nginx` downloads the pinned nginx source, verifies its checksum, and
+`make nginx` downloads the pinned Nginx source, verifies its checksum, and
 statically links the Hoplite module and Rust runtime. The final `hoplite`
-executable embeds that nginx binary.
+executable embeds that Nginx binary.
 
 The bytecode loading benchmark compares HAL compilation, HBC decoding, and
 already-decoded execution for `hoplite.core`, `hoplite.internal`, and
@@ -262,13 +273,13 @@ infrastructure changes. Tap setup and local formula instructions live in
 
 ## Runtime model
 
-There is one Hoplite runtime per nginx worker. Bootstrap loads application
+There is one Hoplite runtime per Nginx worker. Bootstrap loads application
 definitions, then `apps.hta` prepares a worker-local router and compiles every
 handler call once. A request performs method/path matching and executes the
 cached program. Runtime Values, fibers, promises, and handler handles remain
 inside their worker.
 
-Asynchronous handlers can await nginx host services without blocking:
+Asynchronous handlers can await Nginx host services without blocking:
 
 ```clojure
 (defn delayed
