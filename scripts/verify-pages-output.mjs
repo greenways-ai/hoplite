@@ -3,15 +3,19 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../dist/", import.meta.url));
+const legacyRuntimeModelPath =
+  "hopliteconcepts/runtime-model/index.html";
+const expectedRuntimeModelUrl = "/hoplite/concepts/runtime-model/";
 const required = [
   "index.html",
   "guides/writing-web-services/index.html",
+  legacyRuntimeModelPath,
 ];
 const expectedGuideUrl =
   "https://opensource.greenways.ai/hoplite/guides/writing-web-services";
 const expectedNavigationLinks = [
   "/hoplite/getting-started/",
-  "/hoplite/concepts/runtime-model/",
+  expectedRuntimeModelUrl,
   "/hoplite/guides/production-operation/",
   "/hoplite/reference/cli/",
 ];
@@ -64,6 +68,21 @@ for (const href of expectedNavigationLinks) {
   }
 }
 
+const legacyRuntimeModel = await readFile(
+  join(root, legacyRuntimeModelPath),
+  "utf8",
+);
+if (
+  !legacyRuntimeModel.includes(
+    `content="0; url=${expectedRuntimeModelUrl}"`,
+  ) ||
+  !legacyRuntimeModel.includes(`href="${expectedRuntimeModelUrl}"`)
+) {
+  throw new Error(
+    `Pages verification did not find the legacy runtime model redirect to ${expectedRuntimeModelUrl}`,
+  );
+}
+
 const guide = await readFile(
   join(root, "guides/writing-web-services/index.html"),
   "utf8",
@@ -75,5 +94,5 @@ if (!guide.includes(expectedGuideUrl)) {
 }
 
 console.log(
-  `Verified ${files.length} Pages documents under /hoplite, including navigation and the web services guide.`,
+  `Verified ${files.length} Pages documents under /hoplite, including navigation, the legacy runtime model redirect, and the web services guide.`,
 );
