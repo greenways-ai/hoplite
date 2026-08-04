@@ -141,7 +141,7 @@ const appCode = `(ns app
           );
         }
         for (const panel of panels) {
-          panel.hidden = panel.getAttribute("data-launch-panel") !== target;
+          panel.toggleAttribute("hidden", panel.getAttribute("data-launch-panel") !== target);
         }
       });
     }
