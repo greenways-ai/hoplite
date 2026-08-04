@@ -61,6 +61,49 @@
   color: inherit !important;
 }
 
+.benchmark-rounds {
+  margin-top: 1rem;
+  color: var(--sl-color-white);
+  background: var(--hoplite-panel);
+  border: 1px solid var(--hoplite-line);
+}
+
+.benchmark-rounds summary {
+  padding: 1rem 1.25rem;
+  color: var(--hoplite-cyan);
+  cursor: pointer;
+  font: .62rem var(--sl-font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.benchmark-rounds > div {
+  overflow-x: auto;
+  border-top: 1px solid var(--hoplite-line);
+}
+
+.benchmark-rounds table {
+  width: 100%;
+  min-width: 660px;
+  border-collapse: collapse;
+  font-size: .78rem;
+}
+
+.benchmark-rounds :is(th, td) {
+  padding: .85rem 1rem;
+  text-align: right;
+  border-bottom: 1px solid var(--hoplite-line);
+}
+
+.benchmark-rounds :is(th, td):first-child { text-align: left; }
+.benchmark-rounds th {
+  color: var(--hoplite-muted);
+  font: .52rem var(--sl-font-mono);
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.benchmark-rounds tbody tr:last-child td { border-bottom: 0; }
+
 .benchmark-provenance {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, .38fr);
@@ -131,6 +174,7 @@
   border: 0;
 }
 
+:root[data-theme="light"] .benchmark-rounds,
 :root[data-theme="light"] .benchmark-provenance dd {
   color: #17333b;
 }
