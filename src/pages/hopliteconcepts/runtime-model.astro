@@ -1,0 +1,25 @@
+---
+const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
+const destination = `${base}concepts/runtime-model/`;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="refresh" content={`0; url=${destination}`} />
+    <meta name="robots" content="noindex" />
+    <link rel="canonical" href={destination} />
+    <title>Redirecting to Hoplite runtime model</title>
+    <script is:inline define:vars={{ destination }}>
+      window.location.replace(
+        destination + window.location.search + window.location.hash,
+      );
+    </script>
+  </head>
+  <body>
+    <p>
+      This documentation address has moved to
+      <a href={destination}>Hoplite’s runtime model</a>.
+    </p>
+  </body>
+</html>
