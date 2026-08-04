@@ -1,10 +1,49 @@
+---
+import CodePanel from "@greenways-ai/visual-language/CodePanel.astro";
+import benchmark from "../data/http-benchmark.json";
+
+const measured = benchmark.status === "measured";
+const number = (value: number | null, digits = 0) =>
+  value == null ? "—" : value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+const generated = benchmark.generatedAt
+  ? new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(new Date(benchmark.generatedAt)) + " UTC"
+  : "not measured yet";
+const commit = benchmark.commit ? benchmark.commit.slice(0, 8) : "pending";
+const recipe = `docker run --rm -p 18080:8080 ghcr.io/greenways-ai/hoplite:latest
+
+${benchmark.command}`;
+const metrics = [
+  {
+    value: number(benchmark.metrics.requestsPerSecond),
+    label: "requests / second",
+    detail: "Median completed request rate across three measured rounds.",
+  },
+  {
+    value: benchmark.metrics.latencyP50Ms == null ? "—" : `${number(benchmark.metrics.latencyP50Ms, 2)} ms`,
+    label: "p50 latency",
+    detail: "Median request latency reported by wrk under the stated load.",
+  },
+  {
+    value: benchmark.metrics.latencyP99Ms == null ? "—" : `${number(benchmark.metrics.latencyP99Ms, 2)} ms`,
+    label: "p99 latency",
+    detail: "99th-percentile request latency across the measured sample.",
+  },
+  {
+    value: benchmark.metrics.peakMemoryMiB == null ? "—" : `${number(benchmark.metrics.peakMemoryMiB, 1)} MiB`,
+    label: "peak container memory",
+    detail: "Highest container memory sample observed while the load test ran.",
+  },
+];
+---
+
 <section id="performance" class="home-section performance-proof">
   <header>
-    <p class="technical-kicker">02 · Performance</p>
-    <h2>The hot path is short.</h2>
+    <p class="technical-kicker">02 · Measured performance</p>
+    <h2>Speed you can inspect.</h2>
     <p>
-      Hoplite does not sit behind Nginx as another application process. The Hara
-      handler lives in the worker, is resolved at startup, and returns directly to Nginx.
+      These are raw measurements from the checked-in benchmark record—not architectural
+      proxies. The machine, concurrency, duration, response and individual rounds travel
+      with the numbers.
     </p>
   </header>
 
@@ -12,40 +51,47 @@
     <code>request → nginx worker → cached Hara handler → native response</code>
   </div>
 
-  <div class="performance-metrics">
-    <article>
-      <strong>0</strong>
-      <span>proxy hops</span>
-      <p>No loopback HTTP boundary between Nginx and the application.</p>
-    </article>
-    <article>
-      <strong>1×</strong>
-      <span>compile per worker</span>
-      <p>Handler calls are resolved and compiled during worker startup.</p>
-    </article>
-    <article>
-      <strong>0</strong>
-      <span>mandatory request copies</span>
-      <p>The raw adapter can operate on the borrowed Nginx exchange.</p>
-    </article>
-    <article>
-      <strong>0</strong>
-      <span>async records on sync routes</span>
-      <p>Promise and work state appears only when a handler actually suspends.</p>
-    </article>
+  <div class="performance-metrics" data-benchmark-status={benchmark.status}>
+    {metrics.map((metric) => (
+      <article>
+        <strong>{metric.value}</strong>
+        <span>{metric.label}</span>
+        <p>{measured ? metric.detail : "A benchmark run is required before this value is published."}</p>
+      </article>
+    ))}
+  </div>
+
+  <div class="benchmark-provenance">
+    <dl>
+      <div><dt>Recorded</dt><dd>{generated}</dd></div>
+      <div><dt>Commit</dt><dd><code>{commit}</code></dd></div>
+      <div><dt>Runner</dt><dd>{benchmark.runner}</dd></div>
+      <div><dt>Load</dt><dd>4 threads · 128 connections · 20 seconds · 3 rounds</dd></div>
+      <div><dt>Response</dt><dd>{benchmark.responseBytes == null ? "pending" : `${benchmark.responseBytes} body bytes`}</dd></div>
+      <div><dt>Image</dt><dd>{benchmark.imageSizeMiB == null ? "pending" : `${number(benchmark.imageSizeMiB, 1)} MiB`}</dd></div>
+    </dl>
+    <p>
+      The load generator and Hoplite container share one GitHub-hosted runner. Treat this
+      as a reproducible release sample, not a universal capacity guarantee.
+    </p>
   </div>
 
   <div class="benchmark-recipe">
     <div>
-      <p class="panel-label">Reproduce the release path</p>
-      <h3>Run it. Load it. Keep the output.</h3>
+      <p class="panel-label">Reproduce the recorded sample</p>
+      <h3>Run the same endpoint under the same load.</h3>
       <p>
-        Throughput only means something beside the machine, concurrency, response
-        shape, tail latency, and resident memory.
+        `scripts/benchmark-http.sh` records every round, latency percentiles, peak memory,
+        image size and runner metadata into the JSON used by this page.
       </p>
     </div>
-    <pre><code>docker run --rm -p 8080:8080 ghcr.io/greenways-ai/hoplite:latest
-
-wrk -t4 -c128 -d30s http://127.0.0.1:8080/hello</code></pre>
+    <CodePanel
+      class="benchmark-code-panel"
+      code={recipe}
+      lang="bash"
+      title="HTTP benchmark"
+      meta="wrk + docker stats"
+      compact
+    />
   </div>
 </section>

@@ -1,39 +1,69 @@
 ---
+import DocumentationCard from "@greenways-ai/visual-language/DocumentationCard.astro";
+
 const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
+const cards = [
+  {
+    href: `${base}getting-started/`,
+    eyebrow: "Start here · 5 guides",
+    title: "Getting started",
+    description: "Install the published runtime, generate a two-file application, and serve it.",
+    codeTitle: "First service",
+    lang: "bash",
+    code: `brew install greenways-ai/tap/hoplite
+hoplite serve foreground --mode prod .`,
+    why: "This is the shortest supported path from an empty machine to a real endpoint. It uses the packaged server rather than asking users to compile Hoplite or assemble a proxy stack.",
+  },
+  {
+    href: `${base}concepts/applications-resources/`,
+    eyebrow: "System model · 4 topics",
+    title: "Concepts",
+    description: "See how resources, operations and handler Vars become a worker-local router.",
+    codeTitle: "A route is data",
+    lang: "clojure",
+    code: `["/hello"
+ {:get {:name "hello"
+        :handler #'hello}}]`,
+    why: "The route stores a Var instead of calling the function while configuration is read. Hoplite can validate the resource tree, then resolve and compile the handler once when each Nginx worker starts.",
+  },
+  {
+    href: `${base}guides/writing-web-services/`,
+    eyebrow: "Operations · 8 guides",
+    title: "Guides",
+    description: "Build the parts that make an application useful: async work, auth, OpenAPI and production operation.",
+    codeTitle: "Yield to Nginx",
+    lang: "clojure",
+    code: `(defn delayed [_]
+  (await (Host/call "nginx" "sleep" [25]))
+  {:status 200 :body "resumed"})`,
+    why: "When the handler awaits a host capability, the worker can resume other requests. Synchronous handlers stay on the direct path and do not pay for promise state they never use.",
+  },
+  {
+    href: `${base}reference/cli/`,
+    eyebrow: "Interfaces · 8 references",
+    title: "Reference",
+    description: "Look up the exact commands, project keys and public forms used by the current release.",
+    codeTitle: "Production contract",
+    lang: "bash",
+    code: `hoplite serve check .
+hoplite serve build --mode prod .
+hoplite serve status .`,
+    why: "The reference is where examples become exact contracts. These commands validate the project, build the production plan and inspect the running service without relying on undocumented shell conventions.",
+  },
+];
 ---
-<section class="home-section">
+
+<section class="home-section documentation-section">
   <header>
-    <p class="technical-kicker">04 · Documentation</p>
-    <h2>Everything underneath is inspectable.</h2>
+    <p class="technical-kicker">05 · Documentation</p>
+    <h2>See what happens—and why.</h2>
     <p>
-      Start from the working endpoint, then move down through routing, runtime behavior,
-      operations, interfaces, and the exact build output.
+      Each section starts with a concrete operation, then explains the runtime or
+      operational reason behind it. Use the example to enter; use the reference to be exact.
     </p>
   </header>
+
   <div class="technical-index">
-    <a href={`${base}getting-started/`}>
-      <small>START HERE · 5 GUIDES</small>
-      <strong>Getting started</strong>
-      <p>Install Hoplite, create the starter application, select a profile, and run it.</p>
-      <span>Open section →</span>
-    </a>
-    <a href={`${base}concepts/applications-resources/`}>
-      <small>SYSTEM MODEL · 4 TOPICS</small>
-      <strong>Concepts</strong>
-      <p>Understand immutable resources, request values, capabilities, and worker-local state.</p>
-      <span>Open section →</span>
-    </a>
-    <a href={`${base}guides/writing-web-services/`}>
-      <small>OPERATIONS · 8 GUIDES</small>
-      <strong>Guides</strong>
-      <p>Build services, then follow routing, async handlers, authentication, OpenAPI, packaging, and production.</p>
-      <span>Open section →</span>
-    </a>
-    <a href={`${base}reference/cli/`}>
-      <small>INTERFACES · 8 REFERENCES</small>
-      <strong>Reference</strong>
-      <p>Look up the CLI and every visible core, authentication, host, development, and internal form.</p>
-      <span>Open section →</span>
-    </a>
+    {cards.map((card) => <DocumentationCard {...card} />)}
   </div>
 </section>

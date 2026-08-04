@@ -1,0 +1,19 @@
+{
+  "status": "pending",
+  "generatedAt": null,
+  "commit": null,
+  "runner": "ubuntu-24.04 GitHub-hosted runner",
+  "cpu": null,
+  "logicalCpus": null,
+  "command": "wrk -t4 -c128 -d20s --latency http://127.0.0.1:18080/hello",
+  "rounds": 3,
+  "responseBytes": null,
+  "imageSizeMiB": null,
+  "metrics": {
+    "requestsPerSecond": null,
+    "latencyP50Ms": null,
+    "latencyP99Ms": null,
+    "peakMemoryMiB": null
+  },
+  "samples": []
+}
