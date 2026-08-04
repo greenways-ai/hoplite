@@ -1,19 +1,41 @@
 {
-  "status": "pending",
-  "generatedAt": null,
-  "commit": null,
-  "runner": "ubuntu-24.04 GitHub-hosted runner",
-  "cpu": null,
-  "logicalCpus": null,
+  "status": "measured",
+  "generatedAt": "2026-08-04T23:20:24Z",
+  "commit": "f81eb8b252d1b545c5b4d0e540f0b3088fba5a85",
+  "runner": "Ubuntu 24.04 GitHub-hosted runner",
+  "cpu": "AMD EPYC 9V74 80-Core Processor",
+  "logicalCpus": 4,
   "command": "wrk -t4 -c128 -d20s --latency http://127.0.0.1:18080/hello",
   "rounds": 3,
-  "responseBytes": null,
-  "imageSizeMiB": null,
+  "responseBytes": 19,
+  "imageSizeMiB": 129.374979,
   "metrics": {
-    "requestsPerSecond": null,
-    "latencyP50Ms": null,
-    "latencyP99Ms": null,
-    "peakMemoryMiB": null
+    "requestsPerSecond": 50987.87,
+    "latencyP50Ms": 2.310000,
+    "latencyP99Ms": 8.260000,
+    "peakMemoryMiB": 69.140000
   },
-  "samples": []
+  "samples": [
+    {
+      "round": 1,
+      "requestsPerSecond": 50649.73,
+      "latencyP50Ms": 2.320000,
+      "latencyP99Ms": 8.530000,
+      "peakMemoryMiB": 64.840000
+    },
+    {
+      "round": 2,
+      "requestsPerSecond": 50987.87,
+      "latencyP50Ms": 2.310000,
+      "latencyP99Ms": 8.240000,
+      "peakMemoryMiB": 67.250000
+    },
+    {
+      "round": 3,
+      "requestsPerSecond": 51066.42,
+      "latencyP50Ms": 2.300000,
+      "latencyP99Ms": 8.260000,
+      "peakMemoryMiB": 69.140000
+    }
+  ]
 }

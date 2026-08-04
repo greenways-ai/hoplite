@@ -35,6 +35,8 @@ const expectedLaunchMarkers = [
   'data-launch-target="homebrew"',
   'data-launch-target="linux"',
   'data-launch-target="fly"',
+];
+const expectedPublishedPaths = [
   "ghcr.io/greenways-ai/hoplite:latest",
   "brew install greenways-ai/tap/hoplite",
   "scripts/install.sh",
@@ -162,6 +164,19 @@ for (const artwork of expectedAccentArtwork) {
   if (!home.includes(artwork)) throw new Error(`Pages verification did not find the accent artwork URL: ${artwork}`);
 }
 
+// Syntax highlighting tokenises rendered commands. Assert exact supported paths
+// against the authored launch and installation sources instead of brittle HTML text.
+const launchSource = await readFile(join(repositoryRoot, "src/components/LaunchSurface.astro"), "utf8");
+const installationSource = await readFile(join(repositoryRoot, "src/content/docs/getting-started/installation.mdx"), "utf8");
+for (const marker of expectedPublishedPaths) {
+  if (!launchSource.includes(marker) && !installationSource.includes(marker)) {
+    throw new Error(`Pages verification did not find the published path in authored sources: ${marker}`);
+  }
+}
+if (installationSource.includes("## Build from source")) {
+  throw new Error("Pages verification found the retired source-first installation section");
+}
+
 const benchmark = JSON.parse(await readFile(join(repositoryRoot, "src/data/http-benchmark.json"), "utf8"));
 if (benchmark.status !== "measured") throw new Error("HTTP benchmark data has not been measured");
 if (!Array.isArray(benchmark.samples) || benchmark.samples.length !== benchmark.rounds || benchmark.rounds < 3) {
@@ -170,7 +185,7 @@ if (!Array.isArray(benchmark.samples) || benchmark.samples.length !== benchmark.
 for (const [name, value] of Object.entries(benchmark.metrics)) {
   if (!Number.isFinite(value) || value <= 0) throw new Error(`HTTP benchmark metric is not a positive measurement: ${name}`);
 }
-for (const label of ["requests / second", "p50 latency", "p99 latency", "peak container memory"]) {
+for (const label of ["requests / second", "p50 latency", "p99 latency", "peak container memory", "Measured rounds"]) {
   if (!home.includes(label)) throw new Error(`Pages verification did not render the raw benchmark label: ${label}`);
 }
 
@@ -180,19 +195,6 @@ if (!lightModeCss.includes("--gw-header: rgba(255, 255, 255, .97)")) {
 }
 if (!lightModeCss.includes(".hoplite-hero__copy")) {
   throw new Error("Hoplite light-mode hero does not define its contrast surface");
-}
-
-const installation = await readFile(join(root, installationPath), "utf8");
-for (const marker of [
-  "brew install greenways-ai/tap/hoplite",
-  "scripts/install.sh",
-  "scripts/new-app.sh",
-  "ghcr.io/greenways-ai/hoplite:latest",
-]) {
-  if (!installation.includes(marker)) throw new Error(`Pages verification did not find the published installation path: ${marker}`);
-}
-if (installation.includes("## Build from source")) {
-  throw new Error("Pages verification found the retired source-first installation section");
 }
 
 const legacyRuntimeModel = await readFile(join(root, legacyRuntimeModelPath), "utf8");
@@ -209,5 +211,5 @@ if (!guide.includes(expectedGuideUrl)) {
 }
 
 console.log(
-  `Verified ${files.length} Pages documents under /hoplite, including shared documentation controls, centered search, project switching, syntax-highlighted examples, measured HTTP evidence, white light-mode navigation, published installation paths, accent artwork, and canonical redirects.`,
+  `Verified ${files.length} Pages documents under /hoplite, including shared documentation controls, centered search, project switching, syntax-highlighted examples, measured HTTP evidence with raw rounds, white light-mode navigation, published installation paths, accent artwork, and canonical redirects.`,
 );

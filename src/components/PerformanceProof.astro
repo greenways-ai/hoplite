@@ -61,11 +61,42 @@ const metrics = [
     ))}
   </div>
 
+  {measured && benchmark.samples.length > 0 && (
+    <details class="benchmark-rounds" open>
+      <summary>Measured rounds</summary>
+      <div>
+        <table>
+          <thead>
+            <tr>
+              <th>Round</th>
+              <th>Requests/s</th>
+              <th>p50</th>
+              <th>p99</th>
+              <th>Peak memory</th>
+            </tr>
+          </thead>
+          <tbody>
+            {benchmark.samples.map((sample) => (
+              <tr>
+                <td>{sample.round}</td>
+                <td>{number(sample.requestsPerSecond)}</td>
+                <td>{number(sample.latencyP50Ms, 2)} ms</td>
+                <td>{number(sample.latencyP99Ms, 2)} ms</td>
+                <td>{number(sample.peakMemoryMiB, 1)} MiB</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  )}
+
   <div class="benchmark-provenance">
     <dl>
       <div><dt>Recorded</dt><dd>{generated}</dd></div>
       <div><dt>Commit</dt><dd><code>{commit}</code></dd></div>
       <div><dt>Runner</dt><dd>{benchmark.runner}</dd></div>
+      <div><dt>CPU</dt><dd>{benchmark.cpu || "pending"} · {benchmark.logicalCpus || "—"} logical</dd></div>
       <div><dt>Load</dt><dd>4 threads · 128 connections · 20 seconds · 3 rounds</dd></div>
       <div><dt>Response</dt><dd>{benchmark.responseBytes == null ? "pending" : `${benchmark.responseBytes} body bytes`}</dd></div>
       <div><dt>Image</dt><dd>{benchmark.imageSizeMiB == null ? "pending" : `${number(benchmark.imageSizeMiB, 1)} MiB`}</dd></div>
