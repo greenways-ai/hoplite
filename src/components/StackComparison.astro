@@ -1,0 +1,71 @@
+---
+const stacks = [
+  {
+    name: "Hoplite",
+    className: "stack-card stack-card--hoplite",
+    shape: "Nginx + embedded Hara",
+    services: "1 server lifecycle",
+    artifact: "1 executable or OCI image",
+    included: "Routing, auth, management, OpenAPI",
+    tradeoff: "Young ecosystem; pre-1.0 interfaces",
+  },
+  {
+    name: "Java",
+    className: "stack-card",
+    shape: "Nginx + JVM application",
+    services: "2 server lifecycles",
+    artifact: "Proxy config + JAR or image",
+    included: "Broad framework ecosystem",
+    tradeoff: "Larger runtime envelope and integration surface",
+  },
+  {
+    name: "Python",
+    className: "stack-card",
+    shape: "Nginx + app server + workers",
+    services: "2+ lifecycles and worker pool",
+    artifact: "Proxy config + environment or image",
+    included: "Fast iteration and broad libraries",
+    tradeoff: "Worker sizing and process coordination",
+  },
+  {
+    name: "Lua / OpenResty",
+    className: "stack-card",
+    shape: "Nginx/OpenResty + Lua modules",
+    services: "1 server lifecycle",
+    artifact: "Server image + Lua modules",
+    included: "Lean request-boundary scripting",
+    tradeoff: "Application conventions assembled separately",
+  },
+];
+---
+<section class="home-section stack-comparison">
+  <header>
+    <p class="technical-kicker">03 · Cost / benefit</p>
+    <h2>Same host. Less stack to operate.</h2>
+    <p>
+      A 2 vCPU, 2 GB machine costs the same whichever runtime you choose. The useful
+      comparison is how much of that machine—and how much operator time—the stack consumes.
+    </p>
+  </header>
+
+  <div class="stack-grid">
+    {stacks.map((stack) => (
+      <article class={stack.className}>
+        <h3>{stack.name}</h3>
+        <dl>
+          <div><dt>Production shape</dt><dd>{stack.shape}</dd></div>
+          <div><dt>Service surfaces</dt><dd>{stack.services}</dd></div>
+          <div><dt>Deployable units</dt><dd>{stack.artifact}</dd></div>
+          <div><dt>What you gain</dt><dd>{stack.included}</dd></div>
+          <div><dt>What you carry</dt><dd>{stack.tradeoff}</dd></div>
+        </dl>
+      </article>
+    ))}
+  </div>
+
+  <p class="comparison-conclusion">
+    The Hoplite benefit case is not a magically cheaper VM. It is more of the same VM
+    available to requests, fewer runtime boundaries, and fewer systems to configure,
+    secure, deploy, and observe.
+  </p>
+</section>

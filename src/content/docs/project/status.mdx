@@ -3,11 +3,11 @@ title: Status and roadmap
 description: Current Hoplite maturity, platform support, active milestones, and project links.
 ---
 
-<span class="doc-badge doc-badge--caution">Pre-release</span> <span class="doc-badge doc-badge--note">Active development</span>
+<span class="doc-badge doc-badge--caution">Pre-1.0</span> <span class="doc-badge doc-badge--success">Release 0.1.0</span> <span class="doc-badge doc-badge--note">Active development</span>
 
-Hoplite is usable from source for development and integration work. The first
-pre-release HARP artifacts are published, but the interfaces may still change
-before a stable release.
+Hoplite is published through Homebrew, standalone macOS and Linux binaries,
+and the `ghcr.io/greenways-ai/hoplite` OCI image. The current release is usable
+for application and integration work, while interfaces may still change before 1.0.
 
 ![A rabbit moving through the junction of three sunlit mosaic garden paths](https://oss.greenways.ai/visual-language/artwork/hoplite/branching-paths-day.webp)
 
@@ -15,31 +15,32 @@ before a stable release.
 
 | Area | Current status |
 | --- | --- |
-| macOS arm64 | Primary build and standalone packaging target |
-| macOS Intel | Primary build and standalone packaging target |
-| Linux | Exercised by CI and Docker |
+| macOS arm64 | Supported standalone binary and Homebrew formula |
+| macOS Intel | Supported standalone binary and Homebrew formula |
+| Linux arm64 | Supported standalone binary, Homebrew formula, and OCI image |
+| Linux x86-64 | Supported standalone binary, Homebrew formula, and OCI image |
 | Embedded Nginx | Statically linked into the standalone executable |
 | Hara application bytecode | Generated and validated |
 | Nginx bytecode bootstrap ABI | Integration in progress; HAL bootstrap remains active |
-| HARP | Core v0.1.0 and linked SQLite auth adapter v0.4.1 are published as immutable release artifacts |
-| Homebrew | Formula automation prepared; binary distribution pending |
-| Authentication | HAL policy and store adapters are exact-version, archive-digest, content-integrity, and contract-version checked before gateway activation |
+| HARP | Core v0.1.0 and linked SQLite auth adapter are immutable release artifacts |
+| Authentication | Policy and store modules are version and integrity checked before activation |
 
 ## Active milestones
 
 <div class="doc-card-grid">
-  <article class="doc-card"><h3>Binary distribution</h3><p>Publish verified arm64 and Intel macOS artifacts and the generated Homebrew formula.</p></article>
+  <article class="doc-card"><h3>Published HTTP benchmarks</h3><p>Report throughput, tail latency, resident memory, machine shape, concurrency, and response size together.</p></article>
   <article class="doc-card"><h3>Bytecode bootstrap</h3><p>Move the Nginx worker bootstrap from HAL source to the validated HBC artifact.</p></article>
-  <article class="doc-card"><h3>Linux packaging</h3><p>Promote Linux from CI and Docker validation to a supported distribution path.</p></article>
+  <article class="doc-card"><h3>Deployment templates</h3><p>Turn the published OCI image into direct launch paths for major container services.</p></article>
   <article class="doc-card"><h3>Interface stabilization</h3><p>Exercise and specify streaming, middleware, service, and internal hosting contracts.</p></article>
-  <article class="doc-card"><h3>Management UI</h3><p>Render authenticated user, session, module, route, health, and deployment controls from the Hoplite management contracts.</p></article>
+  <article class="doc-card"><h3>Management UI</h3><p>Render authenticated user, session, module, route, health, and deployment controls from the management contracts.</p></article>
 </div>
 
 ## Follow the project
 
 - [Source repository](https://github.com/greenways-ai/hoplite)
+- [Releases](https://github.com/greenways-ai/hoplite/releases)
 - [Issues](https://github.com/greenways-ai/hoplite/issues)
 - [Actions](https://github.com/greenways-ai/hoplite/actions)
 - [Greenways open-source foundations](https://oss.greenways.ai/)
 
-No performance or production-readiness claims are made before reproducible published benchmarks and a tagged release.
+Performance claims should remain tied to reproducible published benchmarks.

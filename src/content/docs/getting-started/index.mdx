@@ -1,40 +1,40 @@
 ---
 title: Introduction
-description: What Hoplite is, what it builds, and where to begin.
+description: What Hoplite is, why its request path is different, and how to launch the starter.
 sidebar:
   order: 1
 ---
 
-<span class="doc-badge doc-badge--caution">Pre-release</span> <span class="doc-badge doc-badge--note">macOS-first</span>
+<span class="doc-badge doc-badge--caution">Pre-1.0</span> <span class="doc-badge doc-badge--success">macOS + Linux</span> <span class="doc-badge doc-badge--note">Release 0.1.0</span>
 
-Hoplite is a lightweight, high-performance and deeply customizable Nginx application container. An application is an immutable resource tree, each operation points to a Hara Var, and each Nginx worker resolves and compiles its handlers once at startup.
+Hoplite is a Hara application server built directly into Nginx. Applications
+are immutable resource trees, operations point to Hara Vars, and every Nginx
+worker resolves and compiles its handlers during startup.
 
 ```text
-request → nginx → HTA value → cached Hara handler → HTA response → nginx
+request → nginx worker → cached Hara handler → native response
 ```
 
 <div class="doc-card-grid">
   <article class="doc-card"><h3>Application as data</h3><p>Routes and operations are declarative values that can be validated before serving traffic.</p></article>
   <article class="doc-card"><h3>Worker-local runtime</h3><p>Each Nginx worker owns one Hoplite runtime, its values, fibers, promises, and compiled handlers.</p></article>
-  <article class="doc-card"><h3>Capability-bound host</h3><p>Hara code calls explicitly installed host services rather than reaching ambient system APIs.</p></article>
-  <article class="doc-card"><h3>Operational surface</h3><p>One executable checks, builds, serves, reloads, inspects, installs, and stops applications.</p></article>
+  <article class="doc-card"><h3>Capability-bound host</h3><p>Hara code calls explicitly installed host services rather than ambient system APIs.</p></article>
+  <article class="doc-card"><h3>One operational surface</h3><p>One executable checks, builds, serves, reloads, inspects, installs, and stops applications.</p></article>
 </div>
 
-## Current scope
+## Start with the running service
 
-The packaged executable currently targets macOS. Linux is exercised by CI and Docker, but the first tagged release and final bytecode bootstrap integration are still in preparation. Treat all interfaces as pre-release.
-
-## Follow the quickstart
-
-1. [Install Hoplite](/getting-started/installation/).
-2. [Define your first application](/getting-started/first-application/).
-3. [Configure its Hara project profile](/getting-started/project-configuration/).
+1. [Install Hoplite](/getting-started/installation/) with Homebrew or the release installer.
+2. [Create your first application](/getting-started/first-application/).
+3. [Understand its project profile](/getting-started/project-configuration/).
 4. [Use the development workflow](/getting-started/development-workflow/).
 
-For a single end-to-end tutorial that continues through routing, the current
-request and response boundary, asynchronous handlers, OpenAPI, build output,
-and production operation, follow [Writing web services](/guides/writing-web-services/).
+For a single end-to-end tutorial that continues through routing, request and
+response adapters, asynchronous handlers, OpenAPI, build output, and production
+operation, follow [Writing web services](/guides/writing-web-services/).
 
-:::note[Hara prerequisite]
-Hoplite applications are written in HAL and evaluated by Hara. The source-build workflow expects sibling checkouts of `hara.lang` and `hoplite`.
+:::note[Current maturity]
+Hoplite 0.1.0 is published for Apple Silicon, Intel macOS, ARM64 Linux, and
+x86-64 Linux. Interfaces remain pre-1.0 while the bytecode bootstrap and
+advanced hosting contracts settle.
 :::

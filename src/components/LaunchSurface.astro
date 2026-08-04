@@ -1,0 +1,149 @@
+---
+const targets = [
+  {
+    id: "docker",
+    label: "Docker",
+    eyebrow: "Fastest start",
+    title: "Run the published image.",
+    command: "docker run --rm -p 8080:8080 ghcr.io/greenways-ai/hoplite:latest",
+    verify: "curl -i http://127.0.0.1:8080/hello",
+    note: "The image already contains Hoplite and the starter application.",
+  },
+  {
+    id: "homebrew",
+    label: "Homebrew",
+    eyebrow: "macOS or Linux",
+    title: "Install the release formula.",
+    command: `brew install greenways-ai/tap/hoplite
+curl -fsSL https://raw.githubusercontent.com/greenways-ai/hoplite/main/scripts/new-app.sh | sh -s -- hello
+cd hello && hoplite serve foreground --mode prod .`,
+    verify: "curl -i http://127.0.0.1:8080/hello",
+    note: "Homebrew installs Hoplite; the starter script writes the two application files.",
+  },
+  {
+    id: "linux",
+    label: "Linux",
+    eyebrow: "Published binary",
+    title: "Install without a package manager.",
+    command: `curl -fsSL https://raw.githubusercontent.com/greenways-ai/hoplite/main/scripts/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+curl -fsSL https://raw.githubusercontent.com/greenways-ai/hoplite/main/scripts/new-app.sh | sh -s -- hello
+cd hello && hoplite serve foreground --mode prod .`,
+    verify: "curl -i http://127.0.0.1:8080/hello",
+    note: "The installer selects the current release binary for the host architecture.",
+  },
+  {
+    id: "fly",
+    label: "Fly.io",
+    eyebrow: "Cloud service",
+    title: "Launch the published image.",
+    command: `fly launch \
+  --image ghcr.io/greenways-ai/hoplite:latest \
+  --internal-port 8080 \
+  --ha=false \
+  --vm-memory 512 \
+  --generate-name \
+  --now`,
+    verify: "fly apps open",
+    note: "Fly pulls the OCI image directly; it does not build Hoplite from source.",
+  },
+];
+
+const appCode = `(ns app
+  (:require [hoplite.core :as h]))
+
+(defn hello [_]
+  {:status 200
+   :headers {"content-type" "text/plain"
+             "x-hoplite" "true"}
+   :body "Hello from Hoplite\\n"})
+
+(def app
+  (h/app
+    {:name "hello"
+     :resources
+     [["/hello" {:get {:handler #'hello}}]]}))`;
+---
+<section id="launch" class="home-section launch-section">
+  <header>
+    <p class="technical-kicker">01 · First application</p>
+    <h2>Choose where it runs.</h2>
+    <p>
+      One endpoint, one published runtime, and no source checkout. Switch targets to get
+      the exact path from install to first response.
+    </p>
+  </header>
+
+  <div class="launch-console" data-launch-console>
+    <div class="launch-code">
+      <div class="console-bar"><span>app.hal</span><em>14 lines</em></div>
+      <pre><code>{appCode}</code></pre>
+    </div>
+
+    <div class="launch-deploy">
+      <div class="launch-targets" role="tablist" aria-label="Choose a Hoplite deployment target">
+        {targets.map((target, index) => (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={index === 0 ? "true" : "false"}
+            aria-controls={`launch-panel-${target.id}`}
+            data-launch-target={target.id}
+          >
+            <small>{target.eyebrow}</small>
+            <strong>{target.label}</strong>
+          </button>
+        ))}
+      </div>
+
+      <div class="launch-panels">
+        {targets.map((target, index) => (
+          <article
+            id={`launch-panel-${target.id}`}
+            role="tabpanel"
+            data-launch-panel={target.id}
+            hidden={index !== 0}
+          >
+            <p class="panel-label">{target.eyebrow}</p>
+            <h3>{target.title}</h3>
+            <pre><code>{target.command}</code></pre>
+            <div class="launch-verify">
+              <small>Verify</small>
+              <code>{target.verify}</code>
+            </div>
+            <p>{target.note}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+
+    <div class="launch-response" aria-label="Expected response">
+      <div><small>GET</small><code>/hello</code></div>
+      <div><small>STATUS</small><strong>200 OK</strong></div>
+      <div><small>HEADER</small><code>x-hoplite: true</code></div>
+      <div><small>BODY</small><code>Hello from Hoplite</code></div>
+    </div>
+  </div>
+</section>
+
+<script>
+  for (const root of document.querySelectorAll("[data-launch-console]")) {
+    const tabs = Array.from(root.querySelectorAll("[data-launch-target]"));
+    const panels = Array.from(root.querySelectorAll("[data-launch-panel]"));
+
+    for (const tab of tabs) {
+      tab.addEventListener("click", () => {
+        const target = tab.getAttribute("data-launch-target");
+        for (const candidate of tabs) {
+          candidate.setAttribute(
+            "aria-selected",
+            candidate.getAttribute("data-launch-target") === target ? "true" : "false",
+          );
+        }
+        for (const panel of panels) {
+          panel.toggleAttribute("hidden", panel.getAttribute("data-launch-panel") !== target);
+        }
+      });
+    }
+  }
+</script>

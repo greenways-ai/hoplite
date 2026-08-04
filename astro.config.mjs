@@ -14,7 +14,7 @@ export default defineConfig({
         ThemeProvider: "./src/components/GreenwaysThemeProvider.astro",
         ThemeSelect: "./src/components/GreenwaysThemeSelect.astro",
       },
-      description: "A lightweight, fast and deeply customizable Nginx application container.",
+      description: "A high-performance Hara application server built directly into Nginx.",
       logo: { src: "./public/sigil.svg", replacesTitle: false },
       favicon: "/hoplite/favicon.svg",
       customCss: [
