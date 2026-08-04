@@ -5,26 +5,48 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../dist/", import.meta.url));
 const legacyRuntimeModelPath =
   "hopliteconcepts/runtime-model/index.html";
+const installationPath = "getting-started/installation/index.html";
 const legacyHostMarker = "data-gw-legacy-host-redirect";
 const expectedRuntimeModelUrl = "/hoplite/concepts/runtime-model/";
 const required = [
   "index.html",
+  installationPath,
   "guides/writing-web-services/index.html",
   legacyRuntimeModelPath,
 ];
 const artworkBase =
   "https://oss.greenways.ai/visual-language/artwork/hoplite/";
-const expectedArtwork = [
+const expectedAccentArtwork = [
   "rabbit-courtyard",
-  "open-gate",
   "branching-paths",
-  "wind-arcade",
 ].flatMap((scene) => [
   `${artworkBase}${scene}-day.webp`,
   `${artworkBase}${scene}-night.webp`,
   `${artworkBase}${scene}-day-mobile.webp`,
   `${artworkBase}${scene}-night-mobile.webp`,
 ]);
+const expectedHomepageCopy = [
+  "Your application, directly inside Nginx.",
+  "Choose where it runs.",
+  "The hot path is short.",
+  "Same host. Less stack to operate.",
+];
+const expectedLaunchMarkers = [
+  "data-launch-console",
+  'data-launch-target="docker"',
+  'data-launch-target="homebrew"',
+  'data-launch-target="linux"',
+  'data-launch-target="fly"',
+  "ghcr.io/greenways-ai/hoplite:latest",
+  "brew install greenways-ai/tap/hoplite",
+  "scripts/install.sh",
+  "scripts/new-app.sh",
+];
+const forbiddenHomepageCopy = [
+  "Four expressions of air",
+  "Configure once. Run anywhere.",
+  "git clone https://github.com/greenways-ai/hoplite.git",
+];
 const expectedGuideUrl =
   "https://oss.greenways.ai/hoplite/guides/writing-web-services";
 const expectedNavigationLinks = [
@@ -132,13 +154,40 @@ for (const marker of ["data-hoplite-search-open", "data-hoplite-theme-toggle"]) 
     throw new Error(`Pages verification did not find the compact header control: ${marker}`);
   }
 }
-if (!home.includes("Four expressions of air")) {
-  throw new Error("Pages verification did not find the canonical four-scene Hoplite catalogue");
-}
-for (const artwork of expectedArtwork) {
-  if (!home.includes(artwork)) {
-    throw new Error(`Pages verification did not find the canonical artwork URL: ${artwork}`);
+for (const copy of expectedHomepageCopy) {
+  if (!home.includes(copy)) {
+    throw new Error(`Pages verification did not find the Hoplite product proof copy: ${copy}`);
   }
+}
+for (const marker of expectedLaunchMarkers) {
+  if (!home.includes(marker)) {
+    throw new Error(`Pages verification did not find the launch surface marker: ${marker}`);
+  }
+}
+for (const copy of forbiddenHomepageCopy) {
+  if (home.includes(copy)) {
+    throw new Error(`Pages verification found retired homepage copy: ${copy}`);
+  }
+}
+for (const artwork of expectedAccentArtwork) {
+  if (!home.includes(artwork)) {
+    throw new Error(`Pages verification did not find the accent artwork URL: ${artwork}`);
+  }
+}
+
+const installation = await readFile(join(root, installationPath), "utf8");
+for (const marker of [
+  "brew install greenways-ai/tap/hoplite",
+  "scripts/install.sh",
+  "scripts/new-app.sh",
+  "ghcr.io/greenways-ai/hoplite:latest",
+]) {
+  if (!installation.includes(marker)) {
+    throw new Error(`Pages verification did not find the published installation path: ${marker}`);
+  }
+}
+if (installation.includes("## Build from source")) {
+  throw new Error("Pages verification found the retired source-first installation section");
 }
 
 const legacyRuntimeModel = await readFile(
@@ -167,5 +216,5 @@ if (!guide.includes(expectedGuideUrl)) {
 }
 
 console.log(
-  `Verified ${files.length} Pages documents under /hoplite, including all internal links, compact navigation, the four-scene artwork set, the legacy runtime model redirect, and the web services guide.`,
+  `Verified ${files.length} Pages documents under /hoplite, including all internal links, compact navigation, the launch surface, published installation paths, two accent artwork scenes, the legacy runtime model redirect, and the web services guide.`,
 );
