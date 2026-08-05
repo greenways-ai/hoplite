@@ -8,6 +8,8 @@ rounds="${HOPLITE_BENCHMARK_ROUNDS:-3}"
 duration="${HOPLITE_BENCHMARK_DURATION:-20s}"
 threads="${HOPLITE_BENCHMARK_THREADS:-4}"
 connections="${HOPLITE_BENCHMARK_CONNECTIONS:-128}"
+run_key="${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$"
+run_key="${run_key//[^A-Za-z0-9_.-]/-}"
 work="$(mktemp -d "${TMPDIR:-/tmp}/hoplite-benchmark.XXXXXX")"
 containers=()
 
@@ -64,20 +66,25 @@ median_file() {
   }' "$1"
 }
 
+published_port() {
+  local container="$1"
+  docker port "$container" 8080/tcp | head -n 1 | awk -F: '{print $NF}'
+}
+
 measure_target() {
   local id="$1"
   local label="$2"
   local image="$3"
-  local port="$4"
-  local executable="$5"
-  local container="hoplite-benchmark-${id}"
-  local url="http://127.0.0.1:${port}/hello"
+  local executable="$4"
+  local container="hoplite-benchmark-${run_key}-${id}"
   local target_dir="$work/$id"
   mkdir -p "$target_dir"
   containers+=("$container")
 
-  docker rm -f "$container" >/dev/null 2>&1 || true
-  docker run --detach --name "$container" -p "${port}:8080" "$image" >/dev/null
+  docker run --detach --name "$container" -p 127.0.0.1::8080 "$image" >/dev/null
+  local port url
+  port="$(published_port "$container")"
+  url="http://127.0.0.1:${port}/hello"
 
   for _ in $(seq 1 60); do
     if curl --fail --silent "$url" > "$target_dir/body"; then break; fi
@@ -173,8 +180,8 @@ measure_target() {
   docker rm -f "$container" >/dev/null
 }
 
-measure_target hoplite Hoplite "$hoplite_image" 18080 /usr/local/bin/hoplite
-measure_target nginx "Plain Nginx" "$nginx_image" 18081 /opt/nginx/sbin/nginx
+measure_target hoplite Hoplite "$hoplite_image" /usr/local/bin/hoplite
+measure_target nginx "Plain Nginx" "$nginx_image" /opt/nginx/sbin/nginx
 
 hoplite_sha="$(jq -r '.responseSha256' "$work/hoplite/target.json")"
 nginx_sha="$(jq -r '.responseSha256' "$work/nginx/target.json")"
