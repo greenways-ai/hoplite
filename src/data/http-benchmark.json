@@ -1,41 +1,67 @@
 {
-  "status": "measured",
-  "generatedAt": "2026-08-04T23:20:24Z",
-  "commit": "f81eb8b252d1b545c5b4d0e540f0b3088fba5a85",
-  "runner": "Ubuntu 24.04 GitHub-hosted runner",
-  "cpu": "AMD EPYC 9V74 80-Core Processor",
-  "logicalCpus": 4,
-  "command": "wrk -t4 -c128 -d20s --latency http://127.0.0.1:18080/hello",
-  "rounds": 3,
-  "responseBytes": 19,
-  "imageSizeMiB": 129.374979,
-  "metrics": {
-    "requestsPerSecond": 50987.87,
-    "latencyP50Ms": 2.310000,
-    "latencyP99Ms": 8.260000,
-    "peakMemoryMiB": 69.140000
+  "status": "pending",
+  "generatedAt": null,
+  "commit": null,
+  "runner": null,
+  "cpu": null,
+  "logicalCpus": null,
+  "load": {
+    "threads": 4,
+    "connections": 128,
+    "duration": "20s",
+    "rounds": 3
   },
-  "samples": [
-    {
-      "round": 1,
-      "requestsPerSecond": 50649.73,
-      "latencyP50Ms": 2.320000,
-      "latencyP99Ms": 8.530000,
-      "peakMemoryMiB": 64.840000
+  "payload": {
+    "bodyBytes": 19,
+    "sha256": null,
+    "body": "Hello from Hoplite\\n"
+  },
+  "targets": {
+    "hoplite": {
+      "id": "hoplite",
+      "label": "Hoplite",
+      "image": null,
+      "executable": "/usr/local/bin/hoplite",
+      "responseBytes": 19,
+      "responseSha256": null,
+      "imageSizeMiB": null,
+      "executableSizeMiB": null,
+      "idleMemoryMiB": null,
+      "metrics": {
+        "requestsPerSecond": null,
+        "latencyP50Ms": null,
+        "latencyP99Ms": null,
+        "peakMemoryMiB": null
+      },
+      "samples": []
     },
-    {
-      "round": 2,
-      "requestsPerSecond": 50987.87,
-      "latencyP50Ms": 2.310000,
-      "latencyP99Ms": 8.240000,
-      "peakMemoryMiB": 67.250000
-    },
-    {
-      "round": 3,
-      "requestsPerSecond": 51066.42,
-      "latencyP50Ms": 2.300000,
-      "latencyP99Ms": 8.260000,
-      "peakMemoryMiB": 69.140000
+    "nginx": {
+      "id": "nginx",
+      "label": "Plain Nginx",
+      "image": null,
+      "executable": "/opt/nginx/sbin/nginx",
+      "responseBytes": 19,
+      "responseSha256": null,
+      "imageSizeMiB": null,
+      "executableSizeMiB": null,
+      "idleMemoryMiB": null,
+      "metrics": {
+        "requestsPerSecond": null,
+        "latencyP50Ms": null,
+        "latencyP99Ms": null,
+        "peakMemoryMiB": null
+      },
+      "samples": []
     }
-  ]
+  },
+  "comparison": {
+    "throughputPercentOfNginx": null,
+    "requestRateDeltaPercent": null,
+    "p50DeltaMs": null,
+    "p99DeltaMs": null,
+    "idleMemoryDeltaMiB": null,
+    "peakMemoryDeltaMiB": null,
+    "imageSizeDeltaMiB": null,
+    "executableSizeDeltaMiB": null
+  }
 }
