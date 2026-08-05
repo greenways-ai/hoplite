@@ -50,7 +50,24 @@ median_file() {
 
 published_port() {
   local container="$1"
-  docker port "$container" 8080/tcp | head -n 1 | awk -F: '{print $NF}'
+  local port=""
+  for _ in $(seq 1 40); do
+    port="$(docker port "$container" 8080/tcp 2>/dev/null | head -n 1 | awk -F: '{print $NF}' || true)"
+    if [[ -n "$port" ]]; then
+      printf '%s\n' "$port"
+      return 0
+    fi
+    if [[ "$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null || true)" != "true" ]]; then
+      docker inspect "$container" --format '{{json .State}}' >&2 || true
+      docker logs "$container" >&2 || true
+      echo "Container $container exited before Docker exposed its port" >&2
+      return 1
+    fi
+    sleep .1
+  done
+  docker inspect "$container" --format '{{json .NetworkSettings.Ports}}' >&2 || true
+  echo "Docker did not expose port 8080 for $container" >&2
+  return 1
 }
 
 measure_component() {
