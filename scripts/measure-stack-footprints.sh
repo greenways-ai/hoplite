@@ -7,6 +7,8 @@ java_image="${3:-hoplite-footprint-java}"
 python_image="${4:-hoplite-footprint-python}"
 lua_image="${5:-hoplite-footprint-lua}"
 output="${6:-src/data/stack-footprints.json}"
+run_key="${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$"
+run_key="${run_key//[^A-Za-z0-9_.-]/-}"
 work="$(mktemp -d "${TMPDIR:-/tmp}/hoplite-footprints.XXXXXX")"
 containers=()
 
@@ -46,24 +48,44 @@ median_file() {
   }' "$1"
 }
 
+published_port() {
+  local container="$1"
+  docker port "$container" 8080/tcp | head -n 1 | awk -F: '{print $NF}'
+}
+
 measure_component() {
   local id="$1"
   local label="$2"
   local image="$3"
-  local port="$4"
-  local artifact="$5"
-  local container="hoplite-footprint-${id}"
-  local url="http://127.0.0.1:${port}/hello"
+  local artifact="$4"
+  local container="hoplite-footprint-${run_key}-${id}"
   local directory="$work/$id"
   mkdir -p "$directory"
   containers+=("$container")
 
-  docker rm -f "$container" >/dev/null 2>&1 || true
-  docker run --detach --name "$container" -p "${port}:8080" "$image" >/dev/null
+  docker run --detach --name "$container" -p 127.0.0.1::8080 "$image" >/dev/null
+  local port url
+  port="$(published_port "$container")"
+  url="http://127.0.0.1:${port}/hello"
+
+  local ready=false
   for _ in $(seq 1 60); do
-    if curl --fail --silent "$url" > "$directory/body"; then break; fi
+    if curl --fail --silent "$url" > "$directory/body"; then
+      ready=true
+      break
+    fi
+    if [[ "$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null || true)" != "true" ]]; then
+      docker logs "$container" >&2 || true
+      echo "$label container exited before becoming ready" >&2
+      exit 1
+    fi
     sleep 1
   done
+  if [[ "$ready" != "true" ]]; then
+    docker logs "$container" >&2 || true
+    echo "$label did not become ready" >&2
+    exit 1
+  fi
   curl --fail --silent "$url" > "$directory/body"
 
   local response_bytes response_sha image_size_bytes image_size_mib artifact_size_bytes artifact_size_mib
@@ -100,11 +122,11 @@ measure_component() {
   docker rm -f "$container" >/dev/null
 }
 
-measure_component hoplite Hoplite "$hoplite_image" 18100 /usr/local/bin/hoplite
-measure_component nginx "Plain Nginx" "$nginx_image" 18101 /opt/nginx/sbin/nginx
-measure_component java "Java application" "$java_image" 18102 /app/app.jar
-measure_component python "Python application" "$python_image" 18103 /app/server.py
-measure_component lua "Nginx + Lua" "$lua_image" 18104 /usr/sbin/nginx
+measure_component hoplite Hoplite "$hoplite_image" /usr/local/bin/hoplite
+measure_component nginx "Plain Nginx" "$nginx_image" /opt/nginx/sbin/nginx
+measure_component java "Java application" "$java_image" /app/app.jar
+measure_component python "Python application" "$python_image" /app/server.py
+measure_component lua "Nginx + Lua" "$lua_image" /usr/sbin/nginx
 
 expected_sha="$(jq -r '.responseSha256' "$work/hoplite/component.json")"
 for component in nginx java python lua; do
