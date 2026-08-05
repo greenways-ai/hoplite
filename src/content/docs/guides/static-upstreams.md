@@ -6,7 +6,7 @@ description: Connect a Hoplite application to a fixed HTTPS service without intr
 Hoplite can place an immutable Nginx proxy prefix beside Hara routes. This is useful for a local gateway whose policy and discovery surface are written in Hara while a reviewed remote service owns a separate API.
 
 ```clojure
-(ns greenways.beacon
+(ns gw.beacon
   (:require [hoplite.core :as h]))
 
 (defn health
@@ -36,6 +36,7 @@ Static upstreams are deliberately narrower than a general forward proxy:
 - the source prefix and destination are selected by the built project;
 - request headers cannot choose a hostname, scheme or destination path;
 - remote destinations require HTTPS;
+- Hoplite enables SNI and verifies the upstream certificate against an explicit trusted CA bundle;
 - HTTP is accepted only for `localhost`, `127.0.0.1`, or `[::1]` development targets;
 - user information, query strings, fragments, variables and dot segments are rejected in configuration;
 - local cookies, `Origin`, `Referer`, and `X-Forwarded-*` ambient authority are cleared;
@@ -43,6 +44,17 @@ Static upstreams are deliberately narrower than a general forward proxy:
 - generated OpenAPI carries an `x-hoplite-static-proxies` inventory so the built route is inspectable.
 
 The upstream still authenticates and authorizes the caller. A proxy declaration proves only that the application author approved a route to that origin.
+
+## Certificate trust
+
+For secure upstreams, Hoplite searches common macOS and Linux CA-bundle locations. A build fails closed if no trust bundle is available. Select a specific PEM bundle with:
+
+```sh
+export HOPLITE_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+hoplite serve build --mode prod .
+```
+
+`SSL_CERT_FILE` is accepted as a secondary conventional override. The selected path must identify a regular file and be safe to place in generated Nginx configuration. Hoplite emits `proxy_ssl_verify on`, a bounded verification depth, SNI, and `proxy_ssl_trusted_certificate` for every HTTPS static upstream.
 
 ## Prefix rules
 
