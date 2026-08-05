@@ -1,4 +1,4 @@
-name: HTTP benchmark
+name: HTTP and footprint benchmarks
 
 on:
   workflow_dispatch:
@@ -26,13 +26,25 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends wrk jq curl
-      - name: Build the measured image
-        run: docker build -f hoplite/docker/Dockerfile -t hoplite-benchmark .
-      - name: Record raw HTTP measurements
+      - name: Build Hoplite and same-toolchain Nginx baseline
+        run: |
+          docker build -f hoplite/docker/Dockerfile -t hoplite-benchmark .
+          docker build -f hoplite/docker/Dockerfile.nginx-baseline -t hoplite-nginx-baseline hoplite
+      - name: Build representative stack footprint images
+        run: |
+          docker build -f hoplite/docker/footprints/java/Dockerfile -t hoplite-footprint-java hoplite
+          docker build -f hoplite/docker/footprints/python/Dockerfile -t hoplite-footprint-python hoplite
+          docker build -f hoplite/docker/footprints/lua/Dockerfile -t hoplite-footprint-lua hoplite
+      - name: Record equivalent-payload HTTP comparison
         working-directory: hoplite
-        run: scripts/benchmark-http.sh hoplite-benchmark benchmark-output/http-benchmark.json
+        run: bash scripts/benchmark-http.sh hoplite-benchmark hoplite-nginx-baseline benchmark-output/http-benchmark.json
+      - name: Record representative deployment footprints
+        working-directory: hoplite
+        run: bash scripts/measure-stack-footprints.sh hoplite-benchmark hoplite-nginx-baseline hoplite-footprint-java hoplite-footprint-python hoplite-footprint-lua benchmark-output/stack-footprints.json
       - uses: actions/upload-artifact@v4
         with:
-          name: hoplite-http-benchmark-${{ github.sha }}
-          path: hoplite/benchmark-output/http-benchmark.json
+          name: hoplite-benchmarks-${{ github.sha }}
+          path: |
+            hoplite/benchmark-output/http-benchmark.json
+            hoplite/benchmark-output/stack-footprints.json
           if-no-files-found: error
