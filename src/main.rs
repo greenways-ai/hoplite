@@ -798,6 +798,31 @@ fn render_sequence(values: &[Form], prefix: &str, suffix: &str) -> String {
     )
 }
 
+fn nginx_proxy_location(proxy: &app::Proxy) -> Result<String, String> {
+    for (label, value) in [
+        ("path", proxy.path.as_str()),
+        ("upstream", proxy.upstream.as_str()),
+        ("authority", proxy.authority.as_str()),
+        ("server name", proxy.server_name.as_str()),
+    ] {
+        if unsafe_nginx(value) || value.contains(char::is_whitespace) {
+            return Err(format!("invalid proxy {label} {value:?}"));
+        }
+    }
+    let tls = if proxy.secure {
+        format!(
+            "            proxy_ssl_server_name on;\n            proxy_ssl_name {};\n",
+            proxy.server_name
+        )
+    } else {
+        String::new()
+    };
+    Ok(format!(
+        "        location ^~ {} {{\n            proxy_http_version 1.1;\n{}            proxy_set_header Host {};\n            proxy_set_header Connection \"\";\n            proxy_set_header Cookie \"\";\n            proxy_set_header Origin \"\";\n            proxy_set_header Referer \"\";\n            proxy_set_header X-Forwarded-For \"\";\n            proxy_set_header X-Forwarded-Host \"\";\n            proxy_set_header X-Forwarded-Proto \"\";\n            proxy_pass_request_headers on;\n            proxy_redirect off;\n            proxy_pass {};\n        }}\n",
+        proxy.path, tls, proxy.authority, proxy.upstream
+    ))
+}
+
 fn nginx_app_configuration(project: &Project, config: &app::Config) -> Result<String, String> {
     let bootstrap = project
         .root
@@ -823,9 +848,17 @@ fn nginx_app_configuration(project: &Project, config: &app::Config) -> Result<St
         } else {
             application.hostnames.join(" ")
         };
+        let mut locations = String::new();
+        for proxy in &application.proxies {
+            locations.push_str(&nginx_proxy_location(proxy)?);
+        }
+        locations.push_str(&format!(
+            "        location / {{\n            hoplite_app {};\n        }}\n",
+            application.id
+        ));
         servers.push_str(&format!(
-            "    server {{\n        listen {};\n        server_name {};\n        location / {{\n            hoplite_app {};\n        }}\n    }}\n",
-            application.port, names, application.id
+            "    server {{\n        listen {};\n        server_name {};\n{}    }}\n",
+            application.port, names, locations
         ));
     }
     Ok(format!(
@@ -838,9 +871,12 @@ fn nginx_app_configuration(project: &Project, config: &app::Config) -> Result<St
 }
 
 fn unsafe_nginx(value: &str) -> bool {
-    value
-        .chars()
-        .any(|character| matches!(character, ';' | '{' | '}' | '\n' | '\r' | '\0'))
+    value.chars().any(|character| {
+        matches!(
+            character,
+            ';' | '{' | '}' | '$' | '\\' | '"' | '\'' | '\n' | '\r' | '\0'
+        )
+    })
 }
 
 fn io(error: std::io::Error) -> String {
@@ -854,6 +890,26 @@ mod tests {
     #[test]
     fn rejects_nginx_configuration_injection() {
         assert!(unsafe_nginx("example.org; return 200"));
+        assert!(unsafe_nginx("https://example.org/$request_uri"));
+    }
+
+    #[test]
+    fn renders_fixed_proxy_locations_without_forwarding_local_ambient_authority() {
+        let proxy = app::Proxy {
+            path: "/space/".into(),
+            upstream: "https://greenways.space/beacon/v1/".into(),
+            authority: "greenways.space".into(),
+            server_name: "greenways.space".into(),
+            secure: true,
+        };
+        let location = nginx_proxy_location(&proxy).unwrap();
+        assert!(location.contains("location ^~ /space/"));
+        assert!(location.contains("proxy_ssl_name greenways.space;"));
+        assert!(location.contains("proxy_set_header Host greenways.space;"));
+        assert!(location.contains("proxy_set_header Cookie \"\";"));
+        assert!(location.contains("proxy_set_header Origin \"\";"));
+        assert!(location.contains("proxy_pass https://greenways.space/beacon/v1/;"));
+        assert!(!location.contains("$request_uri"));
     }
 
     #[test]
