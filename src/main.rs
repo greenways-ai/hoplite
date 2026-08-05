@@ -798,6 +798,94 @@ fn render_sequence(values: &[Form], prefix: &str, suffix: &str) -> String {
     )
 }
 
+fn configured_ca_bundle() -> Result<Option<PathBuf>, String> {
+    let configured = env::var_os("HOPLITE_CA_BUNDLE").or_else(|| env::var_os("SSL_CERT_FILE"));
+    let Some(path) = configured.map(PathBuf::from) else {
+        return Ok(None);
+    };
+    if !path.is_file() {
+        return Err(format!(
+            "configured proxy CA bundle does not exist: {}",
+            path.display()
+        ));
+    }
+    validate_ca_bundle(path).map(Some)
+}
+
+fn validate_ca_bundle(path: PathBuf) -> Result<PathBuf, String> {
+    let path = path.canonicalize().unwrap_or(path);
+    let value = path.display().to_string();
+    if unsafe_nginx(&value) || value.contains(char::is_whitespace) {
+        return Err(format!(
+            "proxy CA bundle path is not safe for generated Nginx configuration: {value:?}"
+        ));
+    }
+    Ok(path)
+}
+
+fn system_ca_bundle() -> Result<PathBuf, String> {
+    if let Some(path) = configured_ca_bundle()? {
+        return Ok(path);
+    }
+    for candidate in [
+        "/etc/ssl/certs/ca-certificates.crt",
+        "/etc/pki/tls/certs/ca-bundle.crt",
+        "/etc/ssl/ca-bundle.pem",
+        "/etc/ssl/cert.pem",
+        "/opt/homebrew/etc/openssl@3/cert.pem",
+        "/usr/local/etc/openssl@3/cert.pem",
+    ] {
+        let path = PathBuf::from(candidate);
+        if path.is_file() {
+            return validate_ca_bundle(path);
+        }
+    }
+    Err("a secure static upstream requires a trusted CA bundle; set HOPLITE_CA_BUNDLE to a PEM certificate bundle".into())
+}
+
+fn proxy_ca_bundle(config: &app::Config) -> Result<Option<PathBuf>, String> {
+    if config
+        .apps
+        .iter()
+        .flat_map(|application| &application.proxies)
+        .any(|proxy| proxy.secure)
+    {
+        system_ca_bundle().map(Some)
+    } else {
+        Ok(None)
+    }
+}
+
+fn nginx_proxy_location(proxy: &app::Proxy, trusted_ca: Option<&Path>) -> Result<String, String> {
+    for (label, value) in [
+        ("path", proxy.path.as_str()),
+        ("upstream", proxy.upstream.as_str()),
+        ("authority", proxy.authority.as_str()),
+        ("server name", proxy.server_name.as_str()),
+    ] {
+        if unsafe_nginx(value) || value.contains(char::is_whitespace) {
+            return Err(format!("invalid proxy {label} {value:?}"));
+        }
+    }
+    let tls = if proxy.secure {
+        let trusted_ca = trusted_ca.ok_or("secure proxy is missing a trusted CA bundle")?;
+        let trusted_ca = trusted_ca.display().to_string();
+        if unsafe_nginx(&trusted_ca) || trusted_ca.contains(char::is_whitespace) {
+            return Err(format!("invalid proxy CA bundle path {trusted_ca:?}"));
+        }
+        format!(
+            "            proxy_ssl_server_name on;\n            proxy_ssl_name {};\n            proxy_ssl_verify on;\n            proxy_ssl_verify_depth 5;\n            proxy_ssl_trusted_certificate {};\n",
+            proxy.server_name, trusted_ca
+        )
+    } else {
+        String::new()
+    };
+    Ok(format!(
+        "        location ^~ {} {{\n            proxy_http_version 1.1;\n{}            proxy_set_header Host {};\n            proxy_set_header Connection \"\";\n            proxy_set_header Cookie \"\";\n            proxy_set_header Origin \"\";\n            proxy_set_header Referer \"\";\n            proxy_set_header X-Forwarded-For \"\";\n            proxy_set_header X-Forwarded-Host \"\";\n            proxy_set_header X-Forwarded-Proto \"\";\n            proxy_pass_request_headers on;\n            proxy_redirect off;\n            proxy_pass {};\n        }}\n",
+        proxy.path, tls, proxy.authority, proxy.upstream
+    ))
+}
+
 fn nginx_app_configuration(project: &Project, config: &app::Config) -> Result<String, String> {
     let bootstrap = project
         .root
@@ -809,6 +897,7 @@ fn nginx_app_configuration(project: &Project, config: &app::Config) -> Result<St
         .join(".hoplite/apps.hta")
         .canonicalize()
         .unwrap_or_else(|_| project.root.join(".hoplite/apps.hta"));
+    let trusted_ca = proxy_ca_bundle(config)?;
     let mut servers = String::new();
     for application in &config.apps {
         if application
@@ -823,9 +912,17 @@ fn nginx_app_configuration(project: &Project, config: &app::Config) -> Result<St
         } else {
             application.hostnames.join(" ")
         };
+        let mut locations = String::new();
+        for proxy in &application.proxies {
+            locations.push_str(&nginx_proxy_location(proxy, trusted_ca.as_deref())?);
+        }
+        locations.push_str(&format!(
+            "        location / {{\n            hoplite_app {};\n        }}\n",
+            application.id
+        ));
         servers.push_str(&format!(
-            "    server {{\n        listen {};\n        server_name {};\n        location / {{\n            hoplite_app {};\n        }}\n    }}\n",
-            application.port, names, application.id
+            "    server {{\n        listen {};\n        server_name {};\n{}    }}\n",
+            application.port, names, locations
         ));
     }
     Ok(format!(
@@ -838,9 +935,12 @@ fn nginx_app_configuration(project: &Project, config: &app::Config) -> Result<St
 }
 
 fn unsafe_nginx(value: &str) -> bool {
-    value
-        .chars()
-        .any(|character| matches!(character, ';' | '{' | '}' | '\n' | '\r' | '\0'))
+    value.chars().any(|character| {
+        matches!(
+            character,
+            ';' | '{' | '}' | '$' | '\\' | '"' | '\'' | '\n' | '\r' | '\0'
+        )
+    })
 }
 
 fn io(error: std::io::Error) -> String {
@@ -854,6 +954,49 @@ mod tests {
     #[test]
     fn rejects_nginx_configuration_injection() {
         assert!(unsafe_nginx("example.org; return 200"));
+        assert!(unsafe_nginx("https://example.org/$request_uri"));
+    }
+
+    #[test]
+    fn renders_verified_fixed_proxy_locations_without_forwarding_local_ambient_authority() {
+        let proxy = app::Proxy {
+            path: "/space/".into(),
+            upstream: "https://greenways.space/beacon/v1/".into(),
+            authority: "greenways.space".into(),
+            server_name: "greenways.space".into(),
+            secure: true,
+        };
+        let location = nginx_proxy_location(
+            &proxy,
+            Some(Path::new("/etc/ssl/certs/ca-certificates.crt")),
+        )
+        .unwrap();
+        assert!(location.contains("location ^~ /space/"));
+        assert!(location.contains("proxy_ssl_name greenways.space;"));
+        assert!(location.contains("proxy_ssl_verify on;"));
+        assert!(location.contains("proxy_ssl_verify_depth 5;"));
+        assert!(location.contains(
+            "proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;"
+        ));
+        assert!(location.contains("proxy_set_header Host greenways.space;"));
+        assert!(location.contains("proxy_set_header Cookie \"\";"));
+        assert!(location.contains("proxy_set_header Origin \"\";"));
+        assert!(location.contains("proxy_pass https://greenways.space/beacon/v1/;"));
+        assert!(!location.contains("$request_uri"));
+    }
+
+    #[test]
+    fn secure_proxy_requires_a_ca_bundle() {
+        let proxy = app::Proxy {
+            path: "/space/".into(),
+            upstream: "https://greenways.space/beacon/v1/".into(),
+            authority: "greenways.space".into(),
+            server_name: "greenways.space".into(),
+            secure: true,
+        };
+        assert!(nginx_proxy_location(&proxy, None)
+            .unwrap_err()
+            .contains("trusted CA bundle"));
     }
 
     #[test]

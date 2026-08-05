@@ -1,6 +1,6 @@
 ---
 title: Applications and resources
-description: How Hoplite represents applications, resources, operations, and handlers.
+description: How Hoplite represents applications, resources, operations, handlers, and fixed upstreams.
 ---
 
 <span class="doc-badge doc-badge--success">Public</span>
@@ -41,6 +41,26 @@ At build time, Hoplite flattens the tree into method/path/handler records. An ap
 | `:summary` | No | Human-readable description used by OpenAPI output |
 | `:route/adapter` | No | `:raw`, `:request` (default), or `:request+hta`; overrides the application default |
 
+## Fixed upstreams
+
+An application may declare build-time proxy prefixes for a known service origin:
+
+```clojure
+(h/app
+  {:name "beacon"
+   :proxies
+   [{:path "/space/"
+     :upstream "https://greenways.space/beacon/v1/"}]
+   :resources
+   [["/health" {:get {:handler #'health}}]]})
+```
+
+Hoplite renders each entry as a more-specific Nginx prefix location before the Hara application location. The incoming method, query and body pass through Nginx without entering a Hara worker.
+
+Both values are immutable application configuration. The local path and upstream path must begin and end with `/`; variables, credentials, query strings, fragments and dot segments are rejected. Remote origins require HTTPS. Plain HTTP is accepted only for explicit loopback development origins.
+
+A fixed upstream is a transport route, not an authentication grant. Hoplite strips ambient cookies, browser `Origin` and forwarding headers before sending the request. Applications should use an explicit signed or bearer protocol in headers when the upstream requires identity. See [Static upstreams](/guides/static-upstreams/) for the complete boundary.
+
 ## Validation
 
-Hoplite rejects relative resource paths, operations without handlers, non-callable handlers, empty applications, duplicate application IDs, and ambiguous default applications sharing a port.
+Hoplite rejects relative resource paths, operations without handlers, empty applications, duplicate application IDs, ambiguous default applications sharing a port, duplicate proxy prefixes, dynamic upstreams, and insecure non-loopback HTTP origins.
