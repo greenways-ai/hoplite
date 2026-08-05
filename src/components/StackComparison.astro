@@ -2,8 +2,11 @@
 import footprints from "../data/stack-footprints.json";
 
 const measured = footprints.status === "measured";
-const size = (value: number | null, digits = 1) =>
-  value == null ? "—" : `${value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })} MiB`;
+const size = (value: number | null, digits = 1) => {
+  if (value == null) return "—";
+  if (value > 0 && value < 0.01) return "<0.01 MiB";
+  return `${value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })} MiB`;
+};
 const stacks = [
   {
     key: "hoplite",
