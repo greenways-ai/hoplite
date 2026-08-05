@@ -54,9 +54,56 @@ jobs:
         working-directory: hoplite
         run: bash scripts/benchmark-http.sh hoplite-benchmark hoplite-nginx-baseline src/data/http-benchmark.json
       - name: Record representative stack footprints
+        id: footprints
+        continue-on-error: true
         working-directory: hoplite
-        run: bash scripts/measure-stack-footprints.sh hoplite-benchmark hoplite-nginx-baseline hoplite-footprint-java hoplite-footprint-python hoplite-footprint-lua src/data/stack-footprints.json
+        run: |
+          set -o pipefail
+          bash -x scripts/measure-stack-footprints.sh \
+            hoplite-benchmark \
+            hoplite-nginx-baseline \
+            hoplite-footprint-java \
+            hoplite-footprint-python \
+            hoplite-footprint-lua \
+            src/data/stack-footprints.json \
+            2>&1 | tee footprint-debug.log
+      - name: Capture Docker diagnostics
+        if: always()
+        working-directory: hoplite
+        run: |
+          {
+            echo "## docker ps -a"
+            docker ps -a
+            echo
+            echo "## benchmark image sizes"
+            docker image inspect \
+              hoplite-benchmark \
+              hoplite-nginx-baseline \
+              hoplite-footprint-java \
+              hoplite-footprint-python \
+              hoplite-footprint-lua \
+              --format '{{.RepoTags}} {{.Size}}' || true
+            echo
+            echo "## retained container logs"
+            for container in $(docker ps -a --format '{{.Names}}' | grep '^hoplite-footprint-' || true); do
+              echo "### $container"
+              docker inspect "$container" --format '{{json .State}}' || true
+              docker logs "$container" || true
+            done
+          } > footprint-docker-debug.log 2>&1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: footprint-debug-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            hoplite/footprint-debug.log
+            hoplite/footprint-docker-debug.log
+          if-no-files-found: warn
+      - name: Fail when footprint measurement failed
+        if: steps.footprints.outcome == 'failure'
+        run: exit 1
       - name: Commit generated evidence
+        if: steps.footprints.outcome == 'success'
         working-directory: hoplite
         run: |
           git config user.name "github-actions[bot]"
