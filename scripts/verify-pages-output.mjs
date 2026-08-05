@@ -151,7 +151,7 @@ const header = home.match(/<header[^>]*data-gw-documentation-header[^>]*>[\s\S]*
 for (const retired of [">Overview<", ">Get started<", ">Guides<", ">Reference<", ">Projects<", ">GitHub ↗<"]) {
   if (header.includes(retired)) throw new Error(`Pages verification found retired top-level navigation: ${retired}`);
 }
-const switcher = home.match(/<div class="gw-project-switcher__menu"[\s\S]*?<\/div><\/details>/)?.[0] || "";
+const switcher = home.match(/<details[^>]*data-gw-project-switcher[^>]*>[\s\S]*?<\/details>/)?.[0] || "";
 for (const label of ["Back to OSS", "Hestia", "Hoplite", "Historia", "Hodos"]) {
   if (!switcher.includes(label)) throw new Error(`Project switcher is missing ${label}`);
 }
