@@ -51,6 +51,20 @@ pub struct Route {
     pub adapter: RouteAdapter,
 }
 
+/// A fixed-prefix, fixed-origin Nginx upstream owned by the Hoplite build.
+///
+/// Proxies are deliberately not selected from request data. They are inert app
+/// configuration, validated before Nginx configuration is emitted, and remain
+/// outside the Hara handler manifest.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Proxy {
+    pub path: String,
+    pub upstream: String,
+    pub authority: String,
+    pub server_name: String,
+    pub secure: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct App {
     pub id: u64,
@@ -58,6 +72,7 @@ pub struct App {
     pub port: u16,
     pub hostnames: Vec<String>,
     pub routes: Vec<Route>,
+    pub proxies: Vec<Proxy>,
     pub openapi_path: Option<String>,
 }
 
@@ -191,6 +206,14 @@ fn parse_app(
         keyword_field(&value, "route/adapter"),
         &format!("Hoplite app {name:?}"),
     )?;
+    let proxies = sequence_field(&value, "proxies")
+        .unwrap_or_default()
+        .into_iter()
+        .enumerate()
+        .map(|(index, value)| parse_proxy(&value, &format!("Hoplite app {name:?} proxy {index}")))
+        .collect::<Result<Vec<_>, _>>()?;
+    validate_proxies(&proxies, &name)?;
+
     let mut routes = Vec::new();
     if let Some(handler) = field(&value, "handler") {
         routes.push(Route {
@@ -217,8 +240,159 @@ fn parse_app(
         port,
         hostnames,
         routes,
+        proxies,
         openapi_path,
     })
+}
+
+fn parse_proxy(value: &Value, context: &str) -> Result<Proxy, String> {
+    let entries = core::map_entries(value)
+        .ok_or_else(|| format!("{context} must be a map"))?;
+    for (key, _) in &entries {
+        let Value::Keyword(key) = key else {
+            return Err(format!("{context} keys must be keywords"));
+        };
+        if !matches!(key.as_str(), "path" | "upstream") {
+            return Err(format!("{context} contains unsupported field :{}", key.as_str()));
+        }
+    }
+
+    let path = text(
+        &field(value, "path").ok_or_else(|| format!("{context} requires :path"))?,
+        &format!("{context} :path"),
+    )?;
+    validate_proxy_path(&path, context)?;
+
+    let upstream = text(
+        &field(value, "upstream").ok_or_else(|| format!("{context} requires :upstream"))?,
+        &format!("{context} :upstream"),
+    )?;
+    let (authority, server_name, secure) = parse_proxy_upstream(&upstream, context)?;
+
+    Ok(Proxy {
+        path,
+        upstream,
+        authority,
+        server_name,
+        secure,
+    })
+}
+
+fn validate_proxies(proxies: &[Proxy], app: &str) -> Result<(), String> {
+    for (index, proxy) in proxies.iter().enumerate() {
+        if proxies[..index]
+            .iter()
+            .any(|candidate| candidate.path == proxy.path)
+        {
+            return Err(format!(
+                "Hoplite app {app:?} declares duplicate proxy path {:?}",
+                proxy.path
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_proxy_path(path: &str, context: &str) -> Result<(), String> {
+    if path == "/" || !path.starts_with('/') || !path.ends_with('/') {
+        return Err(format!(
+            "{context} :path must be a non-root prefix beginning and ending with /"
+        ));
+    }
+    if !safe_proxy_path(path) || dot_segment(path) {
+        return Err(format!("{context} :path is not a safe static prefix"));
+    }
+    Ok(())
+}
+
+fn parse_proxy_upstream(upstream: &str, context: &str) -> Result<(String, String, bool), String> {
+    let (secure, rest) = if let Some(rest) = upstream.strip_prefix("https://") {
+        (true, rest)
+    } else if let Some(rest) = upstream.strip_prefix("http://") {
+        (false, rest)
+    } else {
+        return Err(format!("{context} :upstream must use https:// or loopback http://"));
+    };
+    let slash = rest
+        .find('/')
+        .ok_or_else(|| format!("{context} :upstream must include a path ending with /"))?;
+    let authority = &rest[..slash];
+    let path = &rest[slash..];
+    if authority.is_empty()
+        || authority.contains('@')
+        || path.contains('?')
+        || path.contains('#')
+        || !path.ends_with('/')
+        || !safe_proxy_path(path)
+        || dot_segment(path)
+    {
+        return Err(format!("{context} :upstream is not a fixed, safe origin and path"));
+    }
+    let (server_name, loopback) = parse_proxy_authority(authority, context)?;
+    if !secure && !loopback {
+        return Err(format!("{context} remote upstreams must use https://"));
+    }
+    Ok((authority.to_owned(), server_name, secure))
+}
+
+fn parse_proxy_authority(authority: &str, context: &str) -> Result<(String, bool), String> {
+    if authority.starts_with('[') {
+        let close = authority
+            .find(']')
+            .ok_or_else(|| format!("{context} :upstream has an invalid IPv6 authority"))?;
+        let host = &authority[1..close];
+        let suffix = &authority[close + 1..];
+        if host != "::1" || (!suffix.is_empty() && !valid_port_suffix(suffix)) {
+            return Err(format!("{context} :upstream has an unsupported IPv6 authority"));
+        }
+        return Ok((host.to_owned(), true));
+    }
+
+    if authority.matches(':').count() > 1 {
+        return Err(format!("{context} :upstream authority is invalid"));
+    }
+    let (host, port) = authority
+        .split_once(':')
+        .map_or((authority, None), |(host, port)| (host, Some(port)));
+    if host.is_empty()
+        || host.starts_with('-')
+        || host.ends_with('-')
+        || host.starts_with('.')
+        || host.ends_with('.')
+        || !host
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '.'))
+        || port.is_some_and(|value| value.is_empty() || !value.chars().all(|character| character.is_ascii_digit()))
+    {
+        return Err(format!("{context} :upstream authority is invalid"));
+    }
+    if let Some(port) = port {
+        let value = port
+            .parse::<u16>()
+            .ok()
+            .filter(|value| *value != 0)
+            .ok_or_else(|| format!("{context} :upstream port must be between 1 and 65535"))?;
+        let _ = value;
+    }
+    let loopback = host.eq_ignore_ascii_case("localhost") || host == "127.0.0.1";
+    Ok((host.to_owned(), loopback))
+}
+
+fn valid_port_suffix(value: &str) -> bool {
+    value
+        .strip_prefix(':')
+        .and_then(|port| port.parse::<u16>().ok())
+        .is_some_and(|port| port != 0)
+}
+
+fn safe_proxy_path(value: &str) -> bool {
+    value.chars().all(|character| {
+        character.is_ascii_alphanumeric() || matches!(character, '/' | '-' | '_' | '.' | '~')
+    })
+}
+
+fn dot_segment(path: &str) -> bool {
+    path.split('/').any(|segment| matches!(segment, "." | ".."))
 }
 
 fn flatten_resource(
@@ -349,10 +523,16 @@ pub fn openapi(app: &App) -> String {
             JsonValue::Object(operation),
         );
     }
+    let proxies = app
+        .proxies
+        .iter()
+        .map(|proxy| json!({"path": proxy.path, "upstream": proxy.upstream}))
+        .collect::<Vec<_>>();
     serde_json::to_string_pretty(&json!({
         "openapi": "3.1.0",
         "info": {"title": app.name, "version": "0.1.0"},
-        "paths": paths
+        "paths": paths,
+        "x-hoplite-static-proxies": proxies
     }))
     .expect("JSON serialization")
         + "\n"
@@ -508,6 +688,42 @@ mod tests {
         assert_eq!(app.routes[0].handler, "sample/get-user");
         assert_eq!(app.routes[0].path, "/users/:id");
         assert!(openapi(&app).contains("/users/{id}"));
+    }
+
+    #[test]
+    fn parses_fixed_https_and_loopback_proxy_prefixes() {
+        let mut runtime = Runtime::new();
+        runtime.register_resource("hoplite.core", CORE_SOURCE);
+        let value = runtime
+            .eval_native_value(
+                "(ns sample.proxy (:require [hoplite.core :as h])) (defn health [_] {:status 200}) (h/app {:name :proxy :proxies [{:path \"/space/\" :upstream \"https://greenways.space/beacon/v1/\"} {:path \"/dev/\" :upstream \"http://127.0.0.1:5173/api/\"}] :resources [[\"/health\" {:get {:handler #'health}}]]})",
+            )
+            .unwrap();
+        let app = parse_app(value, 1, 58100, vec![], false).unwrap();
+        assert_eq!(app.proxies.len(), 2);
+        assert_eq!(app.proxies[0].path, "/space/");
+        assert_eq!(app.proxies[0].authority, "greenways.space");
+        assert_eq!(app.proxies[0].server_name, "greenways.space");
+        assert!(app.proxies[0].secure);
+        assert!(!app.proxies[1].secure);
+        assert!(openapi(&app).contains("x-hoplite-static-proxies"));
+    }
+
+    #[test]
+    fn rejects_dynamic_and_insecure_remote_proxy_configuration() {
+        let invalid = [
+            ("/space/", "http://greenways.space/beacon/v1/"),
+            ("/space/$path/", "https://greenways.space/beacon/v1/"),
+            ("/space/", "https://user@greenways.space/beacon/v1/"),
+            ("/space/", "https://greenways.space/beacon/../private/"),
+        ];
+        for (path, upstream) in invalid {
+            let value = map_value(vec![
+                (keyword("path"), Value::String(path.into())),
+                (keyword("upstream"), Value::String(upstream.into())),
+            ]);
+            assert!(parse_proxy(&value, "test proxy").is_err(), "accepted {path} -> {upstream}");
+        }
     }
 
     #[test]
