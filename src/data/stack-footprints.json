@@ -1,0 +1,49 @@
+{
+  "status": "pending",
+  "generatedAt": null,
+  "commit": null,
+  "runner": null,
+  "cpu": null,
+  "logicalCpus": null,
+  "methodology": {
+    "idleSamplesPerComponent": 12,
+    "payloadBytes": 19,
+    "imageAccounting": "Logical Docker image sizes are summed for multi-service stacks; shared registry layers may deduplicate in practice.",
+    "scope": "Minimal representative services returning the same response; these are footprint samples, not full framework applications."
+  },
+  "components": {},
+  "stacks": {
+    "hoplite": {
+      "label": "Hoplite",
+      "components": ["Hoplite"],
+      "serviceCount": 1,
+      "deploymentImageMiB": null,
+      "idleMemoryMiB": null,
+      "primaryArtifactMiB": null
+    },
+    "java": {
+      "label": "Java",
+      "components": ["Plain Nginx", "Java application"],
+      "serviceCount": 2,
+      "deploymentImageMiB": null,
+      "idleMemoryMiB": null,
+      "primaryArtifactMiB": null
+    },
+    "python": {
+      "label": "Python",
+      "components": ["Plain Nginx", "Python application"],
+      "serviceCount": 2,
+      "deploymentImageMiB": null,
+      "idleMemoryMiB": null,
+      "primaryArtifactMiB": null
+    },
+    "lua": {
+      "label": "Lua / Nginx",
+      "components": ["Nginx + Lua"],
+      "serviceCount": 1,
+      "deploymentImageMiB": null,
+      "idleMemoryMiB": null,
+      "primaryArtifactMiB": null
+    }
+  }
+}
