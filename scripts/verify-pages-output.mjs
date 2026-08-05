@@ -152,11 +152,15 @@ for (const retired of [">Overview<", ">Get started<", ">Guides<", ">Reference<",
   if (header.includes(retired)) throw new Error(`Pages verification found retired top-level navigation: ${retired}`);
 }
 const switcher = home.match(/<details[^>]*data-gw-project-switcher[^>]*>[\s\S]*?<\/details>/)?.[0] || "";
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const hasProjectLabel = (label) => new RegExp(
+  `<strong\\b[^>]*>\\s*${escapeRegExp(label)}\\s*<\\/strong>`,
+).test(switcher);
 for (const label of ["Back to OSS", "Hestia", "Hoplite", "Historia", "Hodos"]) {
-  if (!switcher.includes(`<strong>${label}</strong>`)) throw new Error(`Project switcher is missing ${label}`);
+  if (!hasProjectLabel(label)) throw new Error(`Project switcher is missing ${label}`);
 }
 for (const retired of ["Statstrade", "Visual Language", "Greenways"]) {
-  if (switcher.includes(`<strong>${retired}</strong>`)) throw new Error(`Project switcher contains retired item ${retired}`);
+  if (hasProjectLabel(retired)) throw new Error(`Project switcher contains retired item ${retired}`);
 }
 if ((switcher.match(/gw-sigil/g) || []).length < 4) {
   throw new Error("Project switcher does not render canonical project sigils");
