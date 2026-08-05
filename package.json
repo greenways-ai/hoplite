@@ -16,7 +16,7 @@
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@fontsource/manrope": "^5.2.7",
     "@fontsource/marcellus": "^5.2.6",
-    "@greenways-ai/visual-language": "github:greenways-ai/visual-language#2a5270b98a9254dec7b4e143353cf778951c7324",
+    "@greenways-ai/visual-language": "github:greenways-ai/visual-language#9db783f0863eb72c1b91c83ab262fbfb49307982",
     "astro": "^7.1.6",
     "sharp": "^0.35.3"
   },
