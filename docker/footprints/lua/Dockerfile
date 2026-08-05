@@ -1,8 +1,10 @@
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends nginx-extras curl \
     && rm -rf /var/lib/apt/lists/*
-RUN mkdir -p /tmp/nginx/client /tmp/nginx/proxy /tmp/nginx/fastcgi /tmp/nginx/uwsgi /tmp/nginx/scgi \
-    && chown -R www-data:www-data /tmp/nginx
+RUN mkdir -p \
+      /tmp/nginx/client /tmp/nginx/proxy /tmp/nginx/fastcgi /tmp/nginx/uwsgi /tmp/nginx/scgi \
+      /var/lib/nginx/body /var/lib/nginx/proxy /var/lib/nginx/fastcgi /var/lib/nginx/uwsgi /var/lib/nginx/scgi \
+    && chown -R www-data:www-data /tmp/nginx /var/lib/nginx
 COPY docker/footprints/lua/nginx.conf /etc/nginx/nginx.conf
 USER www-data
 EXPOSE 8080

@@ -1,5 +1,5 @@
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends python3-minimal curl \
+RUN apt-get update && apt-get install -y --no-install-recommends python3 curl \
     && rm -rf /var/lib/apt/lists/*
 RUN useradd --system --home /nonexistent pythonapp
 COPY docker/footprints/python/server.py /app/server.py
