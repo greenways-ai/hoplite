@@ -24,8 +24,8 @@ const expectedAccentArtwork = ["rabbit-courtyard", "branching-paths"].flatMap((s
 const expectedHomepageCopy = [
   "Your application, directly inside Nginx.",
   "Choose where it runs.",
-  "Speed you can inspect.",
-  "Same host. Less stack to operate.",
+  "Hoplite against raw Nginx.",
+  "What each stack occupies.",
   "See what happens—and why.",
   "Why it matters",
 ];
@@ -50,16 +50,17 @@ const forbiddenHomepageCopy = [
   "compile per worker",
   "mandatory request copies",
   "async records on sync routes",
+  "Speed you can inspect.",
+  "Same host. Less stack to operate.",
 ];
 const expectedGuideUrl = "https://oss.greenways.ai/hoplite/guides/writing-web-services";
 const expectedNavigationLinks = ["/hoplite/", "/hoplite/getting-started/"];
 const expectedProjectLinks = [
-  "https://greenways.ai/",
+  "https://oss.greenways.ai/",
   "https://oss.greenways.ai/hestia/",
   "https://oss.greenways.ai/hoplite/",
   "https://oss.greenways.ai/historia/",
   "https://oss.greenways.ai/hodos/",
-  "https://statstrade.io/",
 ];
 const unscopedRootLink = /(href|src|srcset|action)="\/(?!hoplite(?:\/|"))/;
 const duplicatedScope = /(href|src|srcset|action)="\/hoplite\/hoplite(?:\/|[A-Za-z0-9_-])/;
@@ -101,8 +102,11 @@ async function localTarget(pathname) {
   return null;
 }
 
-for (const path of required) await access(join(root, path));
+const positive = (value, label) => {
+  if (!Number.isFinite(value) || value <= 0) throw new Error(`${label} is not a positive measurement`);
+};
 
+for (const path of required) await access(join(root, path));
 const files = await htmlFiles(root);
 if (files.length === 0) throw new Error("Pages verification found no generated HTML files");
 
@@ -147,10 +151,22 @@ const header = home.match(/<header[^>]*data-gw-documentation-header[^>]*>[\s\S]*
 for (const retired of [">Overview<", ">Get started<", ">Guides<", ">Reference<", ">Projects<", ">GitHub ↗<"]) {
   if (header.includes(retired)) throw new Error(`Pages verification found retired top-level navigation: ${retired}`);
 }
+const switcher = home.match(/<div class="gw-project-switcher__menu"[\s\S]*?<\/div><\/details>/)?.[0] || "";
+for (const label of ["Back to OSS", "Hestia", "Hoplite", "Historia", "Hodos"]) {
+  if (!switcher.includes(label)) throw new Error(`Project switcher is missing ${label}`);
+}
+for (const retired of ["Statstrade", "Visual Language", "Greenways"]) {
+  if (switcher.includes(retired)) throw new Error(`Project switcher contains retired item ${retired}`);
+}
+if ((switcher.match(/gw-sigil/g) || []).length < 4) {
+  throw new Error("Project switcher does not render canonical project sigils");
+}
 if (!home.includes('href="https://github.com/greenways-ai/hoplite"')) {
   throw new Error("Pages verification did not find the front-page source action");
 }
-if (!home.includes("astro-code")) throw new Error("Pages verification did not find syntax-highlighted code output");
+if (!home.includes("astro-code") || !home.includes("not-content")) {
+  throw new Error("Pages verification did not find isolated syntax-highlighted code output");
+}
 for (const copy of expectedHomepageCopy) {
   if (!home.includes(copy)) throw new Error(`Pages verification did not find the Hoplite product proof copy: ${copy}`);
 }
@@ -164,8 +180,6 @@ for (const artwork of expectedAccentArtwork) {
   if (!home.includes(artwork)) throw new Error(`Pages verification did not find the accent artwork URL: ${artwork}`);
 }
 
-// Syntax highlighting tokenises rendered commands. Assert exact supported paths
-// against the authored launch and installation sources instead of brittle HTML text.
 const launchSource = await readFile(join(repositoryRoot, "src/components/LaunchSurface.astro"), "utf8");
 const installationSource = await readFile(join(repositoryRoot, "src/content/docs/getting-started/installation.mdx"), "utf8");
 for (const marker of expectedPublishedPaths) {
@@ -178,23 +192,54 @@ if (installationSource.includes("## Build from source")) {
 }
 
 const benchmark = JSON.parse(await readFile(join(repositoryRoot, "src/data/http-benchmark.json"), "utf8"));
-if (benchmark.status !== "measured") throw new Error("HTTP benchmark data has not been measured");
-if (!Array.isArray(benchmark.samples) || benchmark.samples.length !== benchmark.rounds || benchmark.rounds < 3) {
-  throw new Error("HTTP benchmark data does not contain the declared measured rounds");
+if (benchmark.status !== "measured") throw new Error("HTTP comparison has not been measured");
+if (benchmark.payload.bodyBytes !== 19) throw new Error("HTTP comparison does not use the 19-byte payload");
+if (!benchmark.payload.sha256 || benchmark.targets.hoplite.responseSha256 !== benchmark.targets.nginx.responseSha256) {
+  throw new Error("Hoplite and plain Nginx response bodies are not identical");
 }
-for (const [name, value] of Object.entries(benchmark.metrics)) {
-  if (!Number.isFinite(value) || value <= 0) throw new Error(`HTTP benchmark metric is not a positive measurement: ${name}`);
+for (const [targetName, target] of Object.entries(benchmark.targets)) {
+  if (!Array.isArray(target.samples) || target.samples.length !== benchmark.load.rounds || benchmark.load.rounds < 3) {
+    throw new Error(`${targetName} does not contain the declared measured rounds`);
+  }
+  for (const [name, value] of Object.entries(target.metrics)) positive(value, `${targetName}.${name}`);
+  for (const name of ["imageSizeMiB", "executableSizeMiB", "idleMemoryMiB"]) positive(target[name], `${targetName}.${name}`);
 }
-for (const label of ["requests / second", "p50 latency", "p99 latency", "peak container memory", "Measured rounds"]) {
-  if (!home.includes(label)) throw new Error(`Pages verification did not render the raw benchmark label: ${label}`);
+positive(benchmark.comparison.throughputPercentOfNginx, "comparison.throughputPercentOfNginx");
+for (const label of [
+  "Requests / second",
+  "p50 latency",
+  "p99 latency",
+  "Peak memory under load",
+  "Runtime executable",
+  "Deployment image",
+  "Idle memory",
+  "Plain Nginx",
+  "All measured rounds",
+]) {
+  if (!home.includes(label)) throw new Error(`Pages verification did not render the comparison label: ${label}`);
 }
 
-const lightModeCss = await readFile(join(repositoryRoot, "src/styles/documentation-enhancements.css"), "utf8");
-if (!lightModeCss.includes("--gw-header: rgba(255, 255, 255, .97)")) {
-  throw new Error("Hoplite light-mode documentation header is not using the white content surface");
+const footprints = JSON.parse(await readFile(join(repositoryRoot, "src/data/stack-footprints.json"), "utf8"));
+if (footprints.status !== "measured") throw new Error("Stack footprint sample has not been measured");
+for (const [stackName, stack] of Object.entries(footprints.stacks)) {
+  positive(stack.deploymentImageMiB, `${stackName}.deploymentImageMiB`);
+  positive(stack.idleMemoryMiB, `${stackName}.idleMemoryMiB`);
+  positive(stack.primaryArtifactMiB, `${stackName}.primaryArtifactMiB`);
 }
-if (!lightModeCss.includes(".hoplite-hero__copy")) {
-  throw new Error("Hoplite light-mode hero does not define its contrast surface");
+for (const label of ["Deploy image", "Measured shape", "Plain Nginx + minimal JVM service", "Plain Nginx + minimal Python service", "Nginx + Lua module"]) {
+  if (!home.includes(label)) throw new Error(`Pages verification did not render the footprint label: ${label}`);
+}
+
+const enhancementCss = await readFile(join(repositoryRoot, "src/styles/documentation-enhancements.css"), "utf8");
+for (const marker of [
+  "--gw-header: rgba(255, 255, 255, .97)",
+  ".hoplite-hero__copy",
+  "text-decoration: none !important",
+  ".benchmark-provenance dl",
+  "background: transparent",
+  ".stack-grid",
+]) {
+  if (!enhancementCss.includes(marker)) throw new Error(`Documentation enhancement contract is missing: ${marker}`);
 }
 
 const legacyRuntimeModel = await readFile(join(root, legacyRuntimeModelPath), "utf8");
@@ -211,5 +256,5 @@ if (!guide.includes(expectedGuideUrl)) {
 }
 
 console.log(
-  `Verified ${files.length} Pages documents under /hoplite, including shared documentation controls, centered search, project switching, syntax-highlighted examples, measured HTTP evidence with raw rounds, white light-mode navigation, published installation paths, accent artwork, and canonical redirects.`,
+  `Verified ${files.length} Pages documents under /hoplite, including clean highlighted code, the canonical OSS project switcher, equivalent-payload Hoplite versus Nginx measurements, measured stack footprints, white light-mode navigation, published installation paths, accent artwork, and canonical redirects.`,
 );

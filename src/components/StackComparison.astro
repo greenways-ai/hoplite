@@ -1,38 +1,50 @@
 ---
+import footprints from "../data/stack-footprints.json";
+
+const measured = footprints.status === "measured";
+const size = (value: number | null, digits = 1) => {
+  if (value == null) return "—";
+  if (value > 0 && value < 0.01) return "<0.01 MiB";
+  return `${value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })} MiB`;
+};
 const stacks = [
   {
+    key: "hoplite",
     name: "Hoplite",
     className: "stack-card stack-card--hoplite",
     shape: "Nginx + embedded Hara",
     services: "1 server lifecycle",
-    artifact: "1 executable or OCI image",
+    artifactLabel: "Hoplite executable",
     included: "Routing, auth, management, OpenAPI",
     tradeoff: "Young ecosystem; pre-1.0 interfaces",
   },
   {
+    key: "java",
     name: "Java",
     className: "stack-card",
-    shape: "Nginx + JVM application",
+    shape: "Plain Nginx + minimal JVM service",
     services: "2 server lifecycles",
-    artifact: "Proxy config + JAR or image",
-    included: "Broad framework ecosystem",
-    tradeoff: "Larger runtime envelope and integration surface",
+    artifactLabel: "Application JAR",
+    included: "Broad framework and tooling ecosystem",
+    tradeoff: "Proxy boundary plus JVM runtime envelope",
   },
   {
+    key: "python",
     name: "Python",
     className: "stack-card",
-    shape: "Nginx + app server + workers",
-    services: "2+ lifecycles and worker pool",
-    artifact: "Proxy config + environment or image",
+    shape: "Plain Nginx + minimal Python service",
+    services: "2 server lifecycles",
+    artifactLabel: "Application source",
     included: "Fast iteration and broad libraries",
-    tradeoff: "Worker sizing and process coordination",
+    tradeoff: "Proxy boundary and worker/process sizing",
   },
   {
-    name: "Lua / OpenResty",
+    key: "lua",
+    name: "Lua / Nginx",
     className: "stack-card",
-    shape: "Nginx/OpenResty + Lua modules",
+    shape: "Nginx + Lua module",
     services: "1 server lifecycle",
-    artifact: "Server image + Lua modules",
+    artifactLabel: "Nginx executable",
     included: "Lean request-boundary scripting",
     tradeoff: "Application conventions assembled separately",
   },
@@ -40,32 +52,55 @@ const stacks = [
 ---
 <section class="home-section stack-comparison">
   <header>
-    <p class="technical-kicker">03 · Cost / benefit</p>
-    <h2>Same host. Less stack to operate.</h2>
+    <p class="technical-kicker">03 · Measured footprint</p>
+    <h2>What each stack occupies.</h2>
     <p>
-      A 2 vCPU, 2 GB machine costs the same whichever runtime you choose. The useful
-      comparison is how much of that machine—and how much operator time—the stack consumes.
+      These are minimal representative deployments returning the same 19-byte response.
+      Java and Python include the same plain Nginx baseline plus their application service;
+      Hoplite and Lua remain one-server deployments.
     </p>
   </header>
 
-  <div class="stack-grid">
-    {stacks.map((stack) => (
-      <article class={stack.className}>
-        <h3>{stack.name}</h3>
-        <dl>
-          <div><dt>Production shape</dt><dd>{stack.shape}</dd></div>
-          <div><dt>Service surfaces</dt><dd>{stack.services}</dd></div>
-          <div><dt>Deployable units</dt><dd>{stack.artifact}</dd></div>
-          <div><dt>What you gain</dt><dd>{stack.included}</dd></div>
-          <div><dt>What you carry</dt><dd>{stack.tradeoff}</dd></div>
-        </dl>
-      </article>
-    ))}
+  <div class="stack-grid" data-footprint-status={footprints.status}>
+    {stacks.map((stack) => {
+      const footprint = footprints.stacks[stack.key as keyof typeof footprints.stacks];
+      return (
+        <article class={stack.className}>
+          <h3>{stack.name}</h3>
+          <div class="stack-measurements">
+            <div>
+              <small>Deploy image</small>
+              <strong>{size(footprint.deploymentImageMiB)}</strong>
+            </div>
+            <div>
+              <small>Idle memory</small>
+              <strong>{size(footprint.idleMemoryMiB)}</strong>
+            </div>
+          </div>
+          <dl>
+            <div><dt>Measured shape</dt><dd>{stack.shape}</dd></div>
+            <div><dt>Service surfaces</dt><dd>{stack.services}</dd></div>
+            <div><dt>{stack.artifactLabel}</dt><dd>{size(footprint.primaryArtifactMiB, 2)}</dd></div>
+            <div><dt>What you gain</dt><dd>{stack.included}</dd></div>
+            <div><dt>What you carry</dt><dd>{stack.tradeoff}</dd></div>
+          </dl>
+        </article>
+      );
+    })}
+  </div>
+
+  <div class="footprint-method">
+    <p>
+      {measured
+        ? `Measured on ${footprints.runner} with ${footprints.logicalCpus} logical CPUs. Idle memory is the median of ${footprints.methodology.idleSamplesPerComponent} samples per component.`
+        : "The representative footprint run has not completed yet."}
+    </p>
+    <p>{footprints.methodology.imageAccounting}</p>
   </div>
 
   <p class="comparison-conclusion">
-    The Hoplite benefit case is not a magically cheaper VM. It is more of the same VM
-    available to requests, fewer runtime boundaries, and fewer systems to configure,
-    secure, deploy, and observe.
+    The useful claim is not that every Java or Python application has one fixed size. It is
+    that an external proxy and application runtime occupy separate images and separate
+    resident processes, while Hoplite keeps the application inside the Nginx lifecycle.
   </p>
 </section>
