@@ -8,6 +8,13 @@ RUNTIME_DIR := $(CURDIR)/target/release
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
 HOPLITE_VERSION := $(shell grep -m1 '^version = ' $(CURDIR)/Cargo.toml | cut -d'"' -f2)
+STRIP ?= strip
+
+ifeq ($(UNAME_S),Darwin)
+STRIP_FLAGS ?= -S -x
+else
+STRIP_FLAGS ?= --strip-unneeded
+endif
 
 ifeq ($(UNAME_M),arm64)
 MACOS_TARGET := aarch64-apple-darwin
@@ -19,6 +26,7 @@ endif
 
 PACKAGE_ROOT := $(abspath $(CURDIR)/target/dist)
 HOPLITE_ARTIFACT := $(PACKAGE_ROOT)/hoplite-v$(HOPLITE_VERSION)-$(MACOS_TARGET)
+HOPLITE_SERVER_ARTIFACT := $(PACKAGE_ROOT)/hoplite-server-v$(HOPLITE_VERSION)-$(MACOS_TARGET)
 
 ifeq ($(UNAME_S),Darwin)
 OPENSSL_PREFIX ?= $(shell brew --prefix openssl@3)
@@ -27,7 +35,7 @@ NGINX_CC_OPT ?= -I$(OPENSSL_PREFIX)/include -I$(PCRE2_PREFIX)/include
 NGINX_LD_OPT ?= $(PCRE2_PREFIX)/lib/libpcre2-8.a $(OPENSSL_PREFIX)/lib/libssl.a $(OPENSSL_PREFIX)/lib/libcrypto.a -Wl,-dead_strip_dylibs
 endif
 
-.PHONY: help setup check runtime cli embedded-cli test nginx nginx-source docker \
+.PHONY: help setup check runtime cli embedded-cli server-cli test nginx nginx-source docker \
 	check-macos macos macos-package osx install uninstall example-check \
 	example-build example-dev example-prod benchmark-bytecode
 
@@ -38,8 +46,10 @@ help:
 		'Hoplite development' \
 		'  make setup              Install macOS build dependencies and fetch crates' \
 		'  make check              Run the complete Rust workspace test suite' \
-		'  make macos              Build the standalone macOS executable' \
-		'  make install            Install the standalone executable under PREFIX' \
+		'  make embedded-cli       Build the all-in-one Hoplite CLI' \
+		'  make server-cli         Build the slim production server' \
+		'  make macos              Build standalone macOS executables' \
+		'  make install            Install Hoplite and hoplite-server under PREFIX' \
 		'  make example-dev        Build and start the example in dev mode' \
 		'  make example-prod       Build and start the example in prod mode' \
 		'  make benchmark-bytecode Compare HAL and HBC library loading'
@@ -61,6 +71,12 @@ cli:
 embedded-cli: nginx
 	cargo build --manifest-path Cargo.toml --release \
 		--features embedded-nginx --bin hoplite
+	$(STRIP) $(STRIP_FLAGS) target/release/hoplite
+
+server-cli: nginx
+	cargo build --manifest-path Cargo.toml --release \
+		--features embedded-nginx --bin hoplite-server
+	$(STRIP) $(STRIP_FLAGS) target/release/hoplite-server
 
 test:
 	cargo test --manifest-path runtime/Cargo.toml
@@ -102,6 +118,7 @@ nginx: runtime nginx-source
 			$(if $(NGINX_LD_OPT),--with-ld-opt="$(NGINX_LD_OPT)") \
 			--add-module=$(CURDIR)/nginx && \
 		$(MAKE) && $(MAKE) install
+	$(STRIP) $(STRIP_FLAGS) target/nginx/sbin/nginx
 
 docker:
 	docker build -f ../packaging/docker/Dockerfile -t hoplite ../..
@@ -110,17 +127,21 @@ check-macos:
 	@test "$(UNAME_S)" = "Darwin" || \
 		(echo "The macos target must run on macOS" && exit 1)
 
-macos-package: check-macos embedded-cli
+macos-package: check-macos embedded-cli server-cli
 	mkdir -p $(PACKAGE_ROOT)
 	install -m 755 target/release/hoplite $(HOPLITE_ARTIFACT)
-	shasum -a 256 $(HOPLITE_ARTIFACT)
+	install -m 755 target/release/hoplite-server $(HOPLITE_SERVER_ARTIFACT)
+	shasum -a 256 $(HOPLITE_ARTIFACT) $(HOPLITE_SERVER_ARTIFACT)
 	@echo
-	@echo "Standalone macOS executable ready:"
+	@echo "Standalone macOS executables ready:"
 	@echo "  $(HOPLITE_ARTIFACT)"
+	@echo "  $(HOPLITE_SERVER_ARTIFACT)"
 	@echo
-	@echo "Install it:"
+	@echo "Install them:"
 	@echo "  install -m 755 $(HOPLITE_ARTIFACT) /usr/local/bin/hoplite"
+	@echo "  install -m 755 $(HOPLITE_SERVER_ARTIFACT) /usr/local/bin/hoplite-server"
 	@echo "  hoplite version"
+	@echo "  hoplite-server version"
 	@echo
 	@echo "Install a project as a per-user launchd service:"
 	@echo "  hoplite serve install /path/to/hoplite/project"
@@ -134,6 +155,7 @@ osx: macos
 install: macos-package
 	install -d $(DESTDIR)$(PREFIX)/bin
 	install -m 755 $(HOPLITE_ARTIFACT) $(DESTDIR)$(PREFIX)/bin/hoplite
+	install -m 755 $(HOPLITE_SERVER_ARTIFACT) $(DESTDIR)$(PREFIX)/bin/hoplite-server
 
 uninstall:
-	rm -f $(DESTDIR)$(PREFIX)/bin/hoplite
+	rm -f $(DESTDIR)$(PREFIX)/bin/hoplite $(DESTDIR)$(PREFIX)/bin/hoplite-server
