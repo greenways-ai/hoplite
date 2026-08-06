@@ -8,7 +8,7 @@ description = "Hara application server for Nginx"
 default-run = "hoplite"
 
 [workspace]
-members = [".", "abi/auth-store", "runtime"]
+members = [".", "abi/auth-store", "abi/data-plane", "runtime"]
 default-members = ["."]
 resolver = "2"
 
