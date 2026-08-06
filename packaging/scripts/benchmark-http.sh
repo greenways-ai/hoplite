@@ -92,13 +92,14 @@ measure_target() {
   done
   curl --fail --silent "$url" > "$target_dir/body"
 
-  local response_bytes response_sha image_size_bytes image_size_mib executable_size_bytes executable_size_mib
+  local response_bytes response_sha image_size_bytes image_size_mib executable_size_bytes executable_size_mib process_count
   response_bytes="$(wc -c < "$target_dir/body" | tr -d '[:space:]')"
   response_sha="$(sha256sum "$target_dir/body" | awk '{print $1}')"
   image_size_bytes="$(docker image inspect "$image" --format '{{.Size}}')"
   image_size_mib="$(awk -v bytes="$image_size_bytes" 'BEGIN { printf "%.6f", bytes / 1048576 }')"
   executable_size_bytes="$(docker exec "$container" stat -c '%s' "$executable")"
   executable_size_mib="$(awk -v bytes="$executable_size_bytes" 'BEGIN { printf "%.6f", bytes / 1048576 }')"
+  process_count="$(docker top "$container" -eo pid | awk 'NR > 1 && NF { count++ } END { print count + 0 }')"
 
   : > "$target_dir/idle.memory"
   for _ in $(seq 1 10); do
@@ -156,6 +157,7 @@ measure_target() {
     --argjson responseBytes "$response_bytes" \
     --argjson imageSizeMiB "$image_size_mib" \
     --argjson executableSizeMiB "$executable_size_mib" \
+    --argjson processCount "$process_count" \
     --argjson idleMemoryMiB "$idle_memory_mib" '
     def median(values): values | sort | .[(length / 2 | floor)];
     {
@@ -167,6 +169,7 @@ measure_target() {
       responseSha256: $responseSha256,
       imageSizeMiB: $imageSizeMiB,
       executableSizeMiB: $executableSizeMiB,
+      processCount: $processCount,
       idleMemoryMiB: $idleMemoryMiB,
       metrics: {
         requestsPerSecond: median(map(.requestsPerSecond)),
@@ -180,7 +183,7 @@ measure_target() {
   docker rm -f "$container" >/dev/null
 }
 
-measure_target hoplite Hoplite "$hoplite_image" /usr/local/bin/hoplite
+measure_target hoplite Hoplite "$hoplite_image" /usr/local/bin/hoplite-server
 measure_target nginx "Plain Nginx" "$nginx_image" /opt/nginx/sbin/nginx
 
 hoplite_sha="$(jq -r '.responseSha256' "$work/hoplite/target.json")"
