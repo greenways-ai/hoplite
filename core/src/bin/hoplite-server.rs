@@ -1,9 +1,12 @@
 use std::env;
+#[cfg(feature = "embedded-nginx")]
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::{fs::PermissionsExt, process::CommandExt};
 use std::path::{Path, PathBuf};
-use std::process::{self, Command};
+use std::process;
+#[cfg(unix)]
+use std::process::Command;
 
 const NGINX_VERSION: &str = "1.30.4";
 
@@ -38,9 +41,10 @@ fn run(arguments: impl IntoIterator<Item = String>) -> Result<(), String> {
             if let Some(argument) = arguments.next() {
                 return Err(format!("unexpected argument: {argument}"));
             }
-            let root = project
-                .map(PathBuf::from)
-                .unwrap_or(env::current_dir().map_err(io)?);
+            let root = match project {
+                Some(path) => PathBuf::from(path),
+                None => env::current_dir().map_err(io)?,
+            };
             run_server(&root)
         }
     }
