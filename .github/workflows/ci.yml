@@ -1,10 +1,10 @@
 name: Hoplite
 
 env:
-  # Hoplite currently consumes the source checkout while the new runtime ABI
-  # is being released from Hara. Keep CI reproducible and in sync with the
-  # version used to develop this branch.
-  HARA_REF: ba52a6bfce31aeff7359d0e60d7f8d1538204694
+  # Hoplite consumes an immutable Hara source checkout until the embedding ABI
+  # is available as a published crate. This commit is the first compatible pin
+  # after Hara moved its Rust workspace under core/rust.
+  HARA_REF: d0794a7f2e20993220778bcbff97c16735fbb8b4
 
 on:
   push:
@@ -42,7 +42,27 @@ jobs:
           ref: ${{ env.HARA_REF }}
           path: hara
           submodules: recursive
-      - run: docker build -f hoplite/packaging/docker/Dockerfile -t hoplite-ci .
+      - name: Build the production image
+        run: docker build -f hoplite/packaging/docker/Dockerfile -t hoplite-ci .
+      - name: Smoke-test the slim server
+        run: |
+          docker run --rm hoplite-ci version
+          container=$(docker run --detach -p 127.0.0.1::8080 hoplite-ci)
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          port=$(docker port "$container" 8080/tcp | head -n 1 | awk -F: '{print $NF}')
+          for _ in $(seq 1 60); do
+            if body=$(curl --fail --silent "http://127.0.0.1:${port}/hello"); then
+              test "$body" = "Hello from Hoplite"
+              exit 0
+            fi
+            if test "$(docker inspect -f '{{.State.Running}}' "$container")" != true; then
+              docker logs "$container"
+              exit 1
+            fi
+            sleep 1
+          done
+          docker logs "$container"
+          exit 1
 
   packaging:
     runs-on: ubuntu-latest
@@ -53,13 +73,13 @@ jobs:
           VERSION=$(grep -m1 '^version = ' core/Cargo.toml | cut -d'"' -f2) \
           HOPLITE_REVISION=$(git rev-parse HEAD) \
           HARA_REVISION="$HARA_REF" \
-          HARA_SHA256=db113e15ec3e1404897bd66b99d4196ae1676d032275cd72e4c09baf8ab4296d \
           LICENSE=$(grep -m1 '^license = ' core/Cargo.toml | cut -d'"' -f2) \
           NGINX_VERSION=$(sed -n 's/^NGINX_VERSION := //p' core/Makefile) \
           NGINX_SHA256=$(sed -n 's/^NGINX_SHA256 := //p' core/Makefile) \
             packaging/scripts/render-homebrew-formula > /tmp/hoplite.rb
           ruby -c /tmp/hoplite.rb
           grep -F "$HARA_REF" /tmp/hoplite.rb
+          grep -F 'bin.install "core/target/release/hoplite-server"' /tmp/hoplite.rb
 
   docs:
     runs-on: ubuntu-latest
