@@ -126,18 +126,9 @@ fn runtime_configuration(root: &Path, workers: Option<&str>) -> Result<PathBuf, 
     let Some(workers) = workers else {
         return Ok(source_path);
     };
-    validate_workers(workers)?;
 
     let source = fs::read_to_string(&source_path).map_err(io)?;
-    let start = source
-        .find("worker_processes ")
-        .ok_or("generated Nginx configuration has no worker_processes directive")?;
-    let end = source[start..]
-        .find(';')
-        .map(|offset| start + offset + 1)
-        .ok_or("generated Nginx worker_processes directive is incomplete")?;
-    let mut rendered = source;
-    rendered.replace_range(start..end, &format!("worker_processes {workers};"));
+    let rendered = render_worker_configuration(&source, workers)?;
 
     let mut identity = DefaultHasher::new();
     root.hash(&mut identity);
@@ -159,6 +150,20 @@ fn runtime_configuration(root: &Path, workers: Option<&str>) -> Result<PathBuf, 
     fs::write(&temporary, rendered).map_err(io)?;
     fs::rename(&temporary, &path).map_err(io)?;
     Ok(path)
+}
+
+fn render_worker_configuration(source: &str, workers: &str) -> Result<String, String> {
+    validate_workers(workers)?;
+    let start = source
+        .find("worker_processes ")
+        .ok_or("generated Nginx configuration has no worker_processes directive")?;
+    let end = source[start..]
+        .find(';')
+        .map(|offset| start + offset + 1)
+        .ok_or("generated Nginx worker_processes directive is incomplete")?;
+    let mut rendered = source.to_owned();
+    rendered.replace_range(start..end, &format!("worker_processes {workers};"));
+    Ok(rendered)
 }
 
 fn validate_workers(value: &str) -> Result<(), String> {
@@ -264,4 +269,32 @@ fn server_cache_root() -> PathBuf {
 
 fn io(error: std::io::Error) -> String {
     error.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validates_worker_overrides() {
+        assert!(validate_workers("auto").is_ok());
+        assert!(validate_workers("1").is_ok());
+        assert!(validate_workers("64").is_ok());
+        assert!(validate_workers("0").is_err());
+        assert!(validate_workers("many").is_err());
+    }
+
+    #[test]
+    fn rewrites_generated_worker_directive() {
+        let source = "worker_processes 4;\npid .hoplite/nginx.pid;\n";
+        assert_eq!(
+            render_worker_configuration(source, "auto").unwrap(),
+            "worker_processes auto;\npid .hoplite/nginx.pid;\n"
+        );
+    }
+
+    #[test]
+    fn rejects_missing_worker_directive() {
+        assert!(render_worker_configuration("events {}\n", "auto").is_err());
+    }
 }
