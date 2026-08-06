@@ -1,115 +1,141 @@
 {
-  "status": "measured",
-  "generatedAt": "2026-08-05T01:38:52Z",
-  "commit": "ae9946502661e8146e2d1a97ad8dedff35ca285d",
-  "runner": "Ubuntu 24.04 GitHub-hosted runner",
-  "cpu": "INTEL(R) XEON(R) PLATINUM 8573C",
-  "logicalCpus": 4,
+  "schemaVersion": 2,
+  "status": "pending",
+  "benchmark": "deployment-footprints",
+  "generatedAt": null,
+  "commit": null,
+  "runner": null,
+  "cpu": null,
+  "logicalCpus": null,
+  "provenance": {
+    "haraRevision": null,
+    "nginxVersion": "1.30.4",
+    "workflowRunId": null,
+    "workflowRunUrl": null
+  },
+  "responseContract": {
+    "status": 200,
+    "contentType": "text/plain; charset=utf-8",
+    "xHoplite": "true",
+    "bodyBytes": 19,
+    "bodySha256": null,
+    "matchedAcrossTargets": null
+  },
   "methodology": {
     "idleSamplesPerComponent": 12,
     "payloadBytes": 19,
     "imageAccounting": "Logical Docker image sizes are summed for multi-service stacks; shared registry layers may deduplicate in practice.",
-    "scope": "Minimal representative services returning the same response; these are footprint samples, not full framework applications."
+    "memoryAccounting": "Median Docker container memory from idle samples after the route became ready.",
+    "scope": "Minimal deployment-envelope samples returning one fixed response. The JDK and Python targets are standard-library servers, not framework benchmarks. The Lua target uses Debian ngx_http_lua, not a full OpenResty distribution."
   },
   "components": {
     "hoplite": {
       "id": "hoplite",
-      "label": "Hoplite",
-      "image": "hoplite-benchmark",
-      "artifact": "/usr/local/bin/hoplite",
-      "responseBytes": 19,
-      "responseSha256": "eebd3e6e00db89caca41a3f0170393ed2af570d95d1c83639e70d60531c82c71",
-      "imageSizeMiB": 129.374979,
-      "artifactSizeMiB": 44.272736,
-      "idleMemoryMiB": 60.800000
+      "label": "Hoplite server",
+      "kind": "production-server",
+      "image": null,
+      "imageId": null,
+      "artifact": "/usr/local/bin/hoplite-server",
+      "responseContract": null,
+      "imageSizeMiB": null,
+      "artifactSizeMiB": null,
+      "processCount": null,
+      "nginxWorkerCount": null,
+      "idleMemoryMiB": null
     },
     "nginx": {
       "id": "nginx",
       "label": "Plain Nginx",
-      "image": "hoplite-nginx-baseline",
+      "kind": "reverse-proxy",
+      "image": null,
+      "imageId": null,
       "artifact": "/opt/nginx/sbin/nginx",
-      "responseBytes": 19,
-      "responseSha256": "eebd3e6e00db89caca41a3f0170393ed2af570d95d1c83639e70d60531c82c71",
-      "imageSizeMiB": 89.611292,
-      "artifactSizeMiB": 4.480095,
-      "idleMemoryMiB": 9.590000
+      "responseContract": null,
+      "imageSizeMiB": null,
+      "artifactSizeMiB": null,
+      "processCount": null,
+      "nginxWorkerCount": null,
+      "idleMemoryMiB": null
     },
     "java": {
       "id": "java",
-      "label": "Java application",
-      "image": "hoplite-footprint-java",
+      "label": "JDK HTTP server sample",
+      "kind": "runtime-sample",
+      "image": null,
+      "imageId": null,
       "artifact": "/app/app.jar",
-      "responseBytes": 19,
-      "responseSha256": "eebd3e6e00db89caca41a3f0170393ed2af570d95d1c83639e70d60531c82c71",
-      "imageSizeMiB": 288.208942,
-      "artifactSizeMiB": 0.001651,
-      "idleMemoryMiB": 36.600000
+      "responseContract": null,
+      "imageSizeMiB": null,
+      "artifactSizeMiB": null,
+      "processCount": null,
+      "nginxWorkerCount": null,
+      "idleMemoryMiB": null
     },
     "python": {
       "id": "python",
-      "label": "Python application",
-      "image": "hoplite-footprint-python",
+      "label": "Python stdlib HTTP server sample",
+      "kind": "runtime-sample",
+      "image": null,
+      "imageId": null,
       "artifact": "/app/server.py",
-      "responseBytes": 19,
-      "responseSha256": "eebd3e6e00db89caca41a3f0170393ed2af570d95d1c83639e70d60531c82c71",
-      "imageSizeMiB": 115.900332,
-      "artifactSizeMiB": 0.000687,
-      "idleMemoryMiB": 9.477000
+      "responseContract": null,
+      "imageSizeMiB": null,
+      "artifactSizeMiB": null,
+      "processCount": null,
+      "nginxWorkerCount": null,
+      "idleMemoryMiB": null
     },
     "lua": {
       "id": "lua",
-      "label": "Nginx + Lua",
-      "image": "hoplite-footprint-lua",
+      "label": "Nginx + ngx_http_lua sample",
+      "kind": "in-process-script",
+      "image": null,
+      "imageId": null,
       "artifact": "/usr/sbin/nginx",
-      "responseBytes": 19,
-      "responseSha256": "eebd3e6e00db89caca41a3f0170393ed2af570d95d1c83639e70d60531c82c71",
-      "imageSizeMiB": 222.658645,
-      "artifactSizeMiB": 1.202065,
-      "idleMemoryMiB": 18.180000
+      "responseContract": null,
+      "imageSizeMiB": null,
+      "artifactSizeMiB": null,
+      "processCount": null,
+      "nginxWorkerCount": null,
+      "idleMemoryMiB": null
     }
   },
   "stacks": {
     "hoplite": {
-      "label": "Hoplite",
-      "components": [
-        "Hoplite"
-      ],
+      "label": "Hoplite server",
+      "components": ["Hoplite server"],
       "serviceCount": 1,
-      "deploymentImageMiB": 129.374979,
-      "idleMemoryMiB": 60.800000,
-      "primaryArtifactMiB": 44.272736
+      "processCount": null,
+      "deploymentImageMiB": null,
+      "idleMemoryMiB": null,
+      "primaryArtifactMiB": null
     },
     "java": {
-      "label": "Java",
-      "components": [
-        "Plain Nginx",
-        "Java application"
-      ],
+      "label": "Nginx + JDK sample",
+      "components": ["Plain Nginx", "JDK HTTP server sample"],
       "serviceCount": 2,
-      "deploymentImageMiB": 377.82023399999997,
-      "idleMemoryMiB": 46.19,
-      "primaryArtifactMiB": 0.001651
+      "processCount": null,
+      "deploymentImageMiB": null,
+      "idleMemoryMiB": null,
+      "primaryArtifactMiB": null
     },
     "python": {
-      "label": "Python",
-      "components": [
-        "Plain Nginx",
-        "Python application"
-      ],
+      "label": "Nginx + Python stdlib sample",
+      "components": ["Plain Nginx", "Python stdlib HTTP server sample"],
       "serviceCount": 2,
-      "deploymentImageMiB": 205.511624,
-      "idleMemoryMiB": 19.067,
-      "primaryArtifactMiB": 0.000687
+      "processCount": null,
+      "deploymentImageMiB": null,
+      "idleMemoryMiB": null,
+      "primaryArtifactMiB": null
     },
     "lua": {
-      "label": "Lua / Nginx",
-      "components": [
-        "Nginx + Lua"
-      ],
+      "label": "Nginx + ngx_http_lua sample",
+      "components": ["Nginx + ngx_http_lua sample"],
       "serviceCount": 1,
-      "deploymentImageMiB": 222.658645,
-      "idleMemoryMiB": 18.180000,
-      "primaryArtifactMiB": 1.202065
+      "processCount": null,
+      "deploymentImageMiB": null,
+      "idleMemoryMiB": null,
+      "primaryArtifactMiB": null
     }
   }
 }
