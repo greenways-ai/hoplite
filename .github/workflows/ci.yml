@@ -42,7 +42,27 @@ jobs:
           ref: ${{ env.HARA_REF }}
           path: hara
           submodules: recursive
-      - run: docker build -f hoplite/packaging/docker/Dockerfile -t hoplite-ci .
+      - name: Build the production image
+        run: docker build -f hoplite/packaging/docker/Dockerfile -t hoplite-ci .
+      - name: Smoke-test the slim server
+        run: |
+          docker run --rm hoplite-ci version
+          container=$(docker run --detach -p 127.0.0.1::8080 hoplite-ci)
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          port=$(docker port "$container" 8080/tcp | head -n 1 | awk -F: '{print $NF}')
+          for _ in $(seq 1 60); do
+            if body=$(curl --fail --silent "http://127.0.0.1:${port}/hello"); then
+              test "$body" = "Hello from Hoplite"
+              exit 0
+            fi
+            if test "$(docker inspect -f '{{.State.Running}}' "$container")" != true; then
+              docker logs "$container"
+              exit 1
+            fi
+            sleep 1
+          done
+          docker logs "$container"
+          exit 1
 
   packaging:
     runs-on: ubuntu-latest
@@ -60,6 +80,7 @@ jobs:
             packaging/scripts/render-homebrew-formula > /tmp/hoplite.rb
           ruby -c /tmp/hoplite.rb
           grep -F "$HARA_REF" /tmp/hoplite.rb
+          grep -F 'bin.install "core/target/release/hoplite-server"' /tmp/hoplite.rb
 
   docs:
     runs-on: ubuntu-latest
