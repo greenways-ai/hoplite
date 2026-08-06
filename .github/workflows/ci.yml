@@ -1,10 +1,10 @@
 name: Hoplite
 
 env:
-  # Hoplite currently consumes the source checkout while the new runtime ABI
-  # is being released from Hara. Keep CI reproducible and in sync with the
-  # version used to develop this branch.
-  HARA_REF: ba52a6bfce31aeff7359d0e60d7f8d1538204694
+  # Hoplite consumes an immutable Hara source checkout until the embedding ABI
+  # is available as a published crate. This commit is the first compatible pin
+  # after Hara moved its Rust workspace under core/rust.
+  HARA_REF: d0794a7f2e20993220778bcbff97c16735fbb8b4
 
 on:
   push:
@@ -73,7 +73,6 @@ jobs:
           VERSION=$(grep -m1 '^version = ' core/Cargo.toml | cut -d'"' -f2) \
           HOPLITE_REVISION=$(git rev-parse HEAD) \
           HARA_REVISION="$HARA_REF" \
-          HARA_SHA256=db113e15ec3e1404897bd66b99d4196ae1676d032275cd72e4c09baf8ab4296d \
           LICENSE=$(grep -m1 '^license = ' core/Cargo.toml | cut -d'"' -f2) \
           NGINX_VERSION=$(sed -n 's/^NGINX_VERSION := //p' core/Makefile) \
           NGINX_SHA256=$(sed -n 's/^NGINX_SHA256 := //p' core/Makefile) \
