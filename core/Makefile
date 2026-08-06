@@ -6,8 +6,8 @@ DEFAULT_NGINX_SRC := $(SOURCE_ROOT)/nginx-$(NGINX_VERSION)
 NGINX_SRC ?= $(DEFAULT_NGINX_SRC)
 RUNTIME_DIR := $(CURDIR)/target/release
 UNAME_S := $(shell uname -s)
-UNAME_M := $(shell uname -m)
 HOPLITE_VERSION := $(shell grep -m1 '^version = ' $(CURDIR)/Cargo.toml | cut -d'"' -f2)
+HOST_TARGET ?= $(shell rustc -vV | sed -n 's/^host: //p')
 STRIP ?= strip
 
 ifeq ($(UNAME_S),Darwin)
@@ -16,17 +16,9 @@ else
 STRIP_FLAGS ?= --strip-unneeded
 endif
 
-ifeq ($(UNAME_M),arm64)
-MACOS_TARGET := aarch64-apple-darwin
-else ifeq ($(UNAME_M),x86_64)
-MACOS_TARGET := x86_64-apple-darwin
-else
-MACOS_TARGET := $(UNAME_M)-apple-darwin
-endif
-
 PACKAGE_ROOT := $(abspath $(CURDIR)/target/dist)
-HOPLITE_ARTIFACT := $(PACKAGE_ROOT)/hoplite-v$(HOPLITE_VERSION)-$(MACOS_TARGET)
-HOPLITE_SERVER_ARTIFACT := $(PACKAGE_ROOT)/hoplite-server-v$(HOPLITE_VERSION)-$(MACOS_TARGET)
+HOPLITE_ARTIFACT := $(PACKAGE_ROOT)/hoplite-v$(HOPLITE_VERSION)-$(HOST_TARGET)
+HOPLITE_SERVER_ARTIFACT := $(PACKAGE_ROOT)/hoplite-server-v$(HOPLITE_VERSION)-$(HOST_TARGET)
 
 ifeq ($(UNAME_S),Darwin)
 OPENSSL_PREFIX ?= $(shell brew --prefix openssl@3)
@@ -46,7 +38,7 @@ help:
 		'Hoplite development' \
 		'  make setup              Install macOS build dependencies and fetch crates' \
 		'  make check              Run the complete Rust workspace test suite' \
-		'  make embedded-cli       Build the all-in-one Hoplite CLI' \
+		'  make embedded-cli       Build the all-in-one CLI and production server' \
 		'  make server-cli         Build the slim production server' \
 		'  make macos              Build standalone macOS executables' \
 		'  make install            Install Hoplite and hoplite-server under PREFIX' \
@@ -68,15 +60,19 @@ runtime:
 cli:
 	cargo build --manifest-path Cargo.toml --release --bin hoplite
 
-embedded-cli: nginx
+embedded-cli: server-cli
 	cargo build --manifest-path Cargo.toml --release \
 		--features embedded-nginx --bin hoplite
 	$(STRIP) $(STRIP_FLAGS) target/release/hoplite
+	mkdir -p $(PACKAGE_ROOT)
+	install -m 755 target/release/hoplite $(HOPLITE_ARTIFACT)
 
 server-cli: nginx
 	cargo build --manifest-path Cargo.toml --release \
 		--features embedded-nginx --bin hoplite-server
 	$(STRIP) $(STRIP_FLAGS) target/release/hoplite-server
+	mkdir -p $(PACKAGE_ROOT)
+	install -m 755 target/release/hoplite-server $(HOPLITE_SERVER_ARTIFACT)
 
 test:
 	cargo test --manifest-path runtime/Cargo.toml
@@ -127,10 +123,7 @@ check-macos:
 	@test "$(UNAME_S)" = "Darwin" || \
 		(echo "The macos target must run on macOS" && exit 1)
 
-macos-package: check-macos embedded-cli server-cli
-	mkdir -p $(PACKAGE_ROOT)
-	install -m 755 target/release/hoplite $(HOPLITE_ARTIFACT)
-	install -m 755 target/release/hoplite-server $(HOPLITE_SERVER_ARTIFACT)
+macos-package: check-macos embedded-cli
 	shasum -a 256 $(HOPLITE_ARTIFACT) $(HOPLITE_SERVER_ARTIFACT)
 	@echo
 	@echo "Standalone macOS executables ready:"
