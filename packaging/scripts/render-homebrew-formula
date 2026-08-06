@@ -81,11 +81,13 @@ class Hoplite < Formula
            "NGINX_LD_OPT=#{library_flags}"
 
     bin.install "core/target/release/hoplite"
+    bin.install "core/target/release/hoplite-server"
   end
 
   test do
     assert_equal "42", shell_output("#{bin}/hoplite eval '(+ 19 23)'").strip
     assert_match "Hoplite", shell_output("#{bin}/hoplite version")
+    assert_match "Hoplite server", shell_output("#{bin}/hoplite-server version")
   end
 end
 FORMULA
