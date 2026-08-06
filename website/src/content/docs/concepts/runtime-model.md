@@ -1,7 +1,35 @@
 ---
 title: Runtime model
-description: Worker ownership, startup compilation, values, fibers, and request execution.
+description: Build/control ownership, worker-local execution, and the slim production server.
 ---
+
+Hoplite has two executable surfaces with deliberately different responsibilities.
+
+```text
+hoplite
+  build · check · REPL · packages · authentication · management
+
+hoplite-server
+  Nginx · worker-local Hara runtime · prepared application handlers
+```
+
+The all-in-one `hoplite` command remains the development and operational control
+surface. `hoplite-server` is the production data plane: it contains the embedded
+Nginx/Hara server, replaces itself with Nginx at startup, and does not retain the
+compiler, REPL, package tooling, authentication store, or management gateway in
+server memory.
+
+Build once, then run the production artifact:
+
+```shell
+hoplite serve build --mode prod /path/to/project
+hoplite-server /path/to/project
+```
+
+The published container image performs the build in its builder stage and runs
+only `hoplite-server` in the final image.
+
+## Worker ownership
 
 There is one Hoplite runtime per Nginx worker. Runtime values do not cross worker boundaries.
 
@@ -18,10 +46,15 @@ There is one Hoplite runtime per Nginx worker. Runtime values do not cross worke
 
 ## Startup
 
-1. The selected project profile evaluates to an application or advanced host configuration.
-2. Build output records applications and routes in `apps.hta`.
-3. The Nginx bootstrap loads the application definitions.
-4. Each worker creates its own router and compiles every handler call once.
+1. `hoplite serve build` evaluates the selected project profile and validates the application.
+2. Build output records applications and routes in `apps.hta` and writes the generated Nginx configuration.
+3. `hoplite-server` checks that the build output exists, materializes its embedded server when necessary, and replaces itself with Nginx.
+4. Each Nginx worker creates one Hara runtime, loads the application definitions, prepares its router, and compiles every handler call once.
+
+The release build strips the native Nginx/Hara server before embedding it in both
+executables. The production artifact therefore carries one stripped serving
+plane instead of the full Hoplite control program plus a second unstripped
+server executable.
 
 ## Request execution
 
@@ -38,7 +71,11 @@ fully materialized portable value is required.
 
 ## Bytecode status
 
-Application bytecode is generated and validated during the current build. The Nginx bootstrap still uses the HAL source while the bytecode bootstrap ABI is integrated. This is an implementation milestone, not a stable compatibility promise.
+Application bytecode is generated and validated during the current build. The
+Nginx bootstrap still uses the HAL source while the bytecode bootstrap ABI is
+integrated. Completing HBC-only worker boot is the next major opportunity to
+remove parser, compiler, and general extension-host code from the serving plane.
+This is an implementation milestone, not a stable compatibility promise.
 
 ## Worker defaults
 

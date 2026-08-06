@@ -11,9 +11,10 @@ request -> nginx worker -> cached Hara handler -> native response
 HTA remains available as an explicit portability adapter; it is no longer the
 mandatory boundary for every request.
 
-Hoplite supports macOS and Linux. Tagged releases publish standalone binaries
-for Apple Silicon, Intel macOS, ARM64 Linux and x86-64 Linux, alongside a
-Homebrew formula and the `ghcr.io/greenways-ai/hoplite` OCI image.
+Hoplite supports macOS and Linux. Tagged releases publish the all-in-one
+`hoplite` control CLI and the slim `hoplite-server` production executable for
+Apple Silicon, Intel macOS, ARM64 Linux and x86-64 Linux, alongside a Homebrew
+formula and the `ghcr.io/greenways-ai/hoplite` OCI image.
 
 ## Install
 
@@ -25,16 +26,18 @@ tap entry:
 ```shell
 brew install greenways-ai/tap/hoplite
 hoplite version
+hoplite-server version
 ```
 
 ### Release installer
 
-Install the published macOS or Linux binary without a package manager:
+Install the published macOS or Linux executables without a package manager:
 
 ```shell
 curl -fsSL https://raw.githubusercontent.com/greenways-ai/hoplite/main/packaging/scripts/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 hoplite version
+hoplite-server version
 ```
 
 ### Container
@@ -45,6 +48,10 @@ Run the published starter image immediately:
 docker run --rm -p 8080:8080 ghcr.io/greenways-ai/hoplite:latest
 curl -i http://127.0.0.1:8080/hello
 ```
+
+The container builds its application in the builder stage. The final image
+contains only `hoplite-server`, immutable build output, and required native
+libraries.
 
 ## Create an application
 
@@ -119,7 +126,7 @@ See [`core/examples/app.hal`](core/examples/app.hal) and
 
 ## Run it
 
-Check the project, build it, and start the service:
+Check the project, build it, and start the development service:
 
 ```shell
 hoplite serve check .
@@ -133,15 +140,23 @@ In another terminal:
 curl -i http://127.0.0.1:8080/hello
 ```
 
-Production mode uses production worker defaults and disables development-only
-behavior:
+### Production server
+
+Build once, then run the slim serving plane:
 
 ```shell
-hoplite serve foreground --mode prod --profile server .
+hoplite serve build --mode prod --profile server .
+hoplite-server .
 ```
 
-Foreground mode runs the application and the Hoplite management gateway in one
-process. Management listens on `127.0.0.1:9090` by default; use
+`hoplite-server` validates the generated Nginx configuration, materializes its
+stripped embedded Nginx/Hara server when necessary, and replaces itself with
+Nginx. It does not retain the compiler, REPL, package tooling, authentication
+store, or management gateway in the production process tree.
+
+`hoplite serve foreground --mode prod` remains available when an all-in-one
+process with the embedded management gateway is deliberately required.
+Management listens on `127.0.0.1:9090` by default; use
 `HOPLITE_MANAGEMENT_LISTEN` to select another loopback socket or `off` to run
 without the embedded management surface.
 
@@ -217,7 +232,7 @@ Point the selected profile's `:profile/main` at `example.host/config`.
 ## Commands
 
 ```shell
-hoplite                         # development console
+hoplite                         # development console and control plane
 hoplite eval '(+ 19 23)'
 hoplite run file.hal
 hoplite serve check PROJECT
@@ -229,10 +244,12 @@ hoplite serve reload PROJECT
 hoplite serve stop PROJECT
 hoplite serve install PROJECT   # macOS LaunchAgent
 hoplite serve uninstall PROJECT
+hoplite-server PROJECT          # prebuilt production data plane
 ```
 
 Set `HOPLITE_NGINX` only when deliberately selecting an external development
-Nginx executable.
+Nginx executable. `HOPLITE_SERVER_CACHE` selects where `hoplite-server`
+materializes its embedded serving binary.
 
 ## Contributor build and test
 
@@ -245,13 +262,15 @@ make setup
 make check
 make runtime
 make nginx
+make server-cli
 make macos
 make benchmark-bytecode
 ```
 
-`core/Makefile` downloads the pinned Nginx source, verifies its checksum, and
-statically links the Hoplite module and Rust runtime. The final `hoplite`
-executable embeds that Nginx binary.
+`core/Makefile` downloads the pinned Nginx source, verifies its checksum,
+statically links the Hoplite module and Rust runtime, strips the native server,
+and embeds that serving plane into both executables. `hoplite-server` is a thin
+launcher; `hoplite` additionally contains the control and development surfaces.
 
 The bytecode loading benchmark compares HAL compilation, HBC decoding, and
 already-decoded execution for `hoplite.core`, `hoplite.internal`, and
@@ -262,8 +281,8 @@ already-decoded execution for `hoplite.core`, `hoplite.internal`, and
 The tagged release workflow:
 
 1. verifies that the tag matches `core/Cargo.toml` and resolves immutable Hoplite and Hara commits;
-2. builds the deterministic HARP package and container image;
-3. builds and smoke-tests standalone binaries for both macOS architectures and both Linux architectures;
+2. builds the deterministic HARP package and slim production container image;
+3. builds and smoke-tests `hoplite` and `hoplite-server` for both macOS architectures and both Linux architectures;
 4. creates or updates the GitHub release without replacing the tag;
 5. renders a source formula pinned to the exact release inputs;
 6. updates `greenways-ai/homebrew-tap` when `HOMEBREW_TAP_TOKEN` is set.
@@ -273,6 +292,10 @@ infrastructure changes. Tap setup and local formula instructions live in
 [`packaging/homebrew/README.md`](packaging/homebrew/README.md).
 
 ## Runtime model
+
+The `hoplite` command is the build and control plane. The production
+`hoplite-server` artifact replaces itself with Nginx, leaving only the Nginx
+master and worker processes resident.
 
 There is one Hoplite runtime per Nginx worker. Bootstrap loads application
 definitions, then `apps.hta` prepares a worker-local router and compiles every

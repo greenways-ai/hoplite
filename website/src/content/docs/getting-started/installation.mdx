@@ -1,9 +1,14 @@
 ---
 title: Installation
-description: Install Hoplite with Homebrew or the published release installer.
+description: Install the Hoplite control CLI and slim production server.
 ---
 
 <span class="doc-badge doc-badge--success">Homebrew</span> <span class="doc-badge doc-badge--success">macOS + Linux binaries</span> <span class="doc-badge doc-badge--note">OCI image</span>
+
+Hoplite installations contain two commands:
+
+- `hoplite` provides the REPL, build, check, package, authentication, management, and service lifecycle commands.
+- `hoplite-server` runs a previously built application without retaining the control plane in production memory.
 
 ## Homebrew
 
@@ -13,16 +18,18 @@ release and trusts only the Greenways tap entry you selected.
 ```sh
 brew install greenways-ai/tap/hoplite
 hoplite version
+hoplite-server version
 ```
 
 ## Install script
 
-On macOS or Linux, install the published binary without a package manager:
+On macOS or Linux, install the published executables without a package manager:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/greenways-ai/hoplite/main/packaging/scripts/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 hoplite version
+hoplite-server version
 ```
 
 Set `HOPLITE_INSTALL_DIR` to choose another destination:
@@ -40,7 +47,7 @@ clone or build Hoplite.
 ```sh
 curl -fsSL https://raw.githubusercontent.com/greenways-ai/hoplite/main/packaging/scripts/new-app.sh | sh -s -- hello
 cd hello
-hoplite serve foreground --mode prod .
+hoplite serve foreground --mode dev .
 ```
 
 In another terminal:
@@ -49,6 +56,20 @@ In another terminal:
 curl -i http://127.0.0.1:8080/hello
 ```
 
+## Run the production server
+
+Build output is immutable input to the slim serving plane:
+
+```sh
+hoplite serve build --mode prod .
+hoplite-server .
+```
+
+`hoplite-server` validates `.hoplite/conf/nginx.conf`, materializes its stripped
+embedded Nginx/Hara server when necessary, and replaces itself with Nginx. The
+compiler, REPL, package tools, authentication store, and management gateway are
+not retained in the production process tree.
+
 ## Run the published container
 
 ```sh
@@ -56,14 +77,18 @@ docker run --rm -p 8080:8080 ghcr.io/greenways-ai/hoplite:latest
 curl -i http://127.0.0.1:8080/hello
 ```
 
+The image builds the example application in its builder stage. Its final stage
+contains only `hoplite-server`, the compiled application output, and required
+native libraries.
+
 ## Platform support
 
 | Platform | Status | Distribution |
 | --- | --- | --- |
-| macOS arm64 | Supported | Homebrew and standalone binary |
-| macOS Intel | Supported | Homebrew and standalone binary |
-| Linux arm64 | Supported | Homebrew, installer, binary, and OCI image |
-| Linux x86-64 | Supported | Homebrew, installer, binary, and OCI image |
+| macOS arm64 | Supported | Homebrew and standalone executables |
+| macOS Intel | Supported | Homebrew and standalone executables |
+| Linux arm64 | Supported | Homebrew, installer, executables, and OCI image |
+| Linux x86-64 | Supported | Homebrew, installer, executables, and OCI image |
 | Windows | Unsupported | No supported host lifecycle integration |
 
 :::note[Building Hoplite itself]

@@ -30,9 +30,6 @@ if [ -z "$tag" ]; then
   exit 1
 fi
 
-asset="hoplite-${tag}-${arch}-${os}"
-url="https://github.com/${repository}/releases/download/${tag}/${asset}"
-
 if [ -n "${HOPLITE_INSTALL_DIR:-}" ]; then
   install_dir="$HOPLITE_INSTALL_DIR"
 elif [ "$(id -u)" -eq 0 ]; then
@@ -41,18 +38,30 @@ else
   install_dir="${HOME}/.local/bin"
 fi
 
-tmp="$(mktemp "${TMPDIR:-/tmp}/hoplite.XXXXXX")"
-trap 'rm -f "$tmp"' EXIT INT TERM
+work="$(mktemp -d "${TMPDIR:-/tmp}/hoplite.XXXXXX")"
+trap 'rm -rf "$work"' EXIT INT TERM
+mkdir -p "$install_dir"
+
+cli_asset="hoplite-${tag}-${arch}-${os}"
+cli_url="https://github.com/${repository}/releases/download/${tag}/${cli_asset}"
 
 echo "Downloading Hoplite ${tag} for ${arch}-${os}..."
-curl -fL --retry 3 "$url" -o "$tmp"
-chmod 0755 "$tmp"
-mkdir -p "$install_dir"
-mv "$tmp" "${install_dir}/hoplite"
-trap - EXIT INT TERM
-
+curl -fL --retry 3 "$cli_url" -o "$work/hoplite"
+chmod 0755 "$work/hoplite"
+install -m 0755 "$work/hoplite" "${install_dir}/hoplite"
 echo "Installed ${install_dir}/hoplite"
 "${install_dir}/hoplite" version
+
+server_asset="hoplite-server-${tag}-${arch}-${os}"
+server_url="https://github.com/${repository}/releases/download/${tag}/${server_asset}"
+if curl -fsSL --retry 3 "$server_url" -o "$work/hoplite-server"; then
+  chmod 0755 "$work/hoplite-server"
+  install -m 0755 "$work/hoplite-server" "${install_dir}/hoplite-server"
+  echo "Installed ${install_dir}/hoplite-server"
+  "${install_dir}/hoplite-server" version
+else
+  echo "This release predates the separate hoplite-server artifact; the Hoplite CLI was installed normally."
+fi
 
 case ":${PATH}:" in
   *":${install_dir}:"*) ;;
