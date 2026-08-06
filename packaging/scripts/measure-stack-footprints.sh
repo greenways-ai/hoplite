@@ -105,13 +105,14 @@ measure_component() {
   fi
   curl --fail --silent "$url" > "$directory/body"
 
-  local response_bytes response_sha image_size_bytes image_size_mib artifact_size_bytes artifact_size_mib
+  local response_bytes response_sha image_size_bytes image_size_mib artifact_size_bytes artifact_size_mib process_count
   response_bytes="$(wc -c < "$directory/body" | tr -d '[:space:]')"
   response_sha="$(sha256sum "$directory/body" | awk '{print $1}')"
   image_size_bytes="$(docker image inspect "$image" --format '{{.Size}}')"
   image_size_mib="$(awk -v bytes="$image_size_bytes" 'BEGIN { printf "%.6f", bytes / 1048576 }')"
   artifact_size_bytes="$(docker exec "$container" stat -c '%s' "$artifact")"
   artifact_size_mib="$(awk -v bytes="$artifact_size_bytes" 'BEGIN { printf "%.6f", bytes / 1048576 }')"
+  process_count="$(docker top "$container" -eo pid | awk 'NR > 1 && NF { count++ } END { print count + 0 }')"
 
   : > "$directory/memory"
   for _ in $(seq 1 12); do
@@ -132,14 +133,15 @@ measure_component() {
     --argjson responseBytes "$response_bytes" \
     --argjson imageSizeMiB "$image_size_mib" \
     --argjson artifactSizeMiB "$artifact_size_mib" \
+    --argjson processCount "$process_count" \
     --argjson idleMemoryMiB "$idle_memory_mib" \
-    '{id: $id, label: $label, image: $image, artifact: $artifact, responseBytes: $responseBytes, responseSha256: $responseSha256, imageSizeMiB: $imageSizeMiB, artifactSizeMiB: $artifactSizeMiB, idleMemoryMiB: $idleMemoryMiB}' \
+    '{id: $id, label: $label, image: $image, artifact: $artifact, responseBytes: $responseBytes, responseSha256: $responseSha256, imageSizeMiB: $imageSizeMiB, artifactSizeMiB: $artifactSizeMiB, processCount: $processCount, idleMemoryMiB: $idleMemoryMiB}' \
     > "$directory/component.json"
 
   docker rm -f "$container" >/dev/null
 }
 
-measure_component hoplite Hoplite "$hoplite_image" /usr/local/bin/hoplite
+measure_component hoplite Hoplite "$hoplite_image" /usr/local/bin/hoplite-server
 measure_component nginx "Plain Nginx" "$nginx_image" /opt/nginx/sbin/nginx
 measure_component java "Java application" "$java_image" /app/app.jar
 measure_component python "Python application" "$python_image" /app/server.py
@@ -196,6 +198,7 @@ jq -n \
         label: "Hoplite",
         components: ["Hoplite"],
         serviceCount: 1,
+        processCount: $hoplite[0].processCount,
         deploymentImageMiB: $hoplite[0].imageSizeMiB,
         idleMemoryMiB: $hoplite[0].idleMemoryMiB,
         primaryArtifactMiB: $hoplite[0].artifactSizeMiB
@@ -204,6 +207,7 @@ jq -n \
         label: "Java",
         components: ["Plain Nginx", "Java application"],
         serviceCount: 2,
+        processCount: ($nginx[0].processCount + $java[0].processCount),
         deploymentImageMiB: ($nginx[0].imageSizeMiB + $java[0].imageSizeMiB),
         idleMemoryMiB: ($nginx[0].idleMemoryMiB + $java[0].idleMemoryMiB),
         primaryArtifactMiB: $java[0].artifactSizeMiB
@@ -212,6 +216,7 @@ jq -n \
         label: "Python",
         components: ["Plain Nginx", "Python application"],
         serviceCount: 2,
+        processCount: ($nginx[0].processCount + $python[0].processCount),
         deploymentImageMiB: ($nginx[0].imageSizeMiB + $python[0].imageSizeMiB),
         idleMemoryMiB: ($nginx[0].idleMemoryMiB + $python[0].idleMemoryMiB),
         primaryArtifactMiB: $python[0].artifactSizeMiB
@@ -220,6 +225,7 @@ jq -n \
         label: "Lua / Nginx",
         components: ["Nginx + Lua"],
         serviceCount: 1,
+        processCount: $lua[0].processCount,
         deploymentImageMiB: $lua[0].imageSizeMiB,
         idleMemoryMiB: $lua[0].idleMemoryMiB,
         primaryArtifactMiB: $lua[0].artifactSizeMiB
