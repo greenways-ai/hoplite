@@ -1,5 +1,8 @@
 name: HTTP and footprint benchmarks
 
+env:
+  HARA_REF: d0794a7f2e20993220778bcbff97c16735fbb8b4
+
 on:
   workflow_dispatch:
   push:
@@ -19,7 +22,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
-          ref: ba52a6bfce31aeff7359d0e60d7f8d1538204694
+          ref: ${{ env.HARA_REF }}
           path: hara
           submodules: recursive
       - name: Install benchmark tools
