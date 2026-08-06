@@ -79,4 +79,16 @@ This is an implementation milestone, not a stable compatibility promise.
 
 ## Worker defaults
 
-Development mode uses one worker unless `:workers` is specified. Production mode defaults to the available CPU parallelism. A `hoplite.internal/config` may set `:worker-processes` explicitly.
+Development mode uses one worker unless `:workers` is specified. Production
+builds default to the available parallelism of the build host, while the slim
+server may override that value at deployment:
+
+```shell
+hoplite-server --workers auto /path/to/project
+HOPLITE_WORKERS=4 hoplite-server /path/to/project
+```
+
+The published container sets `HOPLITE_WORKERS=auto`, avoiding a worker count
+baked in by the image builder. Set the variable to an empty value to retain the
+project's generated setting. A `hoplite.internal/config` may set
+`:worker-processes` explicitly for deployments that do not apply an override.
