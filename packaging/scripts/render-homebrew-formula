@@ -1,0 +1,91 @@
+#!/bin/sh
+set -eu
+
+: "${VERSION:?set VERSION}"
+: "${HOPLITE_REVISION:?set HOPLITE_REVISION}"
+: "${HARA_REVISION:?set HARA_REVISION}"
+: "${LICENSE:?set LICENSE}"
+: "${NGINX_VERSION:?set NGINX_VERSION}"
+: "${NGINX_SHA256:?set NGINX_SHA256}"
+
+HARA_ARCHIVE_URL="https://github.com/hara-lang/hara/archive/${HARA_REVISION}.tar.gz"
+if [ -z "${HARA_SHA256:-}" ]; then
+  archive=$(mktemp)
+  trap 'rm -f "$archive"' EXIT HUP INT TERM
+  curl --fail --location --retry 3 "$HARA_ARCHIVE_URL" --output "$archive"
+  if command -v sha256sum >/dev/null 2>&1; then
+    HARA_SHA256=$(sha256sum "$archive" | awk '{print $1}')
+  else
+    HARA_SHA256=$(shasum -a 256 "$archive" | awk '{print $1}')
+  fi
+fi
+
+case "$HARA_SHA256" in
+  ""|*[!0-9a-f]*) echo "invalid Hara SHA-256: $HARA_SHA256" >&2; exit 1 ;;
+esac
+[ "${#HARA_SHA256}" -eq 64 ] || { echo "invalid Hara SHA-256 length" >&2; exit 1; }
+
+cat <<FORMULA
+class Hoplite < Formula
+  desc "Hara application server built into nginx"
+  homepage "https://github.com/greenways-ai/hoplite"
+  url "https://github.com/greenways-ai/hoplite.git",
+      tag:      "v${VERSION}",
+      revision: "${HOPLITE_REVISION}"
+  license "${LICENSE}"
+  head "https://github.com/greenways-ai/hoplite.git", branch: "main"
+
+  depends_on "pkgconf" => :build
+  depends_on "rust" => :build
+  depends_on "openssl@3"
+  depends_on "pcre2"
+  depends_on "zlib"
+
+  resource "hara" do
+    url "${HARA_ARCHIVE_URL}"
+    sha256 "${HARA_SHA256}"
+  end
+
+  resource "nginx" do
+    url "https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz"
+    sha256 "${NGINX_SHA256}"
+  end
+
+  def install
+    hara_source = buildpath.parent/"#{buildpath.basename}.hara"
+    resource("hara").stage do
+      hara_source.install Pathname.pwd.children
+    end
+
+    nginx_source = buildpath/"core/target/sources/nginx-${NGINX_VERSION}"
+    resource("nginx").stage do
+      nginx_source.install Pathname.pwd.children
+    end
+
+    hara_rust = (hara_source/"core/rust").to_s
+    inreplace "core/Cargo.toml", "../../hara/core/rust", hara_rust
+    inreplace "core/runtime/Cargo.toml", "../../../hara/core/rust", hara_rust
+
+    openssl = Formula["openssl@3"]
+    pcre2 = Formula["pcre2"]
+    zlib = Formula["zlib"]
+
+    include_paths = [openssl.opt_include, pcre2.opt_include, zlib.opt_include]
+    library_paths = [openssl.opt_lib, pcre2.opt_lib, zlib.opt_lib]
+    include_flags = include_paths.map { |path| "-I#{path}" }.join(" ")
+    library_flags = library_paths.flat_map { |path| ["-L#{path}", "-Wl,-rpath,#{path}"] }.join(" ")
+
+    system "make", "-C", "core", "embedded-cli",
+           "NGINX_SRC=#{nginx_source}",
+           "NGINX_CC_OPT=#{include_flags}",
+           "NGINX_LD_OPT=#{library_flags}"
+
+    bin.install "core/target/release/hoplite"
+  end
+
+  test do
+    assert_equal "42", shell_output("#{bin}/hoplite eval '(+ 19 23)'").strip
+    assert_match "Hoplite", shell_output("#{bin}/hoplite version")
+  end
+end
+FORMULA

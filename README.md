@@ -32,7 +32,7 @@ hoplite version
 Install the published macOS or Linux binary without a package manager:
 
 ```shell
-curl -fsSL https://raw.githubusercontent.com/greenways-ai/hoplite/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/greenways-ai/hoplite/main/packaging/scripts/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 hoplite version
 ```
@@ -51,7 +51,7 @@ curl -i http://127.0.0.1:8080/hello
 Generate the two-file starter without cloning or building Hoplite:
 
 ```shell
-curl -fsSL https://raw.githubusercontent.com/greenways-ai/hoplite/main/scripts/new-app.sh | sh -s -- hello
+curl -fsSL https://raw.githubusercontent.com/greenways-ai/hoplite/main/packaging/scripts/new-app.sh | sh -s -- hello
 cd hello
 ```
 
@@ -114,8 +114,8 @@ mechanism. The application realm is permissive until a route policy requires a
 principal; the management realm cannot be made public. Additional identity
 mechanisms are installed as versioned Hoplite modules.
 
-See [`examples/app.hal`](examples/app.hal) and
-[`examples/project.edn`](examples/project.edn) for the complete starter.
+See [`core/examples/app.hal`](core/examples/app.hal) and
+[`core/examples/project.edn`](core/examples/project.edn) for the complete starter.
 
 ## Run it
 
@@ -236,10 +236,11 @@ Nginx executable.
 
 ## Contributor build and test
 
-The following targets are for contributors working on Hoplite itself, not the
-product installation path:
+Source code and build tooling live under `core/`. All `make` targets below are run
+from that directory:
 
 ```shell
+cd core
 make setup
 make check
 make runtime
@@ -248,7 +249,7 @@ make macos
 make benchmark-bytecode
 ```
 
-`make nginx` downloads the pinned Nginx source, verifies its checksum, and
+`core/Makefile` downloads the pinned Nginx source, verifies its checksum, and
 statically links the Hoplite module and Rust runtime. The final `hoplite`
 executable embeds that Nginx binary.
 
@@ -260,7 +261,7 @@ already-decoded execution for `hoplite.core`, `hoplite.internal`, and
 
 The tagged release workflow:
 
-1. verifies that the tag matches `Cargo.toml` and resolves immutable Hoplite and Hara commits;
+1. verifies that the tag matches `core/Cargo.toml` and resolves immutable Hoplite and Hara commits;
 2. builds the deterministic HARP package and container image;
 3. builds and smoke-tests standalone binaries for both macOS architectures and both Linux architectures;
 4. creates or updates the GitHub release without replacing the tag;

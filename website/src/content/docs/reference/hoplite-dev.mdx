@@ -1,0 +1,61 @@
+---
+title: hoplite.dev
+description: Development-console functions for declared application Vars.
+---
+
+<span class="doc-badge doc-badge--note">Development</span>
+
+All application arguments must be explicit Vars, such as `#'example.app/app`.
+
+## `start`
+
+```clojure
+(start app)
+(start app opts)
+```
+
+Builds and starts the selected application in the current console. The options map may select `:project`, `:profile`, and `:mode`.
+
+## `stop`
+
+```clojure
+(stop app)
+```
+
+Stops a server previously started by this console and removes its console record.
+
+## `restart`
+
+```clojure
+(restart app)
+(restart app opts)
+```
+
+Rebuilds and restarts a server while retaining its console identity.
+
+## `status`
+
+```clojure
+(status app)
+```
+
+Returns the console record for an explicitly declared application.
+
+## `list-all`
+
+```clojure
+(list-all)
+```
+
+Returns all servers managed by the current console.
+
+## `logs`
+
+```clojure
+(logs app)
+(logs app {:bytes 4096})
+```
+
+Returns the tail of the application's Nginx error log.
+
+**Source:** [`core/lib/src/hoplite/dev.hal`](https://github.com/greenways-ai/hoplite/blob/main/core/lib/src/hoplite/dev.hal)

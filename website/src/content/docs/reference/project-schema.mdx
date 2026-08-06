@@ -1,0 +1,142 @@
+---
+title: Project schema
+description: Hara project and Hoplite profile fields consumed by the application loader.
+---
+
+<span class="doc-badge doc-badge--caution">Pre-release interface</span>
+
+## Project selection
+
+Hoplite consumes a normal Hara project containing source paths, a main namespace, capabilities, and profiles. The selected profile must use `:profile/language :hoplite`.
+
+## Hoplite profile
+
+| Field | Type | Required | Validation |
+| --- | --- | --- | --- |
+| `:profile/language` | keyword | Yes | Must equal `:hoplite` |
+| `:profile/main` | qualified symbol | Yes | Must evaluate to a tagged application or internal config |
+| `:profile/options` | map | No | Non-map values are rejected |
+| `:profile/extensions` | map | No | Host-owned configuration; Hoplite reads `:extension/hoplite` |
+| `:profile/options :port` | integer | No | Must be between 1 and 65535; defaults to 8080 |
+| `:profile/options :workers` | positive integer | No | Defaults to 1 in development and available CPU count in production |
+
+## Hoplite extension
+
+All Hoplite platform configuration remains inside `project.edn`:
+
+```clojure
+{:profile/extensions
+ {:extension/hoplite
+  {:hoplite/modules
+   [{:module/id "gh:greenways-ai:hoplite"
+     :module/version "0.1.0"
+     :module/export :hoplite/auth
+     :module/as :auth
+     :module/config {:auth/store :auth-store}}
+
+    {:module/id "gh:greenways-ai:hoplite-store-sqlite"
+     :module/version "0.4.1"
+     :module/export :hoplite/store
+     :module/as :auth-store
+     :module/config {}}]
+   :hoplite/authentication
+   {:auth/realms
+    {:management {:auth/providers [:auth/key]
+                  :auth/required true}
+     :application {:auth/providers [:auth/key]
+                   :auth/required false}}}}}}
+```
+
+The canonical Hoplite package coordinate is `gh:greenways-ai:hoplite`.
+`gh:OWNER:REPOSITORY` coordinates resolve `.harp` archives from GitHub releases.
+Every activation selects one qualified `:module/export`, binds it to a unique
+local `:module/as` alias, and uses an exact SemVer. A package may be activated
+more than once when selecting different exports. Configuration must be inert
+EDN without reader tags or metadata.
+
+Package resolution will bind the coordinate, release asset, export, version,
+archive digest and signature to `project.lock.edn`; Hoplite does not perform
+live installation at runtime. Storage is always selected through an addon such
+as `hoplite-store-memory`, SQLite or PGlite and is not embedded into the auth
+export.
+
+The auth module refers to its store by local alias (`:auth/store
+:auth-store`). Composition resolves that alias to the activated store export
+before the management gateway starts. The gateway crosses an explicit native
+`AuthStore` interface for every bootstrap, challenge, session, refresh, and
+revocation operation. Backend selection belongs to the adapter registry, and
+an installed package without a matching native backend is rejected; there is
+no silent SQLite fallback after another adapter is selected.
+
+## Package lock
+
+Every explicit module must have an exact archive binding in
+`project.lock.edn`:
+
+```clojure
+{:lock/format 1
+ :packages
+ {"gh:greenways-ai:hoplite"
+  {:version "0.1.0"
+   :archive-sha256 "sha256:22ce8db7ea50b006813ab32d0eef211bbda469a41b6b175f19c7d111977d6075"}
+  "gh:greenways-ai:hoplite-store-sqlite"
+  {:version "0.4.1"
+   :archive-sha256 "sha256:477476c827ef5185c7cdbc550cb537d6fc6b5c44c122b90b5768e972f4c2de53"}}}
+```
+
+The requested version, lock entry, installed registration, content-addressed
+root name, HARP identity, and every file digest must all agree before module
+code is evaluated.
+
+## One authored manifest
+
+Hoplite does not load a root `hara.extension.edn`. HTA or WASM extension
+contracts belong under the applicable profile's `:profile/extensions` map,
+alongside `:extension/hoplite`. A project containing the legacy root file fails
+validation with a migration message instead of silently combining two sources
+of truth.
+
+## Authentication realms
+
+Authentication is owned by Hoplite, not by an application module. Every
+compiled platform plan contains separate `:management` and `:application`
+realms. The built-in `:auth/key` provider supplies user-owned-key identity;
+package modules may add providers such as passkeys or OIDC without replacing
+the Hoplite principal and session contract.
+
+| Field | Type | Default | Validation |
+| --- | --- | --- | --- |
+| `:auth/providers` | vector of qualified keywords | `[:auth/key]` | Must not be empty or contain duplicates |
+| `:auth/required` | boolean | Management `true`; application `false` | Management must remain `true` |
+| `:session/access-ttl-seconds` | integer | `900` | 60–3600 seconds |
+| `:session/refresh-ttl-seconds` | integer | `2592000` | At least access TTL; at most one year |
+| `:session/rotate-refresh-tokens` | boolean | `true` | Must remain `true` |
+| `:session/reuse-interval-seconds` | integer | `10` | 0–60 seconds |
+
+Refresh tokens are single-use and rotated. The compiled authentication plan
+also pins principal contract `1.0.0`, including a stable session identifier so
+revocation can be checked for sensitive operations.
+
+## Application definition
+
+| Field | Type | Required | Behavior |
+| --- | --- | --- | --- |
+| `:name` | text-like | No | Defaults to `app-<id>` |
+| `:resources` | sequence | Unless catch-all | Flattened into method/path/handler routes |
+| `:route/adapter` | keyword | No | Default route boundary: `:raw`, `:request` (default), or `:request+hta` |
+| `:openapi :path` | text-like | No | Explicit OpenAPI route; development otherwise defaults to `/openapi.json` |
+
+Each resource operation accepts the same `:route/adapter` field and overrides
+the application default for that route. The selected value is recorded in the
+version 2 `apps.hta` manifest.
+
+## Advanced host configuration
+
+| Field | Type | Required | Behavior |
+| --- | --- | --- | --- |
+| `:worker-processes` | positive integer | No | Overrides profile/default worker count |
+| `:apps` | non-empty sequence | Yes | Application instances to host |
+
+Instance fields are documented in [Multiple applications](/guides/multiple-applications/).
+
+**Source:** [`core/src/app.rs`](https://github.com/greenways-ai/hoplite/blob/main/core/src/app.rs)

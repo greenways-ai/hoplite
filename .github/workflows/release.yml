@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
-          path: hara.lang
+          path: hara
           submodules: recursive
           fetch-depth: 0
       - name: Resolve immutable release inputs
@@ -54,7 +54,7 @@ jobs:
           esac
 
           version=${RELEASE_TAG#v}
-          crate_version=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          crate_version=$(grep -m1 '^version = ' core/Cargo.toml | cut -d'"' -f2)
           test "$version" = "$crate_version"
 
           if test -n "$HARA_REVISION_OVERRIDE"; then
@@ -62,10 +62,10 @@ jobs:
             echo "Using explicitly requested Hara revision ${hara_revision}"
           elif test -s packaging/hara-revision; then
             hara_revision=$(tr -d '[:space:]' < packaging/hara-revision)
-          elif hara_revision=$(git -C ../hara.lang rev-parse -q --verify "refs/tags/${RELEASE_TAG}^{commit}"); then
+          elif hara_revision=$(git -C ../hara rev-parse -q --verify "refs/tags/${RELEASE_TAG}^{commit}"); then
             echo "Using matching Hara tag ${RELEASE_TAG} for this legacy release"
           else
-            hara_revision=$(git -C ../hara.lang rev-parse HEAD)
+            hara_revision=$(git -C ../hara rev-parse HEAD)
             echo "::warning::No pinned or matching-tag Hara revision; using ${hara_revision}"
           fi
 
@@ -73,16 +73,16 @@ jobs:
             ''|*[!0-9a-f]*) echo "invalid Hara revision: $hara_revision" >&2; exit 1 ;;
           esac
           test "${#hara_revision}" -eq 40
-          git -C ../hara.lang cat-file -e "${hara_revision}^{commit}"
-          git -C ../hara.lang checkout --detach "$hara_revision"
+          git -C ../hara cat-file -e "${hara_revision}^{commit}"
+          git -C ../hara checkout --detach "$hara_revision"
 
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "hoplite_revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          echo "hara_revision=$(git -C ../hara.lang rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          echo "license=$(grep -m1 '^license = ' Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
-          echo "nginx_version=$(sed -n 's/^NGINX_VERSION := //p' Makefile)" >> "$GITHUB_OUTPUT"
-          echo "nginx_sha256=$(sed -n 's/^NGINX_SHA256 := //p' Makefile)" >> "$GITHUB_OUTPUT"
+          echo "hara_revision=$(git -C ../hara rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "license=$(grep -m1 '^license = ' core/Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
+          echo "nginx_version=$(sed -n 's/^NGINX_VERSION := //p' core/Makefile)" >> "$GITHUB_OUTPUT"
+          echo "nginx_sha256=$(sed -n 's/^NGINX_SHA256 := //p' core/Makefile)" >> "$GITHUB_OUTPUT"
 
   harp:
     needs: prepare
@@ -96,15 +96,15 @@ jobs:
         with:
           repository: hara-lang/hara
           ref: ${{ needs.prepare.outputs.hara_revision }}
-          path: hara.lang
+          path: hara
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - name: Build deterministic HARP
         run: |
           version=${{ needs.prepare.outputs.version }}
-          cargo run --manifest-path hara.lang/rust/Cargo.toml --bin hara -- \
-            package build hoplite --output "hoplite-${version}.harp"
-          cargo run --manifest-path hara.lang/rust/Cargo.toml --bin hara -- \
+          cargo run --manifest-path hara/core/rust/Cargo.toml --bin hara -- \
+            package build hoplite/core --output "hoplite-${version}.harp"
+          cargo run --manifest-path hara/core/rust/Cargo.toml --bin hara -- \
             package inspect "hoplite-${version}.harp"
           sha256sum "hoplite-${version}.harp"
       - uses: actions/upload-artifact@v4
@@ -125,7 +125,7 @@ jobs:
         with:
           repository: hara-lang/hara
           ref: ${{ needs.prepare.outputs.hara_revision }}
-          path: hara.lang
+          path: hara
           submodules: recursive
       - uses: docker/login-action@v3
         with:
@@ -143,7 +143,7 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: hoplite/docker/Dockerfile
+          file: hoplite/packaging/docker/Dockerfile
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
@@ -168,12 +168,12 @@ jobs:
         with:
           repository: hara-lang/hara
           ref: ${{ needs.prepare.outputs.hara_revision }}
-          path: hara.lang
+          path: hara
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - run: brew install openssl@3 pcre2
       - name: Build and smoke-test standalone executable
-        working-directory: hoplite
+        working-directory: hoplite/core
         run: |
           make macos
           artifact="target/dist/hoplite-v${{ needs.prepare.outputs.version }}-${{ matrix.target }}"
@@ -182,7 +182,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: hoplite-${{ matrix.target }}
-          path: hoplite/target/dist/hoplite-*-${{ matrix.target }}
+          path: hoplite/core/target/dist/hoplite-*-${{ matrix.target }}
           if-no-files-found: error
 
   linux:
@@ -205,7 +205,7 @@ jobs:
         with:
           repository: hara-lang/hara
           ref: ${{ needs.prepare.outputs.hara_revision }}
-          path: hara.lang
+          path: hara
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - name: Install native build dependencies
@@ -214,7 +214,7 @@ jobs:
           sudo apt-get install --yes --no-install-recommends \
             build-essential ca-certificates curl libpcre2-dev libssl-dev zlib1g-dev
       - name: Build and smoke-test standalone executable
-        working-directory: hoplite
+        working-directory: hoplite/core
         run: |
           make embedded-cli
           artifact="target/dist/hoplite-v${{ needs.prepare.outputs.version }}-${{ matrix.target }}"
@@ -226,7 +226,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: hoplite-${{ matrix.target }}
-          path: hoplite/target/dist/hoplite-*-${{ matrix.target }}
+          path: hoplite/core/target/dist/hoplite-*-${{ matrix.target }}
           if-no-files-found: error
 
   publish:
@@ -264,7 +264,7 @@ jobs:
           LICENSE="${{ needs.prepare.outputs.license }}" \
           NGINX_VERSION="${{ needs.prepare.outputs.nginx_version }}" \
           NGINX_SHA256="${{ needs.prepare.outputs.nginx_sha256 }}" \
-            release-automation/scripts/render-homebrew-formula > rendered/Formula/hoplite.rb
+            release-automation/packaging/scripts/render-homebrew-formula > rendered/Formula/hoplite.rb
           ruby -c rendered/Formula/hoplite.rb
       - uses: actions/upload-artifact@v4
         with:

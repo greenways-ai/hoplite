@@ -1,9 +1,9 @@
-VERSION ?= $(shell grep -m1 '^version = ' ../../Cargo.toml | cut -d'"' -f2)
+VERSION ?= $(shell grep -m1 '^version = ' ../../core/Cargo.toml | cut -d'"' -f2)
 HOPLITE_REVISION ?= $(shell git -C ../.. rev-parse HEAD 2>/dev/null)
-HARA_REVISION ?= $(shell git -C ../../../hara.lang rev-parse HEAD 2>/dev/null)
-LICENSE ?= $(shell grep -m1 '^license = ' ../../Cargo.toml | cut -d'"' -f2)
-NGINX_VERSION ?= $(shell sed -n 's/^NGINX_VERSION := //p' ../../Makefile)
-NGINX_SHA256 ?= $(shell sed -n 's/^NGINX_SHA256 := //p' ../../Makefile)
+HARA_REVISION ?= $(shell git -C ../../../hara rev-parse HEAD 2>/dev/null)
+LICENSE ?= $(shell grep -m1 '^license = ' ../../core/Cargo.toml | cut -d'"' -f2)
+NGINX_VERSION ?= $(shell sed -n 's/^NGINX_VERSION := //p' ../../core/Makefile)
+NGINX_SHA256 ?= $(shell sed -n 's/^NGINX_SHA256 := //p' ../../core/Makefile)
 FORMULA ?= Formula/hoplite.rb
 
 .PHONY: formula check
@@ -22,7 +22,7 @@ formula:
 	LICENSE=$(LICENSE) \
 	NGINX_VERSION=$(NGINX_VERSION) \
 	NGINX_SHA256=$(NGINX_SHA256) \
-		../../scripts/render-homebrew-formula > $(FORMULA)
+		../scripts/render-homebrew-formula > $(FORMULA)
 
 check: formula
 	ruby -c $(FORMULA)

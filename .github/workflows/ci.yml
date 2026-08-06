@@ -25,10 +25,10 @@ jobs:
         with:
           repository: hara-lang/hara
           ref: ${{ env.HARA_REF }}
-          path: hara.lang
+          path: hara
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --manifest-path hoplite/Cargo.toml --workspace
+      - run: cargo test --manifest-path hoplite/core/Cargo.toml --workspace
 
   nginx-module:
     runs-on: ubuntu-latest
@@ -40,9 +40,9 @@ jobs:
         with:
           repository: hara-lang/hara
           ref: ${{ env.HARA_REF }}
-          path: hara.lang
+          path: hara
           submodules: recursive
-      - run: docker build -f hoplite/docker/Dockerfile -t hoplite-ci .
+      - run: docker build -f hoplite/packaging/docker/Dockerfile -t hoplite-ci .
 
   packaging:
     runs-on: ubuntu-latest
@@ -50,25 +50,29 @@ jobs:
       - uses: actions/checkout@v5
       - name: Render and validate the Homebrew formula
         run: |
-          VERSION=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2) \
+          VERSION=$(grep -m1 '^version = ' core/Cargo.toml | cut -d'"' -f2) \
           HOPLITE_REVISION=$(git rev-parse HEAD) \
           HARA_REVISION="$HARA_REF" \
           HARA_SHA256=db113e15ec3e1404897bd66b99d4196ae1676d032275cd72e4c09baf8ab4296d \
-          LICENSE=$(grep -m1 '^license = ' Cargo.toml | cut -d'"' -f2) \
-          NGINX_VERSION=$(sed -n 's/^NGINX_VERSION := //p' Makefile) \
-          NGINX_SHA256=$(sed -n 's/^NGINX_SHA256 := //p' Makefile) \
-            scripts/render-homebrew-formula > /tmp/hoplite.rb
+          LICENSE=$(grep -m1 '^license = ' core/Cargo.toml | cut -d'"' -f2) \
+          NGINX_VERSION=$(sed -n 's/^NGINX_VERSION := //p' core/Makefile) \
+          NGINX_SHA256=$(sed -n 's/^NGINX_SHA256 := //p' core/Makefile) \
+            packaging/scripts/render-homebrew-formula > /tmp/hoplite.rb
           ruby -c /tmp/hoplite.rb
           grep -F "$HARA_REF" /tmp/hoplite.rb
 
   docs:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: website/package-lock.json
       - name: Use HTTPS for public Git dependencies
         run: |
           git config --global url."https://github.com/".insteadOf "git+ssh://git@github.com/"
