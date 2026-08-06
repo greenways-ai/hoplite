@@ -22,7 +22,8 @@ RUN groupadd --system hoplite && useradd --system --gid hoplite --home /var/lib/
 COPY --from=builder /src/hoplite/core/target/release/hoplite-server /usr/local/bin/hoplite-server
 COPY --from=builder --chown=hoplite:hoplite /app /app
 USER hoplite
-ENV HOPLITE_SERVER_CACHE=/var/lib/hoplite/cache
+ENV HOPLITE_SERVER_CACHE=/var/lib/hoplite/cache \
+    HOPLITE_WORKERS=auto
 VOLUME ["/var/lib/hoplite"]
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 CMD curl --fail --silent http://127.0.0.1:8080/hello >/dev/null || exit 1
