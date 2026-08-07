@@ -1,3 +1,17 @@
+/*
+ * The splash homepage has one Starlight content panel containing both the
+ * generated Starlight hero and the authored Hoplite homepage. custom.css used
+ * to hide that entire first panel, which left only the navigation chrome.
+ * Keep the panel and hide only Starlight's generated hero.
+ */
+main:has(.hoplite-hero) > .content-panel:first-child {
+  display: block;
+}
+
+main:has(.hoplite-hero) > .content-panel > .sl-container > .hero {
+  display: none;
+}
+
 .benchmark-status {
   display: grid;
   grid-template-columns: minmax(220px, .7fr) minmax(0, 1.3fr) auto;
