@@ -28,7 +28,7 @@ jobs:
           path: hara
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --manifest-path hoplite/core/Cargo.toml --workspace
+      - run: cargo test --manifest-path hoplite/core/Cargo.toml --workspace --locked
       - name: Compile the public native data-plane header
         run: |
           cat > /tmp/hoplite-data-plane-header.c <<'EOF'
