@@ -981,7 +981,11 @@ ngx_http_hoplite_handler(ngx_http_request_t *request)
     cleanup->handler = ngx_http_hoplite_cleanup;
     cleanup->data = ctx;
 
-    if (!conf->request_body || request->headers_in.content_length_n == 0) {
+    if (!conf->request_body
+        || request->headers_in.content_length_n == 0
+        || (request->headers_in.content_length_n < 0
+            && !request->headers_in.chunked))
+    {
         return ngx_http_hoplite_invoke(request, ctx, conf, NULL);
     }
     if (hoplite_abi_version() < 3) {
