@@ -29,6 +29,52 @@ jobs:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --manifest-path hoplite/core/Cargo.toml --workspace
+      - name: Compile the public native data-plane header
+        run: |
+          cat > /tmp/hoplite-data-plane-header.c <<'EOF'
+          #include "hoplite_data_plane.h"
+
+          static int32_t read_body(
+              void *context,
+              uint8_t *output,
+              size_t capacity,
+              size_t *returned) {
+            (void)context;
+            (void)output;
+            (void)capacity;
+            *returned = 0;
+            return HOPLITE_CALLBACK_OK;
+          }
+
+          static int32_t read_body_at(
+              void *context,
+              uint64_t offset,
+              uint8_t *output,
+              size_t capacity,
+              size_t *returned) {
+            (void)context;
+            (void)offset;
+            (void)output;
+            (void)capacity;
+            *returned = 0;
+            return HOPLITE_CALLBACK_OK;
+          }
+
+          int main(void) {
+            hoplite_request_body_v1 request = {0};
+            hoplite_response_body_v1 response = {0};
+            request.read = read_body;
+            response.read_at = read_body_at;
+            return HOPLITE_DATA_PLANE_ABI_VERSION == 1u &&
+                       request.read == read_body &&
+                       response.read_at == read_body_at
+                     ? 0
+                     : 1;
+          }
+          EOF
+          cc -std=c11 -Wall -Wextra -Werror \
+            -I hoplite/core/abi/data-plane-ffi/include \
+            -fsyntax-only /tmp/hoplite-data-plane-header.c
 
   nginx-module:
     runs-on: ubuntu-latest
