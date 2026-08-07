@@ -146,6 +146,7 @@ hoplite_read_value(hoplite_reader_t *reader, hoplite_hta_value_t **output)
     hoplite_hta_value_t *value;
     uint64_t raw;
     ngx_uint_t tag;
+    size_t start = reader->cursor;
 
     if (hoplite_take(reader, 1, &tag_data) != NGX_OK) {
         return NGX_ERROR;
@@ -221,6 +222,8 @@ hoplite_read_value(hoplite_reader_t *reader, hoplite_hta_value_t **output)
     if (value == NULL) {
         return NGX_ERROR;
     }
+    value->encoded = reader->data + start;
+    value->encoded_len = reader->cursor - start;
     *output = value;
     return NGX_OK;
 }
@@ -245,6 +248,30 @@ hoplite_hta_decode(ngx_pool_t *pool, const u_char *data, size_t len,
     if (hoplite_read_value(&reader, value) != NGX_OK || reader.cursor != len) {
         return NGX_ERROR;
     }
+    return NGX_OK;
+}
+
+ngx_int_t
+hoplite_hta_copy_frame(ngx_pool_t *pool,
+                       const hoplite_hta_value_t *value,
+                       ngx_str_t *output)
+{
+    if (pool == NULL || value == NULL || output == NULL
+        || value->encoded == NULL || value->encoded_len == 0
+        || value->encoded_len > (size_t) -1 - sizeof(hoplite_magic))
+    {
+        return NGX_ERROR;
+    }
+
+    output->len = sizeof(hoplite_magic) + value->encoded_len;
+    output->data = ngx_pnalloc(pool, output->len);
+    if (output->data == NULL) {
+        output->len = 0;
+        return NGX_ERROR;
+    }
+    ngx_memcpy(output->data, hoplite_magic, sizeof(hoplite_magic));
+    ngx_memcpy(output->data + sizeof(hoplite_magic),
+               value->encoded, value->encoded_len);
     return NGX_OK;
 }
 
