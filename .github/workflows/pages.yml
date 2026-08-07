@@ -7,10 +7,17 @@ on:
     paths:
       - ".github/workflows/pages.yml"
       - "website/**"
+      - "packaging/scripts/validate-benchmark-data.sh"
+  workflow_run:
+    workflows:
+      - "HTTP and footprint benchmarks"
+    types:
+      - completed
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 
@@ -20,15 +27,17 @@ concurrency:
 
 jobs:
   deploy:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: website
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -39,7 +48,55 @@ jobs:
           git config --global url."https://github.com/".insteadOf "git+ssh://git@github.com/"
           git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/"
           git config --global --add url."https://github.com/".insteadOf "git@github.com:"
-      - run: npm ci && npm run build
+      - name: Restore the latest validated benchmark reports
+        id: benchmark
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || '' }}
+        run: |
+          set -euo pipefail
+          run_id="$WORKFLOW_RUN_ID"
+          if [[ -z "$run_id" ]]; then
+            run_id="$(gh run list \
+              --workflow benchmark.yml \
+              --branch main \
+              --status success \
+              --limit 1 \
+              --json databaseId \
+              --jq '.[0].databaseId // empty')"
+          fi
+          if [[ -z "$run_id" ]]; then
+            echo "No successful benchmark run exists; publishing the explicit pending state."
+            echo "status=pending" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          rm -rf benchmark-artifact
+          mkdir -p benchmark-artifact
+          if ! gh run download "$run_id" --name hoplite-benchmarks --dir benchmark-artifact; then
+            echo "Run $run_id has no stable benchmark artifact; publishing the explicit pending state."
+            echo "status=pending" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          http_report="$(find benchmark-artifact -name http-benchmark.json -print -quit)"
+          footprint_report="$(find benchmark-artifact -name stack-footprints.json -print -quit)"
+          if [[ -z "$http_report" || -z "$footprint_report" ]]; then
+            echo "Run $run_id did not contain both benchmark reports; publishing pending data."
+            echo "status=pending" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          bash packaging/scripts/validate-benchmark-data.sh "$http_report" "$footprint_report"
+          cp "$http_report" website/src/data/http-benchmark.json
+          cp "$footprint_report" website/src/data/stack-footprints.json
+          echo "status=measured" >> "$GITHUB_OUTPUT"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+      - name: Build the website
+        run: npm ci && npm run build
+        working-directory: website
+        env:
+          HOPLITE_REQUIRE_MEASURED_BENCHMARKS: ${{ steps.benchmark.outputs.status == 'measured' && '1' || '0' }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:

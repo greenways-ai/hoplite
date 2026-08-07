@@ -14,7 +14,7 @@ public final class Main {
       exchange.close();
       return;
     }
-    exchange.getResponseHeaders().set("content-type", "text/plain");
+    exchange.getResponseHeaders().set("content-type", "text/plain; charset=utf-8");
     exchange.getResponseHeaders().set("x-hoplite", "true");
     exchange.sendResponseHeaders(200, BODY.length);
     exchange.getResponseBody().write(BODY);

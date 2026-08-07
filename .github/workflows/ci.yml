@@ -81,6 +81,20 @@ jobs:
           grep -F "$HARA_REF" /tmp/hoplite.rb
           grep -F 'bin.install "core/target/release/hoplite-server"' /tmp/hoplite.rb
 
+  benchmark-data:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate benchmark scripts and checked-in pending reports
+        run: |
+          bash -n packaging/scripts/benchmark-http.sh
+          bash -n packaging/scripts/measure-stack-footprints.sh
+          bash -n packaging/scripts/run-benchmarks.sh
+          bash -n packaging/scripts/validate-benchmark-data.sh
+          bash packaging/scripts/validate-benchmark-data.sh --allow-pending \
+            website/src/data/http-benchmark.json \
+            website/src/data/stack-footprints.json
+
   docs:
     runs-on: ubuntu-latest
     defaults:

@@ -1,8 +1,11 @@
 ---
-import footprints from "../data/stack-footprints.json";
+import {
+  stackFootprints as footprints,
+  type Measurement,
+} from "../lib/benchmark-data";
 
 const measured = footprints.status === "measured";
-const size = (value: number | null, digits = 1) => {
+const size = (value: Measurement, digits = 1) => {
   if (value == null) return "—";
   if (value > 0 && value < 0.01) return "<0.01 MiB";
   return `${value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })} MiB`;
@@ -10,60 +13,59 @@ const size = (value: number | null, digits = 1) => {
 const stacks = [
   {
     key: "hoplite",
-    name: "Hoplite",
+    name: "Hoplite server",
     className: "stack-card stack-card--hoplite",
-    shape: "Nginx + embedded Hara",
-    services: "1 server lifecycle",
-    artifactLabel: "Hoplite executable",
-    included: "Routing, auth, management, OpenAPI",
-    tradeoff: "Young ecosystem; pre-1.0 interfaces",
+    shape: "Nginx + worker-local Hara runtime",
+    services: "1 service surface",
+    artifactLabel: "hoplite-server executable",
+    included: "Routing and prepared Hara handlers in the Nginx lifecycle",
+    tradeoff: "Pre-1.0 interfaces; HBC-only worker boot is still pending",
   },
   {
     key: "java",
-    name: "Java",
+    name: "Nginx + JDK sample",
     className: "stack-card",
-    shape: "Plain Nginx + minimal JVM service",
-    services: "2 server lifecycles",
-    artifactLabel: "Application JAR",
-    included: "Broad framework and tooling ecosystem",
-    tradeoff: "Proxy boundary plus JVM runtime envelope",
+    shape: "Plain Nginx + JDK built-in HttpServer",
+    services: "2 service surfaces",
+    artifactLabel: "Sample JAR",
+    included: "A minimal JDK runtime deployment envelope",
+    tradeoff: "This is not a Ring, Spring, Quarkus, or Micronaut benchmark",
   },
   {
     key: "python",
-    name: "Python",
+    name: "Nginx + Python stdlib sample",
     className: "stack-card",
-    shape: "Plain Nginx + minimal Python service",
-    services: "2 server lifecycles",
-    artifactLabel: "Application source",
-    included: "Fast iteration and broad libraries",
-    tradeoff: "Proxy boundary and worker/process sizing",
+    shape: "Plain Nginx + ThreadingHTTPServer",
+    services: "2 service surfaces",
+    artifactLabel: "Sample source",
+    included: "A minimal Python standard-library deployment envelope",
+    tradeoff: "This is not a FastAPI, Flask, or Django benchmark",
   },
   {
     key: "lua",
-    name: "Lua / Nginx",
+    name: "Nginx + ngx_http_lua sample",
     className: "stack-card",
-    shape: "Nginx + Lua module",
-    services: "1 server lifecycle",
+    shape: "Debian Nginx + ngx_http_lua module",
+    services: "1 service surface",
     artifactLabel: "Nginx executable",
-    included: "Lean request-boundary scripting",
-    tradeoff: "Application conventions assembled separately",
+    included: "A minimal in-process Lua response path",
+    tradeoff: "This is not the complete OpenResty distribution",
   },
-];
+] as const;
 ---
 <section class="home-section stack-comparison">
   <header>
-    <p class="technical-kicker">03 · Measured footprint</p>
-    <h2>What each stack occupies.</h2>
+    <p class="technical-kicker">03 · Deployment footprint</p>
+    <h2>What each measured envelope occupies.</h2>
     <p>
-      These are minimal representative deployments returning the same 19-byte response.
-      Java and Python include the same plain Nginx baseline plus their application service;
-      Hoplite and Lua remain one-server deployments.
+      These are minimal deployment samples returning the same validated 19-byte
+      response. They compare process and image shapes, not feature-equivalent web frameworks.
     </p>
   </header>
 
   <div class="stack-grid" data-footprint-status={footprints.status}>
     {stacks.map((stack) => {
-      const footprint = footprints.stacks[stack.key as keyof typeof footprints.stacks];
+      const footprint = footprints.stacks[stack.key];
       return (
         <article class={stack.className}>
           <h3>{stack.name}</h3>
@@ -81,8 +83,8 @@ const stacks = [
             <div><dt>Measured shape</dt><dd>{stack.shape}</dd></div>
             <div><dt>Service surfaces</dt><dd>{stack.services}</dd></div>
             <div><dt>{stack.artifactLabel}</dt><dd>{size(footprint.primaryArtifactMiB, 2)}</dd></div>
-            <div><dt>What you gain</dt><dd>{stack.included}</dd></div>
-            <div><dt>What you carry</dt><dd>{stack.tradeoff}</dd></div>
+            <div><dt>What it represents</dt><dd>{stack.included}</dd></div>
+            <div><dt>Interpretation limit</dt><dd>{stack.tradeoff}</dd></div>
           </dl>
         </article>
       );
@@ -93,14 +95,15 @@ const stacks = [
     <p>
       {measured
         ? `Measured on ${footprints.runner} with ${footprints.logicalCpus} logical CPUs. Idle memory is the median of ${footprints.methodology.idleSamplesPerComponent} samples per component.`
-        : "The representative footprint run has not completed yet."}
+        : "Fresh post-split deployment measurements are pending; retired all-in-one values are not displayed."}
     </p>
     <p>{footprints.methodology.imageAccounting}</p>
+    <p>{footprints.methodology.scope}</p>
   </div>
 
   <p class="comparison-conclusion">
-    The useful claim is not that every Java or Python application has one fixed size. It is
-    that an external proxy and application runtime occupy separate images and separate
-    resident processes, while Hoplite keeps the application inside the Nginx lifecycle.
+    The useful question is where each minimal serving envelope places its proxy,
+    runtime, application artifact, processes, and resident memory—not whether every
+    application in a language has one fixed size.
   </p>
 </section>

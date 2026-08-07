@@ -11,7 +11,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         self.send_response(200)
-        self.send_header("content-type", "text/plain")
+        self.send_header("content-type", "text/plain; charset=utf-8")
         self.send_header("x-hoplite", "true")
         self.send_header("content-length", str(len(BODY)))
         self.end_headers()
