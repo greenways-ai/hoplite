@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Align the one-shot request-body materializer with the current Nginx HTA path.
+"""Align the one-shot request-body materializer with current Hoplite source.
 
 The request-body generator was authored against Hoplite's former portable-route
 helpers. Current main encodes a request to HTA and starts the prepared handler
-with `hoplite_work_call`. Keep that current path for body-free portable routes;
-native body handles remain unavailable to the portable adapter.
+with `hoplite_work_call`. It also represents an ordinary body-free HTTP request
+with `content_length_n == -1`, while chunked requests share the same length
+sentinel and must still be rejected by the declared-length body profile.
 """
 
 from pathlib import Path
@@ -99,8 +100,27 @@ def main() -> None:
         "portable request invocation",
     )
 
+    source = replace_once(
+        source,
+        """    if (!conf->request_body || request->headers_in.content_length_n == 0) {
+        return ngx_http_hoplite_invoke(request, ctx, conf, NULL);
+    }
+    if (hoplite_abi_version() < 3) {
+""",
+        """    if (!conf->request_body
+        || request->headers_in.content_length_n == 0
+        || (request->headers_in.content_length_n < 0
+            && !request->headers_in.chunked))
+    {
+        return ngx_http_hoplite_invoke(request, ctx, conf, NULL);
+    }
+    if (hoplite_abi_version() < 3) {
+""",
+        "body-free V2 dispatch",
+    )
+
     MODULE.write_text(source, encoding="utf-8")
-    print("aligned generated request-body V3 adapter with current HTA invocation")
+    print("aligned generated request-body V3 adapter with current Hoplite source")
 
 
 if __name__ == "__main__":
