@@ -613,6 +613,9 @@ name = "hoplite-runtime"
 version = "0.1.0"
 dependencies = [
  "hara-wasm",
+ "hoplite-data-plane-abi",
+ "hoplite-data-plane-ffi",
+ "hoplite-data-plane-registry",
 ]
 
 [[package]]
