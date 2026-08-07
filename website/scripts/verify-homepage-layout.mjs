@@ -42,9 +42,21 @@ if (panelRules.length === 0) {
   throw new Error("Homepage styles do not declare the splash content-panel policy");
 }
 
-const lastDisplay = [...panelRules.at(-1)[1].matchAll(/(?:^|;)display:([^;!}]+)/g)].at(-1)?.[1]?.trim();
-if (lastDisplay !== "block") {
-  throw new Error(`Homepage content panel resolves to display:${lastDisplay ?? "<unset>"}; expected block`);
+const displayDeclarations = panelRules.flatMap((rule, ruleIndex) =>
+  [...rule[1].matchAll(/(?:^|;)display:([^;!}]+)(!important)?/g)].map((match, declarationIndex) => ({
+    value: match[1].trim(),
+    important: Boolean(match[2]),
+    ruleIndex,
+    declarationIndex,
+  })),
+);
+const importantDisplays = displayDeclarations.filter((declaration) => declaration.important);
+const effectiveDisplay = (importantDisplays.length > 0 ? importantDisplays : displayDeclarations).at(-1);
+
+if (effectiveDisplay?.value !== "block") {
+  throw new Error(
+    `Homepage content panel resolves to display:${effectiveDisplay?.value ?? "<unset>"}${effectiveDisplay?.important ? " !important" : ""}; expected block`,
+  );
 }
 
 const generatedHeroRule = /main:has\(\.hoplite-hero\)>\.content-panel>\.sl-container>\.hero\{[^}]*display:none/;
