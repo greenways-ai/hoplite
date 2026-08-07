@@ -1,6 +1,9 @@
 (ns hoplite.app
   (:require [hoplite.core :as h]))
 
+;; This example is also the production-image conformance surface for the
+;; request-body V3 adapter. The materializer adds the bounded body route below.
+
 (defn hello
   [request]
   {:status 200
@@ -23,9 +26,19 @@
    :headers {"content-type" "text/plain; charset=utf-8"}
    :body "inspect"})
 
+(defn body-handle
+  [request]
+  {:status 200
+   :headers {"content-type" "text/plain; charset=utf-8"}
+   :body (if (:body-handle request)
+           "native-body-handle\n"
+           "missing-body-handle\n")})
+
 (def app
   (h/app
     {:name "example"
+     :request/body {:max-bytes 32
+                    :max-chunk-bytes 8}
      :resources
      [["/hello"
        {:get {:name "hello"
@@ -37,4 +50,8 @@
               :handler #'delayed}}]
       ["/inspect"
        {:get {:name "inspect"
-              :handler #'inspect}}]]}))
+              :handler #'inspect}}]
+      ["/body-handle"
+       {:post {:name "body-handle"
+               :summary "Projects an opaque native body handle"
+               :handler #'body-handle}}]]}))

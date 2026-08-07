@@ -90,25 +90,10 @@ jobs:
           submodules: recursive
       - name: Build the production image
         run: docker build -f hoplite/packaging/docker/Dockerfile -t hoplite-ci .
-      - name: Smoke-test the slim server
+      - name: Smoke-test the slim server and request-body V3
         run: |
           docker run --rm hoplite-ci version
-          container=$(docker run --detach -p 127.0.0.1::8080 hoplite-ci)
-          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
-          port=$(docker port "$container" 8080/tcp | head -n 1 | awk -F: '{print $NF}')
-          for _ in $(seq 1 60); do
-            if body=$(curl --fail --silent "http://127.0.0.1:${port}/hello"); then
-              test "$body" = "Hello from Hoplite"
-              exit 0
-            fi
-            if test "$(docker inspect -f '{{.State.Running}}' "$container")" != true; then
-              docker logs "$container"
-              exit 1
-            fi
-            sleep 1
-          done
-          docker logs "$container"
-          exit 1
+          bash hoplite/packaging/scripts/smoke-request-body-v3.sh hoplite-ci
 
   packaging:
     runs-on: ubuntu-latest
@@ -137,6 +122,7 @@ jobs:
           bash -n packaging/scripts/measure-stack-footprints.sh
           bash -n packaging/scripts/run-benchmarks.sh
           bash -n packaging/scripts/run-with-docker-top-compat.sh
+          bash -n packaging/scripts/smoke-request-body-v3.sh
           bash -n packaging/scripts/validate-benchmark-data.sh
 
           compat_test_root="$(mktemp -d)"

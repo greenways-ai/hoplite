@@ -916,9 +916,19 @@ fn nginx_app_configuration(project: &Project, config: &app::Config) -> Result<St
         for proxy in &application.proxies {
             locations.push_str(&nginx_proxy_location(proxy, trusted_ca.as_deref())?);
         }
+        let request_body = application
+            .request_body
+            .as_ref()
+            .map(|policy| {
+                format!(
+                    "            client_max_body_size {};\n            hoplite_request_body on;\n            hoplite_request_body_max {};\n            hoplite_request_body_chunk {};\n",
+                    policy.max_bytes, policy.max_bytes, policy.max_chunk_bytes
+                )
+            })
+            .unwrap_or_default();
         locations.push_str(&format!(
-            "        location / {{\n            hoplite_app {};\n        }}\n",
-            application.id
+            "        location / {{\n{}            hoplite_app {};\n        }}\n",
+            request_body, application.id
         ));
         servers.push_str(&format!(
             "    server {{\n        listen {};\n        server_name {};\n{}    }}\n",
@@ -975,9 +985,9 @@ mod tests {
         assert!(location.contains("proxy_ssl_name greenways.space;"));
         assert!(location.contains("proxy_ssl_verify on;"));
         assert!(location.contains("proxy_ssl_verify_depth 5;"));
-        assert!(location.contains(
-            "proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;"
-        ));
+        assert!(
+            location.contains("proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;")
+        );
         assert!(location.contains("proxy_set_header Host greenways.space;"));
         assert!(location.contains("proxy_set_header Cookie \"\";"));
         assert!(location.contains("proxy_set_header Origin \"\";"));

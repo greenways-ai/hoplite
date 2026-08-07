@@ -15,11 +15,21 @@ typedef struct {
     uint64_t prepared_handler;
     ngx_uint_t app;
     ngx_uint_t adapter;
+    ngx_flag_t request_body;
+    size_t request_body_max;
+    size_t request_body_chunk;
 } ngx_http_hoplite_loc_conf_t;
 
 #define NGX_HTTP_HOPLITE_RAW 0
 #define NGX_HTTP_HOPLITE_REQUEST 1
 #define NGX_HTTP_HOPLITE_REQUEST_HTA 2
+
+typedef struct {
+    ngx_http_request_t *request;
+    ngx_chain_t *chain;
+    off_t offset;
+    ngx_flag_t closed;
+} ngx_http_hoplite_body_t;
 
 typedef struct ngx_http_hoplite_ctx_s ngx_http_hoplite_ctx_t;
 
@@ -37,6 +47,7 @@ struct ngx_http_hoplite_ctx_s {
     ngx_flag_t queued;
     ngx_flag_t done;
     ngx_http_hoplite_sleep_t *sleep;
+    ngx_http_hoplite_body_t body;
 };
 
 static int
@@ -139,6 +150,30 @@ static ngx_command_t ngx_http_hoplite_commands[] = {
         ngx_http_hoplite_content,
         NGX_HTTP_LOC_CONF_OFFSET,
         0,
+        NULL
+    },
+    {
+        ngx_string("hoplite_request_body"),
+        NGX_HTTP_LOC_CONF | NGX_CONF_FLAG,
+        ngx_conf_set_flag_slot,
+        NGX_HTTP_LOC_CONF_OFFSET,
+        offsetof(ngx_http_hoplite_loc_conf_t, request_body),
+        NULL
+    },
+    {
+        ngx_string("hoplite_request_body_max"),
+        NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1,
+        ngx_conf_set_size_slot,
+        NGX_HTTP_LOC_CONF_OFFSET,
+        offsetof(ngx_http_hoplite_loc_conf_t, request_body_max),
+        NULL
+    },
+    {
+        ngx_string("hoplite_request_body_chunk"),
+        NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1,
+        ngx_conf_set_size_slot,
+        NGX_HTTP_LOC_CONF_OFFSET,
+        offsetof(ngx_http_hoplite_loc_conf_t, request_body_chunk),
         NULL
     },
     ngx_null_command
@@ -686,49 +721,85 @@ ngx_http_hoplite_cleanup(void *data)
     ctx->done = 1;
 }
 
-static ngx_int_t
-ngx_http_hoplite_handler(ngx_http_request_t *request)
+static int32_t
+ngx_http_hoplite_body_read(void *data, uint8_t *output,
+                           size_t capacity, size_t *returned)
 {
-    ngx_http_hoplite_loc_conf_t *conf;
-    ngx_http_hoplite_ctx_t *ctx;
-    ngx_pool_cleanup_t *cleanup;
-    ngx_str_t binding;
-    hoplite_request_v2_t native_request;
-    hoplite_outcome_v2_t outcome;
-    ngx_int_t rc;
+    ngx_http_hoplite_body_t *body = data;
+    ngx_buf_t *buffer;
+    off_t length, available;
+    ssize_t read;
+    size_t total = 0, amount;
 
-    if (ngx_http_hoplite_runtime == NULL) {
-        return NGX_HTTP_SERVICE_UNAVAILABLE;
+    if (body == NULL || output == NULL || returned == NULL || body->closed) {
+        return 1;
     }
 
-    conf = ngx_http_get_module_loc_conf(request, ngx_http_hoplite_module);
-    if (conf->handler.len == 0 && conf->app == NGX_CONF_UNSET_UINT) {
-        return NGX_DECLINED;
-    }
-    if (conf->app == NGX_CONF_UNSET_UINT && conf->prepared_handler == 0) {
-        conf->prepared_handler = hoplite_handler_prepare(
-            ngx_http_hoplite_runtime, conf->handler.data, conf->handler.len);
-        if (conf->prepared_handler == 0) {
-            ngx_log_error(NGX_LOG_ERR, request->connection->log, 0,
-                          "hoplite could not prepare handler %V",
-                          &conf->handler);
-            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    while (total < capacity && body->chain != NULL) {
+        buffer = body->chain->buf;
+        length = ngx_buf_size(buffer);
+        if (length < 0 || body->offset < 0 || body->offset > length) {
+            return 1;
         }
+        if (body->offset == length) {
+            body->chain = body->chain->next;
+            body->offset = 0;
+            continue;
+        }
+        available = length - body->offset;
+        amount = capacity - total;
+        if (available < (off_t) amount) {
+            amount = (size_t) available;
+        }
+
+        if (ngx_buf_in_memory(buffer)) {
+            ngx_memcpy(output + total,
+                       buffer->pos + (size_t) body->offset,
+                       amount);
+        } else if (buffer->in_file && buffer->file != NULL) {
+            read = ngx_read_file(buffer->file,
+                                 output + total,
+                                 amount,
+                                 buffer->file_pos + body->offset);
+            if (read < 0 || (size_t) read != amount) {
+                return 1;
+            }
+        } else {
+            return 1;
+        }
+
+        total += amount;
+        body->offset += (off_t) amount;
     }
 
-    ctx = ngx_pcalloc(request->pool, sizeof(*ctx));
-    if (ctx == NULL) {
-        return NGX_HTTP_INTERNAL_SERVER_ERROR;
-    }
-    ctx->request = request;
-    ngx_http_set_ctx(request, ctx, ngx_http_hoplite_module);
+    *returned = total;
+    return HOPLITE_CALLBACK_OK;
+}
 
-    cleanup = ngx_pool_cleanup_add(request->pool, 0);
-    if (cleanup == NULL) {
-        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+static void
+ngx_http_hoplite_body_close(void *data)
+{
+    ngx_http_hoplite_body_t *body = data;
+    if (body == NULL || body->closed) {
+        return;
     }
-    cleanup->handler = ngx_http_hoplite_cleanup;
-    cleanup->data = ctx;
+    body->closed = 1;
+    body->request = NULL;
+    body->chain = NULL;
+    body->offset = 0;
+}
+
+static ngx_int_t
+ngx_http_hoplite_invoke(ngx_http_request_t *request,
+                        ngx_http_hoplite_ctx_t *ctx,
+                        ngx_http_hoplite_loc_conf_t *conf,
+                        const hoplite_request_body_v1 *body)
+{
+    hoplite_request_v2_t native_request;
+    hoplite_request_v3_t native_request_v3;
+    hoplite_outcome_v2_t outcome;
+    ngx_str_t binding;
+    ngx_int_t rc;
 
     native_request.context = request;
     native_request.method = ngx_http_hoplite_slice(request->method_name);
@@ -739,62 +810,204 @@ ngx_http_hoplite_handler(ngx_http_request_t *request)
         ngx_http_hoplite_slice(request->connection->addr_text);
     native_request.header_count = ngx_http_hoplite_header_count(request);
     native_request.header_at = ngx_http_hoplite_header_at;
+
     if (conf->app != NGX_CONF_UNSET_UINT) {
-        if (hoplite_app_invoke_v2(ngx_http_hoplite_runtime, conf->app,
-                                  &native_request, &outcome) != 0)
-        {
+        if (body == NULL) {
+            rc = hoplite_app_invoke_v2(ngx_http_hoplite_runtime, conf->app,
+                                       &native_request, &outcome);
+        } else {
+            native_request_v3.request = native_request;
+            native_request_v3.body = body;
+            native_request_v3.max_body_bytes = conf->request_body_max;
+            native_request_v3.max_chunk_bytes = conf->request_body_chunk;
+            native_request_v3.require_declared_length = 1;
+            rc = hoplite_app_invoke_v3(ngx_http_hoplite_runtime, conf->app,
+                                       &native_request_v3, &outcome);
+        }
+        if (rc != 0) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         if (outcome.kind == 1) {
             ctx->response = outcome.id;
             rc = ngx_http_hoplite_send_native(ctx);
-            if (rc == NGX_HTTP_INTERNAL_SERVER_ERROR) {
-                ctx->done = 1;
+            if (ctx->response != 0) {
+                (void) hoplite_response_close_v2(ngx_http_hoplite_runtime,
+                                                 ctx->response);
+                ctx->response = 0;
             }
             return rc;
         }
-        if (outcome.kind != 2) {
+        if (outcome.kind != 2 || outcome.id == 0) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         ctx->work = outcome.id;
     } else if (conf->adapter == NGX_HTTP_HOPLITE_REQUEST_HTA) {
+        if (body != NULL) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
         if (hoplite_hta_encode_request(request, &binding) != NGX_OK) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         ctx->work = hoplite_work_call(ngx_http_hoplite_runtime,
                                       conf->prepared_handler,
                                       binding.data, binding.len);
+        if (ctx->work == 0) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
     } else {
-        if (hoplite_handler_invoke_v2(ngx_http_hoplite_runtime,
-                                      conf->prepared_handler, conf->adapter,
-                                      &native_request, &outcome) != 0)
-        {
+        if (conf->prepared_handler == 0) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        if (body == NULL) {
+            rc = hoplite_handler_invoke_v2(ngx_http_hoplite_runtime,
+                                           conf->prepared_handler,
+                                           conf->adapter,
+                                           &native_request,
+                                           &outcome);
+        } else {
+            native_request_v3.request = native_request;
+            native_request_v3.body = body;
+            native_request_v3.max_body_bytes = conf->request_body_max;
+            native_request_v3.max_chunk_bytes = conf->request_body_chunk;
+            native_request_v3.require_declared_length = 1;
+            rc = hoplite_handler_invoke_v3(ngx_http_hoplite_runtime,
+                                           conf->prepared_handler,
+                                           conf->adapter,
+                                           &native_request_v3,
+                                           &outcome);
+        }
+        if (rc != 0) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         if (outcome.kind == 1) {
             ctx->response = outcome.id;
             rc = ngx_http_hoplite_send_native(ctx);
-            if (rc == NGX_HTTP_INTERNAL_SERVER_ERROR) {
-                ctx->done = 1;
+            if (ctx->response != 0) {
+                (void) hoplite_response_close_v2(ngx_http_hoplite_runtime,
+                                                 ctx->response);
+                ctx->response = 0;
             }
             return rc;
         }
-        if (outcome.kind != 2) {
+        if (outcome.kind != 2 || outcome.id == 0) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         ctx->work = outcome.id;
-    }
-    if (ctx->work == 0) {
-        return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
     ngx_queue_insert_tail(&ngx_http_hoplite_requests, &ctx->queue);
     ctx->queued = 1;
     request->main->count++;
+    if (ngx_http_hoplite_drain(request->connection->log) != NGX_OK) {
+        ngx_http_hoplite_finish(ctx);
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+    return NGX_DONE;
+}
 
-    if (ngx_http_hoplite_drain(request->connection->log) != NGX_OK && !ctx->done) {
-        ngx_str_t body = ngx_string("Hoplite runtime failed\n");
-        ngx_http_hoplite_send(ctx, NGX_HTTP_INTERNAL_SERVER_ERROR, &body, NULL);
+static void
+ngx_http_hoplite_body_handler(ngx_http_request_t *request)
+{
+    ngx_http_hoplite_ctx_t *ctx;
+    ngx_http_hoplite_loc_conf_t *conf;
+    hoplite_request_body_v1 descriptor;
+    ngx_chain_t *chain;
+    off_t total = 0, size;
+    ngx_int_t rc;
+
+    ctx = ngx_http_get_module_ctx(request, ngx_http_hoplite_module);
+    conf = ngx_http_get_module_loc_conf(request, ngx_http_hoplite_module);
+    if (ctx == NULL || conf == NULL || request->request_body == NULL) {
+        ngx_http_finalize_request(request, NGX_HTTP_INTERNAL_SERVER_ERROR);
+        return;
+    }
+
+    for (chain = request->request_body->bufs;
+         chain != NULL;
+         chain = chain->next)
+    {
+        size = ngx_buf_size(chain->buf);
+        if (size < 0 || total > request->headers_in.content_length_n - size) {
+            ngx_http_finalize_request(request, NGX_HTTP_BAD_REQUEST);
+            return;
+        }
+        total += size;
+    }
+    if (total != request->headers_in.content_length_n) {
+        ngx_http_finalize_request(request, NGX_HTTP_BAD_REQUEST);
+        return;
+    }
+
+    ctx->body.request = request;
+    ctx->body.chain = request->request_body->bufs;
+    ctx->body.offset = 0;
+    ctx->body.closed = 0;
+    descriptor.context = &ctx->body;
+    descriptor.declared_length = (uint64_t) total;
+    descriptor.has_declared_length = 1;
+    descriptor.read = ngx_http_hoplite_body_read;
+    descriptor.close = ngx_http_hoplite_body_close;
+
+    rc = ngx_http_hoplite_invoke(request, ctx, conf, &descriptor);
+    ngx_http_finalize_request(request, rc);
+}
+
+static ngx_int_t
+ngx_http_hoplite_handler(ngx_http_request_t *request)
+{
+    ngx_http_hoplite_loc_conf_t *conf;
+    ngx_http_hoplite_ctx_t *ctx;
+    ngx_http_cleanup_t *cleanup;
+    ngx_int_t rc;
+
+    if (ngx_http_hoplite_runtime == NULL) {
+        return NGX_HTTP_SERVICE_UNAVAILABLE;
+    }
+    conf = ngx_http_get_module_loc_conf(request, ngx_http_hoplite_module);
+    if (conf == NULL) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+    ctx = ngx_pcalloc(request->pool, sizeof(ngx_http_hoplite_ctx_t));
+    if (ctx == NULL) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+    ctx->request = request;
+    ngx_queue_init(&ctx->queue);
+    ngx_http_set_ctx(request, ctx, ngx_http_hoplite_module);
+    cleanup = ngx_http_cleanup_add(request, 0);
+    if (cleanup == NULL) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+    cleanup->handler = ngx_http_hoplite_cleanup;
+    cleanup->data = ctx;
+
+    if (!conf->request_body
+        || request->headers_in.content_length_n == 0
+        || (request->headers_in.content_length_n < 0
+            && !request->headers_in.chunked))
+    {
+        return ngx_http_hoplite_invoke(request, ctx, conf, NULL);
+    }
+    if (hoplite_abi_version() < 3) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+    if (conf->adapter == NGX_HTTP_HOPLITE_REQUEST_HTA) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+    if (request->headers_in.content_length_n < 0) {
+        return NGX_HTTP_LENGTH_REQUIRED;
+    }
+    if ((uint64_t) request->headers_in.content_length_n
+        > (uint64_t) conf->request_body_max)
+    {
+        return NGX_HTTP_REQUEST_ENTITY_TOO_LARGE;
+    }
+
+    request->request_body_in_clean_file = 1;
+    rc = ngx_http_read_client_request_body(request,
+                                           ngx_http_hoplite_body_handler);
+    if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
+        return rc;
     }
     return NGX_DONE;
 }
@@ -956,6 +1169,9 @@ ngx_http_hoplite_create_loc_conf(ngx_conf_t *cf)
     if (conf != NULL) {
         conf->app = NGX_CONF_UNSET_UINT;
         conf->adapter = NGX_CONF_UNSET_UINT;
+        conf->request_body = NGX_CONF_UNSET;
+        conf->request_body_max = NGX_CONF_UNSET_SIZE;
+        conf->request_body_chunk = NGX_CONF_UNSET_SIZE;
     }
     return conf;
 }
@@ -970,6 +1186,22 @@ ngx_http_hoplite_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_conf_merge_uint_value(conf->app, previous->app, NGX_CONF_UNSET_UINT);
     ngx_conf_merge_uint_value(conf->adapter, previous->adapter,
                               NGX_HTTP_HOPLITE_REQUEST);
+    ngx_conf_merge_value(conf->request_body, previous->request_body, 0);
+    ngx_conf_merge_size_value(conf->request_body_max,
+                              previous->request_body_max, 8 * 1024 * 1024);
+    ngx_conf_merge_size_value(conf->request_body_chunk,
+                              previous->request_body_chunk, 64 * 1024);
+    if (conf->request_body_chunk == 0
+        || conf->request_body_max == 0
+        || conf->request_body_chunk > conf->request_body_max)
+    {
+        return "hoplite request body limits must be positive and chunk <= max";
+    }
+    if (conf->request_body
+        && conf->adapter == NGX_HTTP_HOPLITE_REQUEST_HTA)
+    {
+        return "hoplite_request_body cannot be used with request+hta";
+    }
     (void) cf;
     return NGX_CONF_OK;
 }

@@ -51,6 +51,12 @@ pub struct Route {
     pub adapter: RouteAdapter,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RequestBodyPolicy {
+    pub max_bytes: usize,
+    pub max_chunk_bytes: usize,
+}
+
 /// A fixed-prefix, fixed-origin Nginx upstream owned by the Hoplite build.
 ///
 /// Proxies are deliberately not selected from request data. They are inert app
@@ -72,6 +78,7 @@ pub struct App {
     pub port: u16,
     pub hostnames: Vec<String>,
     pub routes: Vec<Route>,
+    pub request_body: Option<RequestBodyPolicy>,
     pub proxies: Vec<Proxy>,
     pub openapi_path: Option<String>,
 }
@@ -206,6 +213,10 @@ fn parse_app(
         keyword_field(&value, "route/adapter"),
         &format!("Hoplite app {name:?}"),
     )?;
+    let request_body = parse_request_body(
+        field(&value, "request/body"),
+        &format!("Hoplite app {name:?}"),
+    )?;
     let proxies = sequence_field(&value, "proxies")
         .unwrap_or_default()
         .into_iter()
@@ -231,6 +242,15 @@ fn parse_app(
     if routes.is_empty() {
         return Err(format!("Hoplite app {name:?} has no resource operations"));
     }
+    if request_body.is_some()
+        && routes
+            .iter()
+            .any(|route| route.adapter == RouteAdapter::RequestHta)
+    {
+        return Err(format!(
+            "Hoplite app {name:?} cannot combine :request/body with :request+hta routes"
+        ));
+    }
     let openapi_path = field(&value, "openapi")
         .and_then(|openapi| text_field(&openapi, "path"))
         .or_else(|| (!production).then(|| "/openapi.json".into()));
@@ -240,20 +260,69 @@ fn parse_app(
         port,
         hostnames,
         routes,
+        request_body,
         proxies,
         openapi_path,
     })
 }
 
+fn parse_request_body(
+    value: Option<Value>,
+    context: &str,
+) -> Result<Option<RequestBodyPolicy>, String> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let entries = core::map_entries(&value)
+        .ok_or_else(|| format!("{context} :request/body must be a map"))?;
+    for (key, _) in &entries {
+        let Value::Keyword(key) = key else {
+            return Err(format!("{context} :request/body keys must be keywords"));
+        };
+        if !matches!(key.as_str(), "max-bytes" | "max-chunk-bytes") {
+            return Err(format!(
+                "{context} :request/body contains unsupported field :{}",
+                key.as_str()
+            ));
+        }
+    }
+    let max_bytes = number_field(&value, "max-bytes")
+        .ok_or_else(|| format!("{context} :request/body requires :max-bytes"))?;
+    let max_bytes = usize::try_from(max_bytes)
+        .ok()
+        .filter(|value| *value > 0)
+        .ok_or_else(|| format!("{context} :request/body :max-bytes must be positive"))?;
+    let max_chunk_bytes = number_field(&value, "max-chunk-bytes")
+        .map(|value| {
+            usize::try_from(value)
+                .ok()
+                .filter(|value| *value > 0)
+                .ok_or_else(|| format!("{context} :request/body :max-chunk-bytes must be positive"))
+        })
+        .transpose()?
+        .unwrap_or(max_bytes.min(64 * 1024));
+    if max_chunk_bytes > max_bytes {
+        return Err(format!(
+            "{context} :request/body :max-chunk-bytes cannot exceed :max-bytes"
+        ));
+    }
+    Ok(Some(RequestBodyPolicy {
+        max_bytes,
+        max_chunk_bytes,
+    }))
+}
+
 fn parse_proxy(value: &Value, context: &str) -> Result<Proxy, String> {
-    let entries = core::map_entries(value)
-        .ok_or_else(|| format!("{context} must be a map"))?;
+    let entries = core::map_entries(value).ok_or_else(|| format!("{context} must be a map"))?;
     for (key, _) in &entries {
         let Value::Keyword(key) = key else {
             return Err(format!("{context} keys must be keywords"));
         };
         if !matches!(key.as_str(), "path" | "upstream") {
-            return Err(format!("{context} contains unsupported field :{}", key.as_str()));
+            return Err(format!(
+                "{context} contains unsupported field :{}",
+                key.as_str()
+            ));
         }
     }
 
@@ -311,7 +380,9 @@ fn parse_proxy_upstream(upstream: &str, context: &str) -> Result<(String, String
     } else if let Some(rest) = upstream.strip_prefix("http://") {
         (false, rest)
     } else {
-        return Err(format!("{context} :upstream must use https:// or loopback http://"));
+        return Err(format!(
+            "{context} :upstream must use https:// or loopback http://"
+        ));
     };
     let slash = rest
         .find('/')
@@ -326,7 +397,9 @@ fn parse_proxy_upstream(upstream: &str, context: &str) -> Result<(String, String
         || !safe_proxy_path(path)
         || dot_segment(path)
     {
-        return Err(format!("{context} :upstream is not a fixed, safe origin and path"));
+        return Err(format!(
+            "{context} :upstream is not a fixed, safe origin and path"
+        ));
     }
     let (server_name, loopback) = parse_proxy_authority(authority, context)?;
     if !secure && !loopback {
@@ -343,7 +416,9 @@ fn parse_proxy_authority(authority: &str, context: &str) -> Result<(String, bool
         let host = &authority[1..close];
         let suffix = &authority[close + 1..];
         if host != "::1" || (!suffix.is_empty() && !valid_port_suffix(suffix)) {
-            return Err(format!("{context} :upstream has an unsupported IPv6 authority"));
+            return Err(format!(
+                "{context} :upstream has an unsupported IPv6 authority"
+            ));
         }
         return Ok((host.to_owned(), true));
     }
@@ -362,7 +437,9 @@ fn parse_proxy_authority(authority: &str, context: &str) -> Result<(String, bool
         || !host
             .chars()
             .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '.'))
-        || port.is_some_and(|value| value.is_empty() || !value.chars().all(|character| character.is_ascii_digit()))
+        || port.is_some_and(|value| {
+            value.is_empty() || !value.chars().all(|character| character.is_ascii_digit())
+        })
     {
         return Err(format!("{context} :upstream authority is invalid"));
     }
@@ -722,7 +799,10 @@ mod tests {
                 (keyword("path"), Value::String(path.into())),
                 (keyword("upstream"), Value::String(upstream.into())),
             ]);
-            assert!(parse_proxy(&value, "test proxy").is_err(), "accepted {path} -> {upstream}");
+            assert!(
+                parse_proxy(&value, "test proxy").is_err(),
+                "accepted {path} -> {upstream}"
+            );
         }
     }
 
