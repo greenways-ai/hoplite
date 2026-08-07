@@ -1,3 +1,18 @@
+/*
+ * The splash homepage has one Starlight content panel containing both the
+ * generated Starlight hero and the authored Hoplite homepage. custom.css used
+ * to hide that entire first panel, which left only the navigation chrome.
+ * Keep the panel and hide only Starlight's generated hero. The important flag
+ * is intentional: Astro may reorder custom stylesheets while bundling them.
+ */
+main:has(.hoplite-hero) > .content-panel:first-child {
+  display: block !important;
+}
+
+main:has(.hoplite-hero) > .content-panel > .sl-container > .hero {
+  display: none;
+}
+
 .benchmark-status {
   display: grid;
   grid-template-columns: minmax(220px, .7fr) minmax(0, 1.3fr) auto;
