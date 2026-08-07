@@ -6,8 +6,8 @@
 //! into Hara values or accepting caller-selected paths.
 
 use hoplite_data_plane_abi::{
-    BodyAccount, BodyError, BodyLimits, RequestBody, ResponseBody, ResourceHandle,
-    ResourceHandleError,
+    BodyAccount, BodyError, BodyLimits, RequestBody, ResourceHandle, ResourceHandleError,
+    ResponseBody,
 };
 use std::ffi::c_void;
 use std::fmt;
@@ -134,10 +134,7 @@ pub struct FfiRequestBody {
 }
 
 impl FfiRequestBody {
-    pub fn new(
-        descriptor: HopliteRequestBodyV1,
-        limits: BodyLimits,
-    ) -> Result<Self, BridgeError> {
+    pub fn new(descriptor: HopliteRequestBodyV1, limits: BodyLimits) -> Result<Self, BridgeError> {
         validate_context(descriptor.context)?;
         if descriptor.read.is_none() {
             return Err(DescriptorError::MissingReadCallback.into());
@@ -348,27 +345,33 @@ mod tests {
         capacity: usize,
         returned: *mut usize,
     ) -> i32 {
-        let context = &mut *(context as *mut RequestContext);
+        // SAFETY: test descriptors point at a live request context for the callback lifetime.
+        let context = unsafe { &mut *(context as *mut RequestContext) };
         if context.status != HOPLITE_CALLBACK_OK {
             return context.status;
         }
         let remaining = context.bytes.len().saturating_sub(context.cursor);
         let count = capacity.min(remaining);
         if count != 0 {
-            slice::from_raw_parts_mut(output, capacity)[..count]
-                .copy_from_slice(&context.bytes[context.cursor..context.cursor + count]);
+            // SAFETY: the bridge supplies a writable output buffer of `capacity` bytes.
+            let output = unsafe { slice::from_raw_parts_mut(output, capacity) };
+            output[..count].copy_from_slice(&context.bytes[context.cursor..context.cursor + count]);
             context.cursor += count;
         }
-        *returned = if context.overread {
-            capacity.saturating_add(1)
-        } else {
-            count
-        };
+        // SAFETY: `returned` is supplied by the bridge and is non-null.
+        unsafe {
+            *returned = if context.overread {
+                capacity.saturating_add(1)
+            } else {
+                count
+            };
+        }
         HOPLITE_CALLBACK_OK
     }
 
     unsafe extern "C" fn request_close(context: *mut c_void) {
-        let context = &mut *(context as *mut RequestContext);
+        // SAFETY: test descriptors point at a live request context for the callback lifetime.
+        let context = unsafe { &mut *(context as *mut RequestContext) };
         context.close_count += 1;
     }
 
@@ -387,38 +390,45 @@ mod tests {
         capacity: usize,
         returned: *mut usize,
     ) -> i32 {
-        let context = &mut *(context as *mut ResponseContext);
+        // SAFETY: test descriptors point at a live response context for the callback lifetime.
+        let context = unsafe { &mut *(context as *mut ResponseContext) };
         if context.status != HOPLITE_CALLBACK_OK {
             return context.status;
         }
-        if context
-            .early_eof_at
-            .is_some_and(|limit| offset >= limit)
-        {
-            *returned = 0;
+        if context.early_eof_at.is_some_and(|limit| offset >= limit) {
+            // SAFETY: `returned` is supplied by the bridge and is non-null.
+            unsafe { *returned = 0 };
             return HOPLITE_CALLBACK_OK;
         }
         let offset = usize::try_from(offset).unwrap_or(usize::MAX);
         let remaining = context.bytes.len().saturating_sub(offset);
         let count = capacity.min(remaining);
         if count != 0 {
-            slice::from_raw_parts_mut(output, capacity)[..count]
-                .copy_from_slice(&context.bytes[offset..offset + count]);
+            // SAFETY: the bridge supplies a writable output buffer of `capacity` bytes.
+            let output = unsafe { slice::from_raw_parts_mut(output, capacity) };
+            output[..count].copy_from_slice(&context.bytes[offset..offset + count]);
         }
-        *returned = if context.overread {
-            capacity.saturating_add(1)
-        } else {
-            count
-        };
+        // SAFETY: `returned` is supplied by the bridge and is non-null.
+        unsafe {
+            *returned = if context.overread {
+                capacity.saturating_add(1)
+            } else {
+                count
+            };
+        }
         HOPLITE_CALLBACK_OK
     }
 
     unsafe extern "C" fn response_close(context: *mut c_void) {
-        let context = &mut *(context as *mut ResponseContext);
+        // SAFETY: test descriptors point at a live response context for the callback lifetime.
+        let context = unsafe { &mut *(context as *mut ResponseContext) };
         context.close_count += 1;
     }
 
-    fn request_descriptor(context: &mut RequestContext, declared_length: u64) -> HopliteRequestBodyV1 {
+    fn request_descriptor(
+        context: &mut RequestContext,
+        declared_length: u64,
+    ) -> HopliteRequestBodyV1 {
         HopliteRequestBodyV1 {
             context: context as *mut RequestContext as *mut c_void,
             declared_length,
@@ -519,7 +529,10 @@ mod tests {
         )
         .unwrap();
         let mut output = [0_u8; 1];
-        assert!(matches!(body.read_chunk(&mut output), Err(BodyError::Io(_))));
+        assert!(matches!(
+            body.read_chunk(&mut output),
+            Err(BodyError::Io(_))
+        ));
     }
 
     #[test]
