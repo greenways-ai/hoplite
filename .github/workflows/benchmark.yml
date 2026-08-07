@@ -16,6 +16,10 @@ on:
       - "packaging/scripts/measure-stack-footprints.sh"
       - "packaging/scripts/run-benchmarks.sh"
       - "packaging/scripts/validate-benchmark-data.sh"
+      - "website/scripts/verify-pages-output.mjs"
+      - "website/src/components/PerformanceProof.astro"
+      - "website/src/components/RuntimeFootprint.astro"
+      - "website/src/components/StackComparison.astro"
 
 permissions:
   contents: read
@@ -48,13 +52,6 @@ jobs:
           sudo apt-get install --yes --no-install-recommends wrk jq curl
       - name: Run and validate benchmark suite
         run: bash hoplite/packaging/scripts/run-benchmarks.sh benchmark-output
-      - name: Build website against measured reports
-        working-directory: hoplite
-        run: |
-          cp benchmark-output/http-benchmark.json website/src/data/http-benchmark.json
-          cp benchmark-output/stack-footprints.json website/src/data/stack-footprints.json
-          npm --prefix website ci
-          HOPLITE_REQUIRE_MEASURED_BENCHMARKS=1 npm --prefix website run build
       - uses: actions/upload-artifact@v4
         with:
           name: hoplite-benchmarks
@@ -63,6 +60,13 @@ jobs:
             hoplite/benchmark-output/stack-footprints.json
           if-no-files-found: error
           retention-days: 90
+      - name: Build website against measured reports
+        working-directory: hoplite
+        run: |
+          cp benchmark-output/http-benchmark.json website/src/data/http-benchmark.json
+          cp benchmark-output/stack-footprints.json website/src/data/stack-footprints.json
+          npm --prefix website ci
+          HOPLITE_REQUIRE_MEASURED_BENCHMARKS=1 npm --prefix website run build
       - uses: actions/upload-artifact@v4
         with:
           name: hoplite-benchmark-site-${{ github.sha }}
