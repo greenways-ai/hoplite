@@ -1,0 +1,100 @@
+name: Materialize native host providers
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'core/nginx/ngx_http_hoplite_module.c'
+      - 'core/nginx/hoplite_host_registry.h'
+      - 'core/nginx/tests/host_registry.c'
+      - 'core/examples/app.hal'
+      - 'packaging/scripts/generate-host-providers'
+      - 'packaging/scripts/smoke-host-providers.sh'
+      - '.github/workflows/materialize-host-providers.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: materialize-native-host-providers-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  materialize:
+    if: >-
+      github.repository == 'greenways-ai/hoplite' &&
+      (github.event_name != 'pull_request' ||
+       github.head_ref == 'agent/native-host-providers')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          path: hoplite
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: d0794a7f2e20993220778bcbff97c16735fbb8b4
+          path: hara
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Materialize registered provider dispatch
+        working-directory: hoplite
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python3 -m py_compile packaging/scripts/generate-host-providers
+          if grep -q 'ngx_http_hoplite_nginx_provider =' core/nginx/ngx_http_hoplite_module.c; then
+            echo 'Native host-provider dispatch is already materialized.'
+          else
+            python3 packaging/scripts/generate-host-providers
+          fi
+
+      - name: Compile and exercise the provider registry
+        working-directory: hoplite
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror \
+            -I core/nginx \
+            core/nginx/tests/host_registry.c \
+            -o /tmp/hoplite-host-registry-test
+          /tmp/hoplite-host-registry-test
+          grep -F 'provider = ngx_http_hoplite_provider_find(service);' \
+            core/nginx/ngx_http_hoplite_module.c
+          ! sed -n '/ngx_http_hoplite_host_call(/,/^}/p' \
+            core/nginx/ngx_http_hoplite_module.c \
+            | grep -F '"sleep"'
+
+      - name: Test the locked Rust workspace
+        working-directory: hoplite
+        run: cargo test --manifest-path core/Cargo.toml --workspace --locked
+
+      - name: Commit materialized Nginx source
+        working-directory: hoplite
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+        run: |
+          if git diff --quiet -- core/nginx/ngx_http_hoplite_module.c; then
+            echo 'Native host-provider source is already materialized.'
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add core/nginx/ngx_http_hoplite_module.c
+          git commit -m 'Dispatch Hara host calls through registered native providers'
+          git fetch origin "$HEAD_BRANCH"
+          git rebase "origin/$HEAD_BRANCH"
+          git push origin HEAD:"$HEAD_BRANCH"
+
+      - name: Remove local build output before the production image
+        run: rm -rf hoplite/core/target hara/core/rust/target
+
+      - name: Build and exercise the production image
+        run: |
+          docker build -f hoplite/packaging/docker/Dockerfile -t hoplite-host-providers .
+          bash hoplite/packaging/scripts/smoke-request-body-v3.sh hoplite-host-providers
+          bash hoplite/packaging/scripts/smoke-host-providers.sh hoplite-host-providers
