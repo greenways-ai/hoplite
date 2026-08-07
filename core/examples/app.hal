@@ -2,7 +2,7 @@
   (:require [hoplite.core :as h]))
 
 ;; This example is also the production-image conformance surface for the
-;; request-body V3 adapter. The materializer adds the bounded body route below.
+;; request-body V3 adapter and its bounded native body-handle route.
 
 (defn hello
   [request]
