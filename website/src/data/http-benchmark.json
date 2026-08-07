@@ -1,111 +1,94 @@
 {
-  "status": "measured",
-  "generatedAt": "2026-08-05T01:36:45Z",
-  "commit": "ae9946502661e8146e2d1a97ad8dedff35ca285d",
-  "runner": "Ubuntu 24.04 GitHub-hosted runner",
-  "cpu": "INTEL(R) XEON(R) PLATINUM 8573C",
-  "logicalCpus": 4,
+  "schemaVersion": 2,
+  "status": "pending",
+  "benchmark": "equivalent-payload-http",
+  "generatedAt": null,
+  "commit": null,
+  "runner": null,
+  "cpu": null,
+  "logicalCpus": null,
+  "provenance": {
+    "haraRevision": null,
+    "nginxVersion": "1.30.4",
+    "workflowRunId": null,
+    "workflowRunUrl": null
+  },
   "load": {
     "threads": 4,
     "connections": 128,
     "duration": "20s",
     "rounds": 3
   },
+  "methodology": {
+    "warmup": "2 seconds per target before measured rounds",
+    "scheduling": "Target order alternates on every round",
+    "idleSamplesPerTarget": 10,
+    "memoryAccounting": "Docker container memory as reported by docker stats",
+    "scope": "One fixed synchronous route; not an application-capacity or framework-feature benchmark"
+  },
+  "responseContract": {
+    "status": 200,
+    "contentType": "text/plain; charset=utf-8",
+    "xHoplite": "true",
+    "bodyBytes": 19,
+    "bodySha256": null,
+    "matchedAcrossTargets": null
+  },
   "payload": {
     "bodyBytes": 19,
-    "sha256": "eebd3e6e00db89caca41a3f0170393ed2af570d95d1c83639e70d60531c82c71",
-    "body": "Hello from Hoplite\\n"
+    "sha256": null,
+    "body": "Hello from Hoplite\n"
   },
   "targets": {
     "hoplite": {
       "id": "hoplite",
-      "label": "Hoplite",
-      "image": "hoplite-benchmark",
-      "executable": "/usr/local/bin/hoplite",
-      "responseBytes": 19,
-      "responseSha256": "eebd3e6e00db89caca41a3f0170393ed2af570d95d1c83639e70d60531c82c71",
-      "imageSizeMiB": 129.374979,
-      "executableSizeMiB": 44.272736,
-      "idleMemoryMiB": 60.690000,
+      "label": "Hoplite server",
+      "image": null,
+      "imageId": null,
+      "executable": "/usr/local/bin/hoplite-server",
+      "imageSizeMiB": null,
+      "executableSizeMiB": null,
+      "processCount": null,
+      "nginxWorkerCount": null,
+      "idleMemoryMiB": null,
+      "responseContract": null,
       "metrics": {
-        "requestsPerSecond": 85816.71,
-        "latencyP50Ms": 1.360000,
-        "latencyP99Ms": 5.300000,
-        "peakMemoryMiB": 74.180000
+        "requestsPerSecond": null,
+        "latencyP50Ms": null,
+        "latencyP99Ms": null,
+        "peakMemoryMiB": null
       },
-      "samples": [
-        {
-          "round": 1,
-          "requestsPerSecond": 85522.50,
-          "latencyP50Ms": 1.370000,
-          "latencyP99Ms": 5.180000,
-          "peakMemoryMiB": 66.240000
-        },
-        {
-          "round": 2,
-          "requestsPerSecond": 85816.71,
-          "latencyP50Ms": 1.360000,
-          "latencyP99Ms": 5.580000,
-          "peakMemoryMiB": 70.510000
-        },
-        {
-          "round": 3,
-          "requestsPerSecond": 85934.72,
-          "latencyP50Ms": 1.360000,
-          "latencyP99Ms": 5.300000,
-          "peakMemoryMiB": 74.180000
-        }
-      ]
+      "samples": []
     },
     "nginx": {
       "id": "nginx",
       "label": "Plain Nginx",
-      "image": "hoplite-nginx-baseline",
+      "image": null,
+      "imageId": null,
       "executable": "/opt/nginx/sbin/nginx",
-      "responseBytes": 19,
-      "responseSha256": "eebd3e6e00db89caca41a3f0170393ed2af570d95d1c83639e70d60531c82c71",
-      "imageSizeMiB": 89.611292,
-      "executableSizeMiB": 4.480095,
-      "idleMemoryMiB": 9.371000,
+      "imageSizeMiB": null,
+      "executableSizeMiB": null,
+      "processCount": null,
+      "nginxWorkerCount": null,
+      "idleMemoryMiB": null,
+      "responseContract": null,
       "metrics": {
-        "requestsPerSecond": 96307.23,
-        "latencyP50Ms": 1.160000,
-        "latencyP99Ms": 5.740000,
-        "peakMemoryMiB": 11.200000
+        "requestsPerSecond": null,
+        "latencyP50Ms": null,
+        "latencyP99Ms": null,
+        "peakMemoryMiB": null
       },
-      "samples": [
-        {
-          "round": 1,
-          "requestsPerSecond": 96997.01,
-          "latencyP50Ms": 1.150000,
-          "latencyP99Ms": 5.660000,
-          "peakMemoryMiB": 11.080000
-        },
-        {
-          "round": 2,
-          "requestsPerSecond": 96307.23,
-          "latencyP50Ms": 1.160000,
-          "latencyP99Ms": 5.740000,
-          "peakMemoryMiB": 11.080000
-        },
-        {
-          "round": 3,
-          "requestsPerSecond": 96078.44,
-          "latencyP50Ms": 1.160000,
-          "latencyP99Ms": 6.140000,
-          "peakMemoryMiB": 11.200000
-        }
-      ]
+      "samples": []
     }
   },
   "comparison": {
-    "throughputPercentOfNginx": 89.1072352511852,
-    "requestRateDeltaPercent": -10.892764748814798,
-    "p50DeltaMs": 0.20000000000000018,
-    "p99DeltaMs": -0.4400000000000004,
-    "idleMemoryDeltaMiB": 51.318999999999996,
-    "peakMemoryDeltaMiB": 62.980000000000004,
-    "imageSizeDeltaMiB": 39.76368699999999,
-    "executableSizeDeltaMiB": 39.792641
+    "throughputPercentOfNginx": null,
+    "requestRateDeltaPercent": null,
+    "p50DeltaMs": null,
+    "p99DeltaMs": null,
+    "idleMemoryDeltaMiB": null,
+    "peakMemoryDeltaMiB": null,
+    "imageSizeDeltaMiB": null,
+    "executableSizeDeltaMiB": null
   }
 }

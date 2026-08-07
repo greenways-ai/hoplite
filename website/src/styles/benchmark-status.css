@@ -1,0 +1,90 @@
+.benchmark-status {
+  display: grid;
+  grid-template-columns: minmax(220px, .7fr) minmax(0, 1.3fr) auto;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding: 1rem 1.2rem;
+  color: var(--hoplite-muted);
+  background: var(--hoplite-panel);
+  border: 1px solid var(--hoplite-line);
+  border-radius: 12px;
+}
+
+.benchmark-status > div {
+  display: grid;
+  gap: .35rem;
+}
+
+.benchmark-status small {
+  color: var(--hoplite-cyan);
+  font: .53rem var(--sl-font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.benchmark-status strong {
+  color: var(--sl-color-white);
+  font: 400 1.3rem/1.15 var(--gw-font-display, "Marcellus", serif);
+}
+
+.benchmark-status p {
+  margin: 0;
+  font-size: .78rem;
+  line-height: 1.6;
+}
+
+.benchmark-status a {
+  color: var(--hoplite-cyan);
+  font: .62rem var(--sl-font-mono);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.benchmark-status--pending {
+  background:
+    linear-gradient(90deg, rgba(226, 173, 79, .09), transparent 48%),
+    var(--hoplite-panel);
+  border-color: rgba(226, 173, 79, .32);
+}
+
+.benchmark-status--pending small,
+.benchmark-status--pending a { color: #f4d38c; }
+
+.benchmark-status--measured {
+  background:
+    linear-gradient(90deg, rgba(77, 218, 185, .09), transparent 48%),
+    var(--hoplite-panel);
+  border-color: rgba(77, 218, 185, .32);
+}
+
+.benchmark-equivalence {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.benchmark-footprints dl {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.comparison-conclusion a,
+.benchmark-provenance a { color: var(--hoplite-cyan); }
+
+:root[data-theme="light"] .benchmark-status {
+  background: rgba(255, 255, 255, .82);
+}
+
+:root[data-theme="light"] .benchmark-status strong { color: #11252c; }
+
+@media (max-width: 1100px) {
+  .benchmark-status { grid-template-columns: 1fr auto; }
+  .benchmark-status p { grid-column: 1 / -1; }
+  .benchmark-footprints dl { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 700px) {
+  .benchmark-status { grid-template-columns: 1fr; }
+  .benchmark-status p { grid-column: 1; }
+  .benchmark-status a { white-space: normal; }
+  .benchmark-equivalence { grid-template-columns: 1fr; }
+  .benchmark-footprints dl { grid-template-columns: 1fr; }
+}

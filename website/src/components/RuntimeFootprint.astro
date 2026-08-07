@@ -1,0 +1,40 @@
+---
+import { httpBenchmark as benchmark, type Measurement } from "../lib/benchmark-data";
+
+const hoplite = benchmark.targets.hoplite;
+const comparison = benchmark.comparison;
+const format = (value: Measurement, maximumFractionDigits = 2) =>
+  value == null
+    ? "—"
+    : new Intl.NumberFormat("en-US", { maximumFractionDigits }).format(value);
+const signed = (value: Measurement, suffix = "") =>
+  value == null ? "—" : `${value >= 0 ? "+" : ""}${format(value)}${suffix}`;
+---
+
+<div class="benchmark-equivalence benchmark-runtime-facts" aria-label="Hoplite serving-plane footprint">
+  <div>
+    <small>Runtime executable</small>
+    <strong>{hoplite.executableSizeMiB == null ? "—" : `${format(hoplite.executableSizeMiB)} MiB`}</strong>
+    <span>{hoplite.executable}</span>
+  </div>
+  <div>
+    <small>Deployment image</small>
+    <strong>{hoplite.imageSizeMiB == null ? "—" : `${format(hoplite.imageSizeMiB)} MiB`}</strong>
+    <span>{hoplite.image ?? "Measured workflow image"}</span>
+  </div>
+  <div>
+    <small>Idle memory</small>
+    <strong>{hoplite.idleMemoryMiB == null ? "—" : `${format(hoplite.idleMemoryMiB)} MiB`}</strong>
+    <span>{signed(comparison.idleMemoryDeltaMiB, " MiB")} versus raw Nginx</span>
+  </div>
+  <div>
+    <small>Resident processes</small>
+    <strong>{format(hoplite.processCount, 0)}</strong>
+    <span>Nginx master and worker processes in the container</span>
+  </div>
+  <div>
+    <small>Nginx workers</small>
+    <strong>{format(hoplite.nginxWorkerCount, 0)}</strong>
+    <span>Recorded after the server became ready</span>
+  </div>
+</div>

@@ -1,19 +1,31 @@
 ---
 title: Hoplite
-description: A high-performance Hara application server built directly into Nginx.
-template: splash
-pagefind: false
+pageTemplate: splash
+hero:
+  tagline: Hara application server built directly into Nginx.
+head:
+  - tag: meta
+    attrs:
+      property: og:image
+      content: https://oss.greenways.ai/visual-language/artwork/hoplite/og-hoplite.jpg
+  - tag: meta
+    attrs:
+      name: twitter:image
+      content: https://oss.greenways.ai/visual-language/artwork/hoplite/og-hoplite.jpg
 ---
-import HomeHero from "../../components/HomeHero.astro";
-import LaunchSurface from "../../components/LaunchSurface.astro";
-import PerformanceProof from "../../components/PerformanceProof.astro";
-import StackComparison from "../../components/StackComparison.astro";
-import TechnicalIndex from "../../components/TechnicalIndex.astro";
-import ProjectStatus from "../../components/ProjectStatus.astro";
+
+import HomeHero from '../../components/HomeHero.astro';
+import LaunchSurface from '../../components/LaunchSurface.astro';
+import PerformanceProof from '../../components/PerformanceProof.astro';
+import RuntimeFootprint from '../../components/RuntimeFootprint.astro';
+import StackComparison from '../../components/StackComparison.astro';
+import TechnicalIndex from '../../components/TechnicalIndex.astro';
+import ProjectStatus from '../../components/ProjectStatus.astro';
 
 <HomeHero />
 <LaunchSurface />
 <PerformanceProof />
+<RuntimeFootprint />
 <StackComparison />
 <TechnicalIndex />
 <ProjectStatus />
