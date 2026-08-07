@@ -3,7 +3,7 @@
 #include <ngx_http.h>
 
 #include "hoplite_hta.h"
-#include "hoplite_host_registry.h"
+#include "hoplite_host_provider.h"
 #include "hoplite_runtime.h"
 
 typedef struct {
@@ -33,6 +33,8 @@ typedef struct {
 } ngx_http_hoplite_body_t;
 
 typedef struct ngx_http_hoplite_ctx_s ngx_http_hoplite_ctx_t;
+typedef struct ngx_http_hoplite_native_completion_s
+    ngx_http_hoplite_native_completion_t;
 
 typedef struct {
     ngx_event_t event;
@@ -77,7 +79,18 @@ struct ngx_http_hoplite_ctx_s {
     ngx_flag_t done;
     ngx_http_hoplite_sleep_t *sleep;
     const ngx_http_hoplite_provider_t *provider;
+    const hoplite_host_provider_v1_t *native_provider;
+    ngx_http_hoplite_native_completion_t *native_completion;
     ngx_http_hoplite_body_t body;
+};
+
+struct ngx_http_hoplite_native_completion_s {
+    ngx_http_hoplite_ctx_t *ctx;
+    uint64_t call;
+    ngx_log_t *log;
+    ngx_flag_t completed;
+    ngx_flag_t retained;
+    ngx_flag_t failed;
 };
 
 static int
@@ -299,7 +312,17 @@ ngx_http_hoplite_finish(ngx_http_hoplite_ctx_t *ctx)
     if (ctx->provider != NULL && ctx->provider->cancel != NULL) {
         ctx->provider->cancel(ctx);
     }
+    if (ctx->native_provider != NULL
+        && ctx->native_provider->cancel != NULL)
+    {
+        ctx->native_provider->cancel(ctx);
+    }
+    if (ctx->native_completion != NULL) {
+        ctx->native_completion->completed = 1;
+        ctx->native_completion = NULL;
+    }
     ctx->provider = NULL;
+    ctx->native_provider = NULL;
     if (ctx->queued) {
         ngx_queue_remove(&ctx->queue);
         ctx->queued = 0;
@@ -605,6 +628,72 @@ ngx_http_hoplite_provider_find(ngx_str_t service)
     return hoplite_host_registry_find(&ngx_http_hoplite_providers, lookup);
 }
 
+static int32_t
+ngx_http_hoplite_native_complete(void *data,
+                                 const uint8_t *hta,
+                                 size_t hta_len,
+                                 ngx_flag_t failure)
+{
+    ngx_http_hoplite_native_completion_t *completion = data;
+    ngx_http_hoplite_ctx_t *ctx;
+    int rc;
+
+    if (completion == NULL || completion->ctx == NULL
+        || completion->completed || (hta_len != 0 && hta == NULL)
+        || ngx_http_hoplite_runtime == NULL)
+    {
+        return HOPLITE_HOST_PROVIDER_ERROR;
+    }
+    ctx = completion->ctx;
+    if (ctx->done || ctx->native_completion != completion) {
+        return HOPLITE_HOST_PROVIDER_ERROR;
+    }
+
+    completion->completed = 1;
+    ctx->native_completion = NULL;
+    ctx->native_provider = NULL;
+    rc = failure
+        ? hoplite_call_reject(ngx_http_hoplite_runtime,
+                              completion->call, hta, hta_len)
+        : hoplite_call_resolve(ngx_http_hoplite_runtime,
+                               completion->call, hta, hta_len);
+    if (rc != 0) {
+        completion->failed = 1;
+        if (completion->retained) {
+            ngx_str_t body = ngx_string("Hoplite runtime delivery failed\n");
+            ngx_http_hoplite_send(ctx, NGX_HTTP_INTERNAL_SERVER_ERROR,
+                                  &body, NULL);
+        }
+        return HOPLITE_HOST_PROVIDER_ERROR;
+    }
+    if (completion->retained
+        && ngx_http_hoplite_drain(completion->log) != NGX_OK)
+    {
+        ngx_str_t body = ngx_string("Hoplite runtime delivery failed\n");
+        completion->failed = 1;
+        ngx_http_hoplite_send(ctx, NGX_HTTP_INTERNAL_SERVER_ERROR,
+                              &body, NULL);
+        return HOPLITE_HOST_PROVIDER_ERROR;
+    }
+    return HOPLITE_HOST_PROVIDER_OK;
+}
+
+static int32_t
+ngx_http_hoplite_native_succeed(void *data,
+                                const uint8_t *hta,
+                                size_t hta_len)
+{
+    return ngx_http_hoplite_native_complete(data, hta, hta_len, 0);
+}
+
+static int32_t
+ngx_http_hoplite_native_fail(void *data,
+                             const uint8_t *hta,
+                             size_t hta_len)
+{
+    return ngx_http_hoplite_native_complete(data, hta, hta_len, 1);
+}
+
 static void
 ngx_http_hoplite_nginx_cancel(ngx_http_hoplite_ctx_t *ctx)
 {
@@ -674,8 +763,14 @@ ngx_http_hoplite_host_call(hoplite_hta_value_t *event,
     ngx_str_t service, operation;
     ngx_http_hoplite_ctx_t *ctx;
     const ngx_http_hoplite_provider_t *provider;
+    const hoplite_host_provider_v1_t *native_provider;
+    hoplite_host_service_t lookup;
     ngx_http_hoplite_host_call_t call;
+    hoplite_host_call_v1_t native_call;
+    ngx_http_hoplite_native_completion_t *completion;
+    ngx_str_t operation_copy, arguments_hta;
     ngx_int_t rc;
+    int32_t native_rc;
 
     if (event->as.vector.count != 8
         || hoplite_hta_number(event->as.vector.items[1], &call_number) != NGX_OK
@@ -691,31 +786,86 @@ ngx_http_hoplite_host_call(hoplite_hta_value_t *event,
     if (ctx == NULL || ctx->done) {
         return NGX_DECLINED;
     }
-    if (ctx->provider != NULL) {
+    if (ctx->provider != NULL || ctx->native_provider != NULL
+        || ctx->native_completion != NULL)
+    {
         return ngx_http_hoplite_reject(
             (uint64_t) call_number, pool,
             "request already has a pending Hoplite operation");
     }
 
     provider = ngx_http_hoplite_provider_find(service);
-    if (provider == NULL) {
+    if (provider != NULL) {
+        call.ctx = ctx;
+        call.work = (uint64_t) work_number;
+        call.call = (uint64_t) call_number;
+        call.operation = operation;
+        call.arguments = event->as.vector.items[7];
+        call.pool = pool;
+        call.log = log;
+        rc = provider->invoke(&call);
+        if (rc == NGX_AGAIN) {
+            ctx->provider = provider;
+            return NGX_OK;
+        }
+        return rc;
+    }
+
+    lookup.data = service.data;
+    lookup.len = service.len;
+    native_provider = hoplite_host_provider_find_v1(lookup);
+    if (native_provider == NULL) {
         return ngx_http_hoplite_reject((uint64_t) call_number, pool,
                                        "unsupported Hoplite host service");
     }
+    if (ngx_http_hoplite_copy(ctx->request->pool,
+                              &operation, &operation_copy) != NGX_OK
+        || hoplite_hta_copy_frame(ctx->request->pool,
+                                  event->as.vector.items[7],
+                                  &arguments_hta) != NGX_OK)
+    {
+        return NGX_ERROR;
+    }
 
-    call.ctx = ctx;
-    call.work = (uint64_t) work_number;
-    call.call = (uint64_t) call_number;
-    call.operation = operation;
-    call.arguments = event->as.vector.items[7];
-    call.pool = pool;
-    call.log = log;
-    rc = provider->invoke(&call);
-    if (rc == NGX_AGAIN) {
-        ctx->provider = provider;
+    completion = ngx_pcalloc(ctx->request->pool, sizeof(*completion));
+    if (completion == NULL) {
+        return NGX_ERROR;
+    }
+    completion->ctx = ctx;
+    completion->call = (uint64_t) call_number;
+    completion->log = log;
+    ctx->native_completion = completion;
+
+    native_call.abi_version = HOPLITE_HOST_PROVIDER_ABI_VERSION;
+    native_call.request_context = ctx;
+    native_call.work = (uint64_t) work_number;
+    native_call.call = (uint64_t) call_number;
+    native_call.operation.data = operation_copy.data;
+    native_call.operation.len = operation_copy.len;
+    native_call.arguments_hta.data = arguments_hta.data;
+    native_call.arguments_hta.len = arguments_hta.len;
+    native_call.completer.context = completion;
+    native_call.completer.succeed = ngx_http_hoplite_native_succeed;
+    native_call.completer.fail = ngx_http_hoplite_native_fail;
+
+    native_rc = native_provider->invoke(&native_call);
+    if (completion->completed) {
+        return completion->failed ? NGX_ERROR : NGX_OK;
+    }
+    if (native_rc == HOPLITE_HOST_PROVIDER_PENDING) {
+        completion->retained = 1;
+        ctx->native_provider = native_provider;
         return NGX_OK;
     }
-    return rc;
+
+    completion->completed = 1;
+    ctx->native_completion = NULL;
+    if (native_rc == HOPLITE_HOST_PROVIDER_OK) {
+        return ngx_http_hoplite_reject(
+            (uint64_t) call_number, pool,
+            "native provider returned without completing");
+    }
+    return NGX_ERROR;
 }
 
 static ngx_int_t
@@ -822,7 +972,17 @@ ngx_http_hoplite_cleanup(void *data)
     if (ctx->provider != NULL && ctx->provider->cancel != NULL) {
         ctx->provider->cancel(ctx);
     }
+    if (ctx->native_provider != NULL
+        && ctx->native_provider->cancel != NULL)
+    {
+        ctx->native_provider->cancel(ctx);
+    }
+    if (ctx->native_completion != NULL) {
+        ctx->native_completion->completed = 1;
+        ctx->native_completion = NULL;
+    }
     ctx->provider = NULL;
+    ctx->native_provider = NULL;
 
     if (!ctx->done && ngx_http_hoplite_runtime != NULL && ctx->work != 0) {
         (void) hoplite_work_cancel(ngx_http_hoplite_runtime, ctx->work);

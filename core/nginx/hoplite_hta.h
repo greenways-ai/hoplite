@@ -27,6 +27,8 @@ typedef struct {
 
 struct hoplite_hta_value {
     hoplite_hta_kind_t kind;
+    const u_char *encoded;
+    size_t encoded_len;
     union {
         ngx_flag_t boolean;
         int64_t i64;
@@ -46,6 +48,11 @@ ngx_int_t hoplite_hta_decode(ngx_pool_t *pool,
                              const u_char *data,
                              size_t len,
                              hoplite_hta_value_t **value);
+
+/* Copy one decoded value into its exact standalone HTA1 frame. */
+ngx_int_t hoplite_hta_copy_frame(ngx_pool_t *pool,
+                                 const hoplite_hta_value_t *value,
+                                 ngx_str_t *output);
 
 ngx_int_t hoplite_hta_encode_request(ngx_http_request_t *request,
                                      ngx_str_t *output);
