@@ -82,6 +82,14 @@ jobs:
             hoplite/core/nginx/tests/host_registry.c \
             -o /tmp/hoplite-host-registry-test
           /tmp/hoplite-host-registry-test
+      - name: Test the exported native host-provider ABI
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror \
+            -I hoplite/core/nginx \
+            hoplite/core/nginx/hoplite_host_provider.c \
+            hoplite/core/nginx/tests/host_provider_api.c \
+            -o /tmp/hoplite-host-provider-api-test
+          /tmp/hoplite-host-provider-api-test
 
   nginx-module:
     runs-on: ubuntu-latest
