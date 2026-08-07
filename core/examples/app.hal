@@ -1,6 +1,9 @@
 (ns hoplite.app
   (:require [hoplite.core :as h]))
 
+;; This example is also the production-image conformance surface for the
+;; request-body V3 adapter. The materializer adds the bounded body route below.
+
 (defn hello
   [request]
   {:status 200
