@@ -3,6 +3,7 @@
 #include <ngx_http.h>
 
 #include "hoplite_hta.h"
+#include "hoplite_host_registry.h"
 #include "hoplite_runtime.h"
 
 typedef struct {
@@ -39,6 +40,34 @@ typedef struct {
     uint64_t call;
 } ngx_http_hoplite_sleep_t;
 
+
+typedef struct ngx_http_hoplite_provider_s ngx_http_hoplite_provider_t;
+
+typedef struct {
+    ngx_http_hoplite_ctx_t *ctx;
+    uint64_t work;
+    uint64_t call;
+    ngx_str_t operation;
+    hoplite_hta_value_t *arguments;
+    ngx_pool_t *pool;
+    ngx_log_t *log;
+} ngx_http_hoplite_host_call_t;
+
+typedef ngx_int_t (*ngx_http_hoplite_provider_invoke_pt)(
+    const ngx_http_hoplite_host_call_t *call);
+typedef void (*ngx_http_hoplite_provider_cancel_pt)(
+    ngx_http_hoplite_ctx_t *ctx);
+
+struct ngx_http_hoplite_provider_s {
+    hoplite_host_service_t service;
+    ngx_http_hoplite_provider_invoke_pt invoke;
+    ngx_http_hoplite_provider_cancel_pt cancel;
+    uint32_t capabilities;
+};
+
+#define NGX_HTTP_HOPLITE_PROVIDER_REQUEST_BODY 0x01u
+#define NGX_HTTP_HOPLITE_PROVIDER_RESPONSE_BODY 0x02u
+
 struct ngx_http_hoplite_ctx_s {
     ngx_queue_t queue;
     ngx_http_request_t *request;
@@ -47,6 +76,7 @@ struct ngx_http_hoplite_ctx_s {
     ngx_flag_t queued;
     ngx_flag_t done;
     ngx_http_hoplite_sleep_t *sleep;
+    const ngx_http_hoplite_provider_t *provider;
     ngx_http_hoplite_body_t body;
 };
 
@@ -103,6 +133,7 @@ ngx_http_hoplite_slice(ngx_str_t value)
 static hoplite_runtime_t *ngx_http_hoplite_runtime;
 static ngx_queue_t ngx_http_hoplite_requests;
 static ngx_flag_t ngx_http_hoplite_queue_ready;
+static hoplite_host_registry_t ngx_http_hoplite_providers;
 
 static ngx_int_t ngx_http_hoplite_handler(ngx_http_request_t *request);
 static char *ngx_http_hoplite_content(ngx_conf_t *cf, ngx_command_t *cmd,
@@ -118,6 +149,21 @@ static void ngx_http_hoplite_exit_process(ngx_cycle_t *cycle);
 static void ngx_http_hoplite_cleanup(void *data);
 static void ngx_http_hoplite_sleep_handler(ngx_event_t *event);
 static ngx_int_t ngx_http_hoplite_drain(ngx_log_t *log);
+
+static ngx_int_t ngx_http_hoplite_provider_register(
+    const ngx_http_hoplite_provider_t *provider);
+static const ngx_http_hoplite_provider_t *ngx_http_hoplite_provider_find(
+    ngx_str_t service);
+static ngx_int_t ngx_http_hoplite_nginx_invoke(
+    const ngx_http_hoplite_host_call_t *call);
+static void ngx_http_hoplite_nginx_cancel(ngx_http_hoplite_ctx_t *ctx);
+
+static const ngx_http_hoplite_provider_t ngx_http_hoplite_nginx_provider = {
+    {(const uint8_t *) "nginx", sizeof("nginx") - 1},
+    ngx_http_hoplite_nginx_invoke,
+    ngx_http_hoplite_nginx_cancel,
+    0
+};
 
 static ngx_command_t ngx_http_hoplite_commands[] = {
     {
@@ -250,6 +296,10 @@ ngx_http_hoplite_finish(ngx_http_hoplite_ctx_t *ctx)
         return;
     }
     ctx->done = 1;
+    if (ctx->provider != NULL && ctx->provider->cancel != NULL) {
+        ctx->provider->cancel(ctx);
+    }
+    ctx->provider = NULL;
     if (ctx->queued) {
         ngx_queue_remove(&ctx->queue);
         ctx->queued = 0;
@@ -533,21 +583,106 @@ ngx_http_hoplite_reject(uint64_t call, ngx_pool_t *pool, const char *message)
 }
 
 static ngx_int_t
+ngx_http_hoplite_provider_register(
+    const ngx_http_hoplite_provider_t *provider)
+{
+    if (provider == NULL || provider->invoke == NULL) {
+        return NGX_ERROR;
+    }
+    return hoplite_host_registry_register(&ngx_http_hoplite_providers,
+                                          provider->service,
+                                          provider)
+               == HOPLITE_HOST_REGISTRY_OK
+        ? NGX_OK : NGX_ERROR;
+}
+
+static const ngx_http_hoplite_provider_t *
+ngx_http_hoplite_provider_find(ngx_str_t service)
+{
+    hoplite_host_service_t lookup;
+    lookup.data = service.data;
+    lookup.len = service.len;
+    return hoplite_host_registry_find(&ngx_http_hoplite_providers, lookup);
+}
+
+static void
+ngx_http_hoplite_nginx_cancel(ngx_http_hoplite_ctx_t *ctx)
+{
+    if (ctx == NULL || ctx->sleep == NULL) {
+        return;
+    }
+    if (ctx->sleep->event.timer_set) {
+        ngx_del_timer(&ctx->sleep->event);
+    }
+    ctx->sleep = NULL;
+}
+
+static ngx_int_t
+ngx_http_hoplite_nginx_invoke(const ngx_http_hoplite_host_call_t *call)
+{
+    int64_t delay;
+    ngx_http_hoplite_sleep_t *sleep;
+
+    if (call->operation.len != sizeof("sleep") - 1
+        || ngx_strncmp(call->operation.data, "sleep", call->operation.len) != 0)
+    {
+        return ngx_http_hoplite_reject(call->call, call->pool,
+                                       "unsupported nginx host operation");
+    }
+    if (call->arguments == NULL
+        || call->arguments->kind != HOPLITE_HTA_VECTOR
+        || call->arguments->as.vector.count != 1
+        || hoplite_hta_number(call->arguments->as.vector.items[0], &delay)
+               != NGX_OK
+        || delay < 0 || delay > 3600000)
+    {
+        return ngx_http_hoplite_reject(
+            call->call, call->pool,
+            "nginx/sleep expects milliseconds from 0 to 3600000");
+    }
+    if (delay == 0) {
+        return hoplite_call_resolve(ngx_http_hoplite_runtime,
+                                    call->call, NULL, 0) == 0
+            ? NGX_OK : NGX_ERROR;
+    }
+    if (call->ctx->sleep != NULL) {
+        return ngx_http_hoplite_reject(
+            call->call, call->pool,
+            "request already has a pending Hoplite operation");
+    }
+
+    sleep = ngx_pcalloc(call->ctx->request->pool, sizeof(*sleep));
+    if (sleep == NULL) {
+        return NGX_ERROR;
+    }
+    sleep->ctx = call->ctx;
+    sleep->call = call->call;
+    sleep->event.handler = ngx_http_hoplite_sleep_handler;
+    sleep->event.data = sleep;
+    sleep->event.log = call->log;
+    call->ctx->sleep = sleep;
+    ngx_add_timer(&sleep->event, (ngx_msec_t) delay);
+    return NGX_AGAIN;
+}
+
+static ngx_int_t
 ngx_http_hoplite_host_call(hoplite_hta_value_t *event,
                            ngx_pool_t *pool,
                            ngx_log_t *log)
 {
-    int64_t call_number, work_number, delay;
-    ngx_str_t service, method;
-    hoplite_hta_value_t *args;
+    int64_t call_number, work_number;
+    ngx_str_t service, operation;
     ngx_http_hoplite_ctx_t *ctx;
-    ngx_http_hoplite_sleep_t *sleep;
+    const ngx_http_hoplite_provider_t *provider;
+    ngx_http_hoplite_host_call_t call;
+    ngx_int_t rc;
 
     if (event->as.vector.count != 8
         || hoplite_hta_number(event->as.vector.items[1], &call_number) != NGX_OK
         || hoplite_hta_number(event->as.vector.items[2], &work_number) != NGX_OK
+        || call_number <= 0 || work_number <= 0
         || hoplite_hta_text(event->as.vector.items[5], &service) != NGX_OK
-        || hoplite_hta_text(event->as.vector.items[6], &method) != NGX_OK)
+        || hoplite_hta_text(event->as.vector.items[6], &operation) != NGX_OK)
     {
         return NGX_ERROR;
     }
@@ -556,48 +691,31 @@ ngx_http_hoplite_host_call(hoplite_hta_value_t *event,
     if (ctx == NULL || ctx->done) {
         return NGX_DECLINED;
     }
+    if (ctx->provider != NULL) {
+        return ngx_http_hoplite_reject(
+            (uint64_t) call_number, pool,
+            "request already has a pending Hoplite operation");
+    }
 
-    if (service.len != sizeof("nginx") - 1
-        || ngx_strncmp(service.data, "nginx", service.len) != 0
-        || method.len != sizeof("sleep") - 1
-        || ngx_strncmp(method.data, "sleep", method.len) != 0)
-    {
+    provider = ngx_http_hoplite_provider_find(service);
+    if (provider == NULL) {
         return ngx_http_hoplite_reject((uint64_t) call_number, pool,
-                                       "unsupported Hoplite host call");
+                                       "unsupported Hoplite host service");
     }
 
-    args = event->as.vector.items[7];
-    if (args == NULL || args->kind != HOPLITE_HTA_VECTOR
-        || args->as.vector.count != 1
-        || hoplite_hta_number(args->as.vector.items[0], &delay) != NGX_OK
-        || delay < 0 || delay > 3600000)
-    {
-        return ngx_http_hoplite_reject((uint64_t) call_number, pool,
-                                       "nginx/sleep expects milliseconds from 0 to 3600000");
+    call.ctx = ctx;
+    call.work = (uint64_t) work_number;
+    call.call = (uint64_t) call_number;
+    call.operation = operation;
+    call.arguments = event->as.vector.items[7];
+    call.pool = pool;
+    call.log = log;
+    rc = provider->invoke(&call);
+    if (rc == NGX_AGAIN) {
+        ctx->provider = provider;
+        return NGX_OK;
     }
-
-    if (delay == 0) {
-        return hoplite_call_resolve(ngx_http_hoplite_runtime,
-                                    (uint64_t) call_number, NULL, 0) == 0
-            ? NGX_OK : NGX_ERROR;
-    }
-    if (ctx->sleep != NULL) {
-        return ngx_http_hoplite_reject((uint64_t) call_number, pool,
-                                       "request already has a pending Hoplite operation");
-    }
-
-    sleep = ngx_pcalloc(ctx->request->pool, sizeof(*sleep));
-    if (sleep == NULL) {
-        return NGX_ERROR;
-    }
-    sleep->ctx = ctx;
-    sleep->call = (uint64_t) call_number;
-    sleep->event.handler = ngx_http_hoplite_sleep_handler;
-    sleep->event.data = sleep;
-    sleep->event.log = log;
-    ctx->sleep = sleep;
-    ngx_add_timer(&sleep->event, (ngx_msec_t) delay);
-    return NGX_OK;
+    return rc;
 }
 
 static ngx_int_t
@@ -687,6 +805,7 @@ ngx_http_hoplite_sleep_handler(ngx_event_t *event)
         return;
     }
     ctx->sleep = NULL;
+    ctx->provider = NULL;
     if (hoplite_call_resolve(ngx_http_hoplite_runtime, sleep->call, NULL, 0) != 0
         || ngx_http_hoplite_drain(event->log) != NGX_OK)
     {
@@ -700,10 +819,10 @@ ngx_http_hoplite_cleanup(void *data)
 {
     ngx_http_hoplite_ctx_t *ctx = data;
 
-    if (ctx->sleep != NULL && ctx->sleep->event.timer_set) {
-        ngx_del_timer(&ctx->sleep->event);
+    if (ctx->provider != NULL && ctx->provider->cancel != NULL) {
+        ctx->provider->cancel(ctx);
     }
-    ctx->sleep = NULL;
+    ctx->provider = NULL;
 
     if (!ctx->done && ngx_http_hoplite_runtime != NULL && ctx->work != 0) {
         (void) hoplite_work_cancel(ngx_http_hoplite_runtime, ctx->work);
@@ -1114,6 +1233,14 @@ ngx_http_hoplite_init_process(ngx_cycle_t *cycle)
 
     ngx_queue_init(&ngx_http_hoplite_requests);
     ngx_http_hoplite_queue_ready = 1;
+    hoplite_host_registry_init(&ngx_http_hoplite_providers);
+    if (ngx_http_hoplite_provider_register(
+            &ngx_http_hoplite_nginx_provider) != NGX_OK)
+    {
+        ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
+                      "hoplite native host providers could not be registered");
+        return NGX_ERROR;
+    }
     ngx_http_hoplite_runtime = hoplite_runtime_new();
     if (ngx_http_hoplite_runtime == NULL || hoplite_abi_version() < 2) {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
