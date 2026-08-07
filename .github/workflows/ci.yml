@@ -90,7 +90,26 @@ jobs:
           bash -n packaging/scripts/benchmark-http.sh
           bash -n packaging/scripts/measure-stack-footprints.sh
           bash -n packaging/scripts/run-benchmarks.sh
+          bash -n packaging/scripts/run-with-docker-top-compat.sh
           bash -n packaging/scripts/validate-benchmark-data.sh
+
+          compat_test_root="$(mktemp -d)"
+          trap 'rm -rf "$compat_test_root"' EXIT
+          mkdir -p "$compat_test_root/bin"
+          cat > "$compat_test_root/bin/docker" <<'SCRIPT'
+          #!/usr/bin/env bash
+          printf '%s\n' "$*" > "$HOPLITE_DOCKER_TOP_TEST_OUTPUT"
+          SCRIPT
+          chmod +x "$compat_test_root/bin/docker"
+          cat > "$compat_test_root/probe.sh" <<'SCRIPT'
+          command -v docker >/dev/null
+          docker top benchmark-probe -eo args
+          SCRIPT
+          HOPLITE_DOCKER_TOP_TEST_OUTPUT="$compat_test_root/output" \
+          PATH="$compat_test_root/bin:$PATH" \
+            bash packaging/scripts/run-with-docker-top-compat.sh "$compat_test_root/probe.sh"
+          grep -Fx 'top benchmark-probe -eo pid,args' "$compat_test_root/output"
+
           bash packaging/scripts/validate-benchmark-data.sh --allow-pending \
             website/src/data/http-benchmark.json \
             website/src/data/stack-footprints.json
