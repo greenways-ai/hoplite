@@ -37,6 +37,15 @@ cancel(void *request_context)
     (*cancelled)++;
 }
 
+static hoplite_host_service_t
+service(const char *value)
+{
+    hoplite_host_service_t result;
+    result.data = (const uint8_t *) value;
+    result.len = strlen(value);
+    return result;
+}
+
 int
 main(void)
 {
@@ -49,6 +58,7 @@ main(void)
         cancel,
         0
     };
+    hoplite_host_provider_v1_t incompatible = provider;
     hoplite_host_call_v1_t call = {
         HOPLITE_HOST_PROVIDER_ABI_VERSION,
         &cancelled,
@@ -59,14 +69,26 @@ main(void)
         {&completed, complete, complete}
     };
 
-    assert(provider.abi_version == HOPLITE_HOST_PROVIDER_ABI_VERSION);
-    assert(provider.service.len == sizeof("tahto.metadata") - 1);
+    assert(hoplite_host_provider_find_v1(provider.service) == NULL);
+    assert(hoplite_host_provider_register_v1(&provider)
+           == HOPLITE_HOST_PROVIDER_REGISTER_OK);
+    assert(hoplite_host_provider_find_v1(provider.service) == &provider);
+    assert(hoplite_host_provider_find_v1(service("TAHTO.METADATA")) == NULL);
+    assert(hoplite_host_provider_register_v1(&provider)
+           == HOPLITE_HOST_PROVIDER_REGISTER_DUPLICATE);
+
+    incompatible.abi_version++;
+    incompatible.service = service("future.provider");
+    assert(hoplite_host_provider_register_v1(&incompatible)
+           == HOPLITE_HOST_PROVIDER_REGISTER_ABI_MISMATCH);
+    assert(hoplite_host_provider_register_v1(NULL)
+           == HOPLITE_HOST_PROVIDER_REGISTER_INVALID);
+
     assert(provider.invoke(&call) == HOPLITE_HOST_PROVIDER_OK);
     assert(completed == 1);
     provider.cancel(call.request_context);
     assert(cancelled == 1);
-    assert(HOPLITE_HOST_PROVIDER_REQUEST_BODY != HOPLITE_HOST_PROVIDER_RESPONSE_BODY);
-    assert(HOPLITE_HOST_PROVIDER_REGISTER_ABI_MISMATCH
-           != HOPLITE_HOST_PROVIDER_REGISTER_INVALID);
+    assert(HOPLITE_HOST_PROVIDER_REQUEST_BODY
+           != HOPLITE_HOST_PROVIDER_RESPONSE_BODY);
     return 0;
 }
