@@ -93,11 +93,13 @@ export HOPLITE_NGINX_VERSION="$nginx_version"
 
 (
   cd "$repository_root"
-  bash packaging/scripts/benchmark-http.sh \
+  bash packaging/scripts/run-with-docker-top-compat.sh \
+    packaging/scripts/benchmark-http.sh \
     "$hoplite_image" \
     "$nginx_image" \
     "$output_root/http-benchmark.json"
-  bash packaging/scripts/measure-stack-footprints.sh \
+  bash packaging/scripts/run-with-docker-top-compat.sh \
+    packaging/scripts/measure-stack-footprints.sh \
     "$hoplite_image" \
     "$nginx_image" \
     "$java_image" \
