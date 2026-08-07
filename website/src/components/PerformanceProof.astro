@@ -1,6 +1,6 @@
 ---
 import CodePanel from "@greenways-ai/visual-language/CodePanel.astro";
-import benchmark from "../data/http-benchmark.json";
+import { httpBenchmark as benchmark, type HttpSample } from "../lib/benchmark-data";
 
 const measured = benchmark.status === "measured";
 const hoplite = benchmark.targets.hoplite;
@@ -14,18 +14,14 @@ const commit = benchmark.commit ? benchmark.commit.slice(0, 8) : "pending";
 const ratio = benchmark.comparison.throughputPercentOfNginx == null
   ? "—"
   : `${number(benchmark.comparison.throughputPercentOfNginx, 1)}%`;
-const recipe = `docker build -f docker/Dockerfile.nginx-baseline -t hoplite-nginx-baseline .
-
-bash scripts/benchmark-http.sh \\
-  ghcr.io/greenways-ai/hoplite:latest \\
-  hoplite-nginx-baseline \\
-  benchmark-output/http-benchmark.json`;
+const recipe = `git -C ../hara checkout "$(cat packaging/hara-revision)"
+HARA_ROOT=../hara bash packaging/scripts/run-benchmarks.sh benchmark-output`;
 const comparisons = [
   {
     label: "Requests / second",
     hoplite: number(hoplite.metrics.requestsPerSecond),
     nginx: number(nginx.metrics.requestsPerSecond),
-    detail: measured ? `Hoplite delivers ${ratio} of the raw Nginx request rate in this sample.` : "Measurement pending.",
+    detail: measured ? `Hoplite delivers ${ratio} of the raw Nginx request rate in this sample.` : "Fresh post-split measurement pending.",
   },
   {
     label: "p50 latency",
@@ -37,7 +33,7 @@ const comparisons = [
     label: "p99 latency",
     hoplite: hoplite.metrics.latencyP99Ms == null ? "—" : `${number(hoplite.metrics.latencyP99Ms, 2)} ms`,
     nginx: nginx.metrics.latencyP99Ms == null ? "—" : `${number(nginx.metrics.latencyP99Ms, 2)} ms`,
-    detail: "Tail latency from the same three-round wrk sample.",
+    detail: "Tail latency from the same alternating-round wrk sample.",
   },
   {
     label: "Peak memory under load",
@@ -48,8 +44,8 @@ const comparisons = [
 ];
 const targetFootprints = [hoplite, nginx];
 const roundRows = [
-  ...hoplite.samples.map((sample) => ({ target: "Hoplite", ...sample })),
-  ...nginx.samples.map((sample) => ({ target: "Plain Nginx", ...sample })),
+  ...hoplite.samples.map((sample: HttpSample) => ({ target: "Hoplite", ...sample })),
+  ...nginx.samples.map((sample: HttpSample) => ({ target: "Plain Nginx", ...sample })),
 ];
 ---
 
@@ -58,9 +54,9 @@ const roundRows = [
     <p class="technical-kicker">02 · Equivalent-payload benchmark</p>
     <h2>Hoplite against raw Nginx.</h2>
     <p>
-      Both targets use Nginx 1.30.4, the same Debian toolchain, the same 19-byte body,
-      the same response header, and the same load generator. The difference is the
-      embedded Hara application path.
+      Both targets use the same Nginx release and response contract. The benchmark
+      validates status, content type, the stable <code>x-hoplite</code> header, and the
+      exact 19-byte body before it accepts any measurements.
     </p>
   </header>
 
@@ -75,7 +71,7 @@ const roundRows = [
     </div>
     <div>
       <small>Response identity</small>
-      <strong>{benchmark.payload.sha256 ? "SHA-256 matched" : "Pending"}</strong>
+      <strong>{benchmark.payload.sha256 ? "SHA-256 matched" : "Fresh run pending"}</strong>
     </div>
     <div>
       <small>Load</small>
@@ -88,7 +84,7 @@ const roundRows = [
       <article>
         <p>{metric.label}</p>
         <div class="benchmark-target-value benchmark-target-value--hoplite">
-          <small>Hoplite</small>
+          <small>Hoplite server</small>
           <strong>{metric.hoplite}</strong>
         </div>
         <div class="benchmark-target-value">
@@ -122,6 +118,7 @@ const roundRows = [
             <tr>
               <th>Target</th>
               <th>Round</th>
+              <th>Order</th>
               <th>Requests/s</th>
               <th>p50</th>
               <th>p99</th>
@@ -133,6 +130,7 @@ const roundRows = [
               <tr>
                 <td>{sample.target}</td>
                 <td>{sample.round}</td>
+                <td>{sample.orderInRound}</td>
                 <td>{number(sample.requestsPerSecond)}</td>
                 <td>{number(sample.latencyP50Ms, 2)} ms</td>
                 <td>{number(sample.latencyP99Ms, 2)} ms</td>
@@ -152,30 +150,30 @@ const roundRows = [
       <div><dt>Runner</dt><dd>{benchmark.runner || "pending"}</dd></div>
       <div><dt>CPU</dt><dd>{benchmark.cpu || "pending"} · {benchmark.logicalCpus || "—"} logical</dd></div>
       <div><dt>Rounds</dt><dd>{benchmark.load.rounds} per target</dd></div>
-      <div><dt>Isolation</dt><dd>Targets run sequentially on one runner</dd></div>
+      <div><dt>Scheduling</dt><dd>{benchmark.methodology.scheduling}</dd></div>
     </dl>
     <p>
-      This is a reproducible release sample, not a universal capacity guarantee. The
-      comparison is useful because the payload, Nginx version, build environment and
-      load are held constant.
+      The previous all-in-one measurement has been retired. Until a validated
+      <code>hoplite-server</code> run completes, this page deliberately displays
+      placeholders rather than carrying the old executable and memory values forward.
     </p>
   </div>
 
   <div class="benchmark-recipe">
     <div>
       <p class="panel-label">Reproduce the comparison</p>
-      <h3>Build both targets and record both sides.</h3>
+      <h3>Build every target and validate both reports.</h3>
       <p>
-        The script rejects the run when the response bodies differ, then records every
-        round along with executable size, image size, idle memory and peak memory.
+        The orchestrator pins Hara, builds the slim server and comparison images,
+        alternates HTTP target order, and rejects mismatched response contracts.
       </p>
     </div>
     <CodePanel
       class="benchmark-code-panel"
       code={recipe}
       lang="bash"
-      title="Hoplite vs plain Nginx"
-      meta="same payload · same load"
+      title="Hoplite benchmark suite"
+      meta="same response · validated reports"
       compact
     />
   </div>
