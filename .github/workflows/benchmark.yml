@@ -15,6 +15,7 @@ on:
       - "packaging/scripts/benchmark-http.sh"
       - "packaging/scripts/measure-stack-footprints.sh"
       - "packaging/scripts/run-benchmarks.sh"
+      - "packaging/scripts/run-with-docker-top-compat.sh"
       - "packaging/scripts/validate-benchmark-data.sh"
       - "website/scripts/verify-pages-output.mjs"
       - "website/src/components/PerformanceProof.astro"
