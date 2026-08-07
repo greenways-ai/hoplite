@@ -13,6 +13,7 @@ members = [
   "abi/auth-store",
   "abi/data-plane",
   "abi/data-plane-ffi",
+  "abi/data-plane-registry",
   "runtime",
 ]
 default-members = ["."]
