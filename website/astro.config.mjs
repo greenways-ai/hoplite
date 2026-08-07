@@ -21,6 +21,7 @@ export default defineConfig({
         "./src/styles/custom.css",
         "./src/styles/starlight-shell.css",
         "./src/styles/documentation-enhancements.css",
+        "./src/styles/benchmark-status.css",
       ],
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/greenways-ai/hoplite" },
