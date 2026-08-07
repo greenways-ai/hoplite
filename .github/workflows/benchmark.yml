@@ -1,53 +1,71 @@
 name: HTTP and footprint benchmarks
 
-env:
-  HARA_REF: d0794a7f2e20993220778bcbff97c16735fbb8b4
-
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - "v*"
+    paths:
+      - ".github/workflows/benchmark.yml"
+      - "core/**"
+      - "packaging/docker/**"
+      - "packaging/hara-revision"
+      - "packaging/scripts/benchmark-http.sh"
+      - "packaging/scripts/measure-stack-footprints.sh"
+      - "packaging/scripts/run-benchmarks.sh"
+      - "packaging/scripts/validate-benchmark-data.sh"
 
 permissions:
   contents: read
 
+concurrency:
+  group: hoplite-benchmarks-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   benchmark:
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
         with:
           path: hoplite
+      - name: Resolve pinned Hara revision
+        id: hara
+        working-directory: hoplite
+        run: echo "revision=$(tr -d '[:space:]' < packaging/hara-revision)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
-          ref: ${{ env.HARA_REF }}
+          ref: ${{ steps.hara.outputs.revision }}
           path: hara
           submodules: recursive
       - name: Install benchmark tools
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends wrk jq curl
-      - name: Build Hoplite and same-toolchain Nginx baseline
-        run: |
-          docker build -f hoplite/packaging/docker/Dockerfile -t hoplite-benchmark .
-          docker build -f hoplite/packaging/docker/Dockerfile.nginx-baseline -t hoplite-nginx-baseline hoplite
-      - name: Build representative stack footprint images
-        run: |
-          docker build -f hoplite/packaging/docker/footprints/java/Dockerfile -t hoplite-footprint-java hoplite
-          docker build -f hoplite/packaging/docker/footprints/python/Dockerfile -t hoplite-footprint-python hoplite
-          docker build -f hoplite/packaging/docker/footprints/lua/Dockerfile -t hoplite-footprint-lua hoplite
-      - name: Record equivalent-payload HTTP comparison
+      - name: Run and validate benchmark suite
+        run: bash hoplite/packaging/scripts/run-benchmarks.sh benchmark-output
+      - name: Build website against measured reports
         working-directory: hoplite
-        run: bash packaging/scripts/benchmark-http.sh hoplite-benchmark hoplite-nginx-baseline benchmark-output/http-benchmark.json
-      - name: Record representative deployment footprints
-        working-directory: hoplite
-        run: bash packaging/scripts/measure-stack-footprints.sh hoplite-benchmark hoplite-nginx-baseline hoplite-footprint-java hoplite-footprint-python hoplite-footprint-lua benchmark-output/stack-footprints.json
+        run: |
+          cp benchmark-output/http-benchmark.json website/src/data/http-benchmark.json
+          cp benchmark-output/stack-footprints.json website/src/data/stack-footprints.json
+          npm --prefix website ci
+          HOPLITE_REQUIRE_MEASURED_BENCHMARKS=1 npm --prefix website run build
       - uses: actions/upload-artifact@v4
         with:
-          name: hoplite-benchmarks-${{ github.sha }}
+          name: hoplite-benchmarks
           path: |
             hoplite/benchmark-output/http-benchmark.json
             hoplite/benchmark-output/stack-footprints.json
           if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hoplite-benchmark-site-${{ github.sha }}
+          path: hoplite/website/dist
+          if-no-files-found: error
+          retention-days: 14
