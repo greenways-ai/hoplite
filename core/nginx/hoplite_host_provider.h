@@ -38,6 +38,7 @@ typedef struct {
     uint64_t work;
     uint64_t call;
     hoplite_host_service_t operation;
+    /* Exact standalone HTA1 frame for the Hara call arguments. */
     hoplite_host_service_t arguments_hta;
     hoplite_host_completer_v1_t completer;
 } hoplite_host_call_v1_t;
@@ -63,5 +64,9 @@ typedef struct {
  */
 int32_t hoplite_host_provider_register_v1(
     const hoplite_host_provider_v1_t *provider);
+
+/* Native dispatch lookup; request values cannot mutate the registry. */
+const hoplite_host_provider_v1_t *hoplite_host_provider_find_v1(
+    hoplite_host_service_t service);
 
 #endif
