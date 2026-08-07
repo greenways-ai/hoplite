@@ -1,8 +1,8 @@
 (ns hoplite.app
   (:require [hoplite.core :as h]))
 
-;; This example is the production-image conformance surface for the bounded
-;; request-body adapter and registered native host providers.
+;; This example is also the production-image conformance surface for the
+;; request-body V3 adapter and its bounded native body-handle route.
 
 (defn hello
   [request]

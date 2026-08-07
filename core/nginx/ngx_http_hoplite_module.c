@@ -947,14 +947,9 @@ ngx_http_hoplite_invoke(ngx_http_request_t *request,
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         if (outcome.kind == 1) {
+            /* send_native borrows response slices until request cleanup. */
             ctx->response = outcome.id;
-            rc = ngx_http_hoplite_send_native(ctx);
-            if (ctx->response != 0) {
-                (void) hoplite_response_close_v2(ngx_http_hoplite_runtime,
-                                                 ctx->response);
-                ctx->response = 0;
-            }
-            return rc;
+            return ngx_http_hoplite_send_native(ctx);
         }
         if (outcome.kind != 2 || outcome.id == 0) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -999,14 +994,9 @@ ngx_http_hoplite_invoke(ngx_http_request_t *request,
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         if (outcome.kind == 1) {
+            /* send_native borrows response slices until request cleanup. */
             ctx->response = outcome.id;
-            rc = ngx_http_hoplite_send_native(ctx);
-            if (ctx->response != 0) {
-                (void) hoplite_response_close_v2(ngx_http_hoplite_runtime,
-                                                 ctx->response);
-                ctx->response = 0;
-            }
-            return rc;
+            return ngx_http_hoplite_send_native(ctx);
         }
         if (outcome.kind != 2 || outcome.id == 0) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
