@@ -52,7 +52,11 @@ jobs:
         run: |
           python3 -m py_compile packaging/scripts/generate-nginx-request-body-v3
           python3 -m py_compile packaging/scripts/fix-nginx-request-body-v3
-          python3 packaging/scripts/generate-nginx-request-body-v3
+          if grep -q 'hoplite_app_invoke_v3' core/nginx/ngx_http_hoplite_module.c; then
+            echo 'Request-body V3 source is already materialized; applying compatibility fixes only.'
+          else
+            python3 packaging/scripts/generate-nginx-request-body-v3
+          fi
           python3 packaging/scripts/fix-nginx-request-body-v3
           cargo fmt --manifest-path core/Cargo.toml --all
 
@@ -78,7 +82,7 @@ jobs:
             core/src/app.rs \
             core/src/main.rs \
             core/examples/app.hal
-          git commit -m "Bind declared Nginx request bodies to Hoplite ABI V3"
+          git commit -m "Keep body-free requests on Hoplite ABI V2"
           git push origin HEAD:${{ github.event.pull_request.head.ref || github.ref_name }}
 
       - name: Remove local build output before the container build
