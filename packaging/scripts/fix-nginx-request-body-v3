@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""Align the one-shot request-body materializer with the current Nginx HTA path.
+
+The request-body generator was authored against Hoplite's former portable-route
+helpers. Current main encodes a request to HTA and starts the prepared handler
+with `hoplite_work_call`. Keep that current path for body-free portable routes;
+native body handles remain unavailable to the portable adapter.
+"""
+
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+MODULE = ROOT / "core/nginx/ngx_http_hoplite_module.c"
+
+
+def replace_once(source: str, old: str, new: str, label: str) -> str:
+    if new in source:
+        return source
+    count = source.count(old)
+    if count != 1:
+        raise SystemExit(f"{label}: expected one anchor, found {count}")
+    return source.replace(old, new, 1)
+
+
+def main() -> None:
+    source = MODULE.read_text(encoding="utf-8")
+
+    source = replace_once(
+        source,
+        """    hoplite_request_v2_t native_request;
+    hoplite_request_v3_t native_request_v3;
+    hoplite_outcome_v2_t outcome;
+    hoplite_hta_value_t *request_value;
+    hoplite_hta_value_t *result;
+    hoplite_slice_t handler;
+    hoplite_buffer_t buffer;
+    ngx_int_t rc;
+""",
+        """    hoplite_request_v2_t native_request;
+    hoplite_request_v3_t native_request_v3;
+    hoplite_outcome_v2_t outcome;
+    ngx_str_t binding;
+    ngx_int_t rc;
+""",
+        "request-body invoke declarations",
+    )
+
+    source = replace_once(
+        source,
+        """    } else if (conf->adapter == NGX_HTTP_HOPLITE_REQUEST_HTA) {
+        if (body != NULL) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        request_value = ngx_http_hoplite_request(request);
+        if (request_value == NULL) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        handler.data = conf->handler.data;
+        handler.len = conf->handler.len;
+        if (hoplite_handler_invoke(ngx_http_hoplite_runtime,
+                                   handler,
+                                   NGX_HTTP_HOPLITE_REQUEST_HTA,
+                                   request_value,
+                                   &result,
+                                   &buffer) != 0)
+        {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        if (result != NULL) {
+            ngx_http_hoplite_send_result(ctx, result);
+            hoplite_buffer_free(buffer.data, buffer.len);
+            return NGX_DONE;
+        }
+        if (buffer.data == NULL || buffer.len == 0) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        if (ngx_http_hoplite_work_id(request->pool, &buffer, &ctx->work)
+            != NGX_OK)
+        {
+            hoplite_buffer_free(buffer.data, buffer.len);
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        hoplite_buffer_free(buffer.data, buffer.len);
+""",
+        """    } else if (conf->adapter == NGX_HTTP_HOPLITE_REQUEST_HTA) {
+        if (body != NULL) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        if (hoplite_hta_encode_request(request, &binding) != NGX_OK) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        ctx->work = hoplite_work_call(ngx_http_hoplite_runtime,
+                                      conf->prepared_handler,
+                                      binding.data, binding.len);
+        if (ctx->work == 0) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+""",
+        "portable request invocation",
+    )
+
+    MODULE.write_text(source, encoding="utf-8")
+    print("aligned generated request-body V3 adapter with current HTA invocation")
+
+
+if __name__ == "__main__":
+    main()
