@@ -24,7 +24,6 @@ invoke(const hoplite_host_call_v1_t *call)
     assert(memcmp(call->operation.data, "load", 4) == 0);
     assert(call->arguments_hta.len == 5);
     assert(memcmp(call->arguments_hta.data, "HTA1\0", 5) == 0);
-    assert(call->arguments_value == NULL);
     return call->completer.succeed(
         call->completer.context,
         call->arguments_hta.data,
@@ -67,7 +66,6 @@ main(void)
         11,
         {(const uint8_t *) "load", sizeof("load") - 1},
         {(const uint8_t *) "HTA1\0", 5},
-        NULL,
         {&completed, complete, complete}
     };
 
