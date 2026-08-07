@@ -1,0 +1,668 @@
+name: Apply native host provider ABI
+
+on:
+  push:
+    branches:
+      - agent/export-native-host-provider-abi
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/export-native-host-provider-abi
+      - name: Materialize the provider dispatch boundary
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(source: str, old: str, new: str, label: str) -> str:
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one match, found {count}")
+              return source.replace(old, new)
+
+          hta = Path("core/nginx/hoplite_hta.c")
+          source = hta.read_text()
+          source = replace_once(
+              source,
+              """    uint64_t raw;
+    ngx_uint_t tag;
+
+    if (hoplite_take(reader, 1, &tag_data) != NGX_OK) {
+""",
+              """    uint64_t raw;
+    ngx_uint_t tag;
+    size_t start = reader->cursor;
+
+    if (hoplite_take(reader, 1, &tag_data) != NGX_OK) {
+""",
+              "record HTA value start",
+          )
+          source = replace_once(
+              source,
+              """    if (value == NULL) {
+        return NGX_ERROR;
+    }
+    *output = value;
+    return NGX_OK;
+}
+
+ngx_int_t
+hoplite_hta_decode""",
+              """    if (value == NULL) {
+        return NGX_ERROR;
+    }
+    value->encoded = reader->data + start;
+    value->encoded_len = reader->cursor - start;
+    *output = value;
+    return NGX_OK;
+}
+
+ngx_int_t
+hoplite_hta_decode""",
+              "record HTA value span",
+          )
+          source = replace_once(
+              source,
+              """    return NGX_OK;
+}
+
+static ngx_int_t
+hoplite_write(hoplite_writer_t *writer, const void *data, size_t len)
+""",
+              """    return NGX_OK;
+}
+
+ngx_int_t
+hoplite_hta_copy_frame(ngx_pool_t *pool,
+                       const hoplite_hta_value_t *value,
+                       ngx_str_t *output)
+{
+    if (pool == NULL || value == NULL || output == NULL
+        || value->encoded == NULL || value->encoded_len == 0
+        || value->encoded_len > (size_t) -1 - sizeof(hoplite_magic))
+    {
+        return NGX_ERROR;
+    }
+
+    output->len = sizeof(hoplite_magic) + value->encoded_len;
+    output->data = ngx_pnalloc(pool, output->len);
+    if (output->data == NULL) {
+        output->len = 0;
+        return NGX_ERROR;
+    }
+    ngx_memcpy(output->data, hoplite_magic, sizeof(hoplite_magic));
+    ngx_memcpy(output->data + sizeof(hoplite_magic),
+               value->encoded, value->encoded_len);
+    return NGX_OK;
+}
+
+static ngx_int_t
+hoplite_write(hoplite_writer_t *writer, const void *data, size_t len)
+""",
+              "add standalone HTA frame copy",
+          )
+          hta.write_text(source)
+
+          module = Path("core/nginx/ngx_http_hoplite_module.c")
+          source = module.read_text()
+          source = replace_once(
+              source,
+              """#include "hoplite_hta.h"
+#include "hoplite_host_registry.h"
+#include "hoplite_runtime.h"
+""",
+              """#include "hoplite_hta.h"
+#include "hoplite_host_provider.h"
+#include "hoplite_runtime.h"
+""",
+              "include provider ABI",
+          )
+          source = replace_once(
+              source,
+              """typedef struct ngx_http_hoplite_ctx_s ngx_http_hoplite_ctx_t;
+
+typedef struct {
+    ngx_event_t event;
+    ngx_http_hoplite_ctx_t *ctx;
+    uint64_t call;
+} ngx_http_hoplite_sleep_t;
+
+
+typedef struct ngx_http_hoplite_provider_s ngx_http_hoplite_provider_t;
+
+typedef struct {
+    ngx_http_hoplite_ctx_t *ctx;
+    uint64_t work;
+    uint64_t call;
+    ngx_str_t operation;
+    hoplite_hta_value_t *arguments;
+    ngx_pool_t *pool;
+    ngx_log_t *log;
+} ngx_http_hoplite_host_call_t;
+
+typedef ngx_int_t (*ngx_http_hoplite_provider_invoke_pt)(
+    const ngx_http_hoplite_host_call_t *call);
+typedef void (*ngx_http_hoplite_provider_cancel_pt)(
+    ngx_http_hoplite_ctx_t *ctx);
+
+struct ngx_http_hoplite_provider_s {
+    hoplite_host_service_t service;
+    ngx_http_hoplite_provider_invoke_pt invoke;
+    ngx_http_hoplite_provider_cancel_pt cancel;
+    uint32_t capabilities;
+};
+
+#define NGX_HTTP_HOPLITE_PROVIDER_REQUEST_BODY 0x01u
+#define NGX_HTTP_HOPLITE_PROVIDER_RESPONSE_BODY 0x02u
+""",
+              """typedef struct ngx_http_hoplite_ctx_s ngx_http_hoplite_ctx_t;
+typedef struct ngx_http_hoplite_completion_s ngx_http_hoplite_completion_t;
+
+typedef struct {
+    ngx_event_t event;
+    ngx_http_hoplite_ctx_t *ctx;
+    hoplite_host_completer_v1_t completer;
+} ngx_http_hoplite_sleep_t;
+""",
+              "replace private provider ABI",
+          )
+          source = replace_once(
+              source,
+              """    ngx_http_hoplite_sleep_t *sleep;
+    const ngx_http_hoplite_provider_t *provider;
+    ngx_http_hoplite_body_t body;
+};
+""",
+              """    ngx_http_hoplite_sleep_t *sleep;
+    const hoplite_host_provider_v1_t *provider;
+    ngx_http_hoplite_completion_t *completion;
+    ngx_http_hoplite_body_t body;
+};
+
+struct ngx_http_hoplite_completion_s {
+    ngx_http_hoplite_ctx_t *ctx;
+    uint64_t call;
+    ngx_log_t *log;
+    ngx_flag_t completed;
+    ngx_flag_t retained;
+};
+""",
+              "add completion state",
+          )
+          source = replace_once(
+              source,
+              """static ngx_flag_t ngx_http_hoplite_queue_ready;
+static hoplite_host_registry_t ngx_http_hoplite_providers;
+""",
+              """static ngx_flag_t ngx_http_hoplite_queue_ready;
+""",
+              "remove private registry",
+          )
+          source = replace_once(
+              source,
+              """static ngx_int_t ngx_http_hoplite_provider_register(
+    const ngx_http_hoplite_provider_t *provider);
+static const ngx_http_hoplite_provider_t *ngx_http_hoplite_provider_find(
+    ngx_str_t service);
+static ngx_int_t ngx_http_hoplite_nginx_invoke(
+    const ngx_http_hoplite_host_call_t *call);
+static void ngx_http_hoplite_nginx_cancel(ngx_http_hoplite_ctx_t *ctx);
+
+static const ngx_http_hoplite_provider_t ngx_http_hoplite_nginx_provider = {
+    {(const uint8_t *) "nginx", sizeof("nginx") - 1},
+    ngx_http_hoplite_nginx_invoke,
+    ngx_http_hoplite_nginx_cancel,
+    0
+};
+""",
+              """static int32_t ngx_http_hoplite_complete_success(
+    void *data, const uint8_t *hta, size_t hta_len);
+static int32_t ngx_http_hoplite_complete_failure(
+    void *data, const uint8_t *hta, size_t hta_len);
+static int32_t ngx_http_hoplite_nginx_invoke(
+    const hoplite_host_call_v1_t *call);
+static void ngx_http_hoplite_nginx_cancel(void *request_context);
+
+static const hoplite_host_provider_v1_t ngx_http_hoplite_nginx_provider = {
+    HOPLITE_HOST_PROVIDER_ABI_VERSION,
+    {(const uint8_t *) "nginx", sizeof("nginx") - 1},
+    ngx_http_hoplite_nginx_invoke,
+    ngx_http_hoplite_nginx_cancel,
+    0
+};
+""",
+              "declare public provider ABI",
+          )
+          source = replace_once(
+              source,
+              """    if (ctx->provider != NULL && ctx->provider->cancel != NULL) {
+        ctx->provider->cancel(ctx);
+    }
+    ctx->provider = NULL;
+""",
+              """    if (ctx->provider != NULL && ctx->provider->cancel != NULL) {
+        ctx->provider->cancel(ctx);
+    }
+    if (ctx->completion != NULL) {
+        ctx->completion->completed = 1;
+        ctx->completion = NULL;
+    }
+    ctx->provider = NULL;
+""",
+              "cancel completion on finish",
+          )
+          source = replace_once(
+              source,
+              """static ngx_int_t
+ngx_http_hoplite_provider_register(
+    const ngx_http_hoplite_provider_t *provider)
+{
+    if (provider == NULL || provider->invoke == NULL) {
+        return NGX_ERROR;
+    }
+    return hoplite_host_registry_register(&ngx_http_hoplite_providers,
+                                          provider->service,
+                                          provider)
+               == HOPLITE_HOST_REGISTRY_OK
+        ? NGX_OK : NGX_ERROR;
+}
+
+static const ngx_http_hoplite_provider_t *
+ngx_http_hoplite_provider_find(ngx_str_t service)
+{
+    hoplite_host_service_t lookup;
+    lookup.data = service.data;
+    lookup.len = service.len;
+    return hoplite_host_registry_find(&ngx_http_hoplite_providers, lookup);
+}
+""",
+              """static int32_t
+ngx_http_hoplite_complete(void *data,
+                          const uint8_t *hta,
+                          size_t hta_len,
+                          ngx_flag_t failure)
+{
+    ngx_http_hoplite_completion_t *completion = data;
+    ngx_http_hoplite_ctx_t *ctx;
+    ngx_flag_t retained;
+    int rc;
+
+    if (completion == NULL || completion->ctx == NULL
+        || completion->completed || (hta_len != 0 && hta == NULL)
+        || ngx_http_hoplite_runtime == NULL)
+    {
+        return HOPLITE_HOST_PROVIDER_ERROR;
+    }
+    ctx = completion->ctx;
+    if (ctx->done || ctx->completion != completion) {
+        return HOPLITE_HOST_PROVIDER_ERROR;
+    }
+
+    retained = completion->retained;
+    completion->completed = 1;
+    ctx->completion = NULL;
+    ctx->provider = NULL;
+    rc = failure
+        ? hoplite_call_reject(ngx_http_hoplite_runtime,
+                              completion->call, hta, hta_len)
+        : hoplite_call_resolve(ngx_http_hoplite_runtime,
+                               completion->call, hta, hta_len);
+    if (rc != 0) {
+        return HOPLITE_HOST_PROVIDER_ERROR;
+    }
+    if (retained && ngx_http_hoplite_drain(completion->log) != NGX_OK) {
+        ngx_str_t body = ngx_string("Hoplite runtime delivery failed\\n");
+        ngx_http_hoplite_send(ctx, NGX_HTTP_INTERNAL_SERVER_ERROR,
+                              &body, NULL);
+        return HOPLITE_HOST_PROVIDER_ERROR;
+    }
+    return HOPLITE_HOST_PROVIDER_OK;
+}
+
+static int32_t
+ngx_http_hoplite_complete_success(void *data,
+                                  const uint8_t *hta,
+                                  size_t hta_len)
+{
+    return ngx_http_hoplite_complete(data, hta, hta_len, 0);
+}
+
+static int32_t
+ngx_http_hoplite_complete_failure(void *data,
+                                  const uint8_t *hta,
+                                  size_t hta_len)
+{
+    return ngx_http_hoplite_complete(data, hta, hta_len, 1);
+}
+
+static int32_t
+ngx_http_hoplite_provider_reject(const hoplite_host_call_v1_t *call,
+                                 const char *message)
+{
+    ngx_http_hoplite_ctx_t *ctx = call == NULL
+        ? NULL : call->request_context;
+    ngx_str_t text, encoded;
+
+    if (ctx == NULL || ctx->request == NULL || message == NULL) {
+        return HOPLITE_HOST_PROVIDER_ERROR;
+    }
+    text.data = (u_char *) message;
+    text.len = ngx_strlen(message);
+    if (hoplite_hta_encode_string(ctx->request->pool, &text, &encoded)
+        != NGX_OK)
+    {
+        return HOPLITE_HOST_PROVIDER_ERROR;
+    }
+    return call->completer.fail(call->completer.context,
+                                encoded.data, encoded.len);
+}
+""",
+              "install completion boundary",
+          )
+          source = replace_once(
+              source,
+              """static void
+ngx_http_hoplite_nginx_cancel(ngx_http_hoplite_ctx_t *ctx)
+{
+""",
+              """static void
+ngx_http_hoplite_nginx_cancel(void *request_context)
+{
+    ngx_http_hoplite_ctx_t *ctx = request_context;
+""",
+              "make cancel ABI portable",
+          )
+          source = replace_once(
+              source,
+              """static ngx_int_t
+ngx_http_hoplite_nginx_invoke(const ngx_http_hoplite_host_call_t *call)
+{
+    int64_t delay;
+    ngx_http_hoplite_sleep_t *sleep;
+
+    if (call->operation.len != sizeof("sleep") - 1
+        || ngx_strncmp(call->operation.data, "sleep", call->operation.len) != 0)
+    {
+        return ngx_http_hoplite_reject(call->call, call->pool,
+                                       "unsupported nginx host operation");
+    }
+    if (call->arguments == NULL
+        || call->arguments->kind != HOPLITE_HTA_VECTOR
+        || call->arguments->as.vector.count != 1
+        || hoplite_hta_number(call->arguments->as.vector.items[0], &delay)
+               != NGX_OK
+        || delay < 0 || delay > 3600000)
+    {
+        return ngx_http_hoplite_reject(
+            call->call, call->pool,
+            "nginx/sleep expects milliseconds from 0 to 3600000");
+    }
+    if (delay == 0) {
+        return hoplite_call_resolve(ngx_http_hoplite_runtime,
+                                    call->call, NULL, 0) == 0
+            ? NGX_OK : NGX_ERROR;
+    }
+    if (call->ctx->sleep != NULL) {
+        return ngx_http_hoplite_reject(
+            call->call, call->pool,
+            "request already has a pending Hoplite operation");
+    }
+
+    sleep = ngx_pcalloc(call->ctx->request->pool, sizeof(*sleep));
+    if (sleep == NULL) {
+        return NGX_ERROR;
+    }
+    sleep->ctx = call->ctx;
+    sleep->call = call->call;
+    sleep->event.handler = ngx_http_hoplite_sleep_handler;
+    sleep->event.data = sleep;
+    sleep->event.log = call->log;
+    call->ctx->sleep = sleep;
+    ngx_add_timer(&sleep->event, (ngx_msec_t) delay);
+    return NGX_AGAIN;
+}
+""",
+              """static int32_t
+ngx_http_hoplite_nginx_invoke(const hoplite_host_call_v1_t *call)
+{
+    const hoplite_hta_value_t *arguments = call == NULL
+        ? NULL : call->arguments_value;
+    ngx_http_hoplite_ctx_t *ctx = call == NULL
+        ? NULL : call->request_context;
+    int64_t delay;
+    ngx_http_hoplite_sleep_t *sleep;
+
+    if (call == NULL || ctx == NULL
+        || call->operation.len != sizeof("sleep") - 1
+        || ngx_strncmp(call->operation.data, "sleep", call->operation.len) != 0)
+    {
+        return ngx_http_hoplite_provider_reject(
+            call, "unsupported nginx host operation");
+    }
+    if (arguments == NULL
+        || arguments->kind != HOPLITE_HTA_VECTOR
+        || arguments->as.vector.count != 1
+        || hoplite_hta_number(arguments->as.vector.items[0], &delay) != NGX_OK
+        || delay < 0 || delay > 3600000)
+    {
+        return ngx_http_hoplite_provider_reject(
+            call, "nginx/sleep expects milliseconds from 0 to 3600000");
+    }
+    if (delay == 0) {
+        return call->completer.succeed(
+            call->completer.context, NULL, 0);
+    }
+    if (ctx->sleep != NULL) {
+        return ngx_http_hoplite_provider_reject(
+            call, "request already has a pending Hoplite operation");
+    }
+
+    sleep = ngx_pcalloc(ctx->request->pool, sizeof(*sleep));
+    if (sleep == NULL) {
+        return HOPLITE_HOST_PROVIDER_ERROR;
+    }
+    sleep->ctx = ctx;
+    sleep->completer = call->completer;
+    sleep->event.handler = ngx_http_hoplite_sleep_handler;
+    sleep->event.data = sleep;
+    sleep->event.log = ctx->request->connection->log;
+    ctx->sleep = sleep;
+    ngx_add_timer(&sleep->event, (ngx_msec_t) delay);
+    return HOPLITE_HOST_PROVIDER_PENDING;
+}
+""",
+              "adapt built-in provider",
+          )
+          source = replace_once(
+              source,
+              """    const ngx_http_hoplite_provider_t *provider;
+    ngx_http_hoplite_host_call_t call;
+    ngx_int_t rc;
+""",
+              """    const hoplite_host_provider_v1_t *provider;
+    hoplite_host_service_t lookup;
+    hoplite_host_call_v1_t call;
+    ngx_http_hoplite_completion_t *completion;
+    ngx_str_t operation_copy, arguments_hta;
+    int32_t rc;
+""",
+              "declare public host call",
+          )
+          source = replace_once(
+              source,
+              """    provider = ngx_http_hoplite_provider_find(service);
+    if (provider == NULL) {
+        return ngx_http_hoplite_reject((uint64_t) call_number, pool,
+                                       "unsupported Hoplite host service");
+    }
+
+    call.ctx = ctx;
+    call.work = (uint64_t) work_number;
+    call.call = (uint64_t) call_number;
+    call.operation = operation;
+    call.arguments = event->as.vector.items[7];
+    call.pool = pool;
+    call.log = log;
+    rc = provider->invoke(&call);
+    if (rc == NGX_AGAIN) {
+        ctx->provider = provider;
+        return NGX_OK;
+    }
+    return rc;
+""",
+              """    lookup.data = service.data;
+    lookup.len = service.len;
+    provider = hoplite_host_provider_find_v1(lookup);
+    if (provider == NULL) {
+        return ngx_http_hoplite_reject((uint64_t) call_number, pool,
+                                       "unsupported Hoplite host service");
+    }
+    if (ngx_http_hoplite_copy(ctx->request->pool,
+                              &operation, &operation_copy) != NGX_OK
+        || hoplite_hta_copy_frame(ctx->request->pool,
+                                  event->as.vector.items[7],
+                                  &arguments_hta) != NGX_OK)
+    {
+        return NGX_ERROR;
+    }
+
+    completion = ngx_pcalloc(ctx->request->pool, sizeof(*completion));
+    if (completion == NULL) {
+        return NGX_ERROR;
+    }
+    completion->ctx = ctx;
+    completion->call = (uint64_t) call_number;
+    completion->log = log;
+    ctx->completion = completion;
+
+    call.abi_version = HOPLITE_HOST_PROVIDER_ABI_VERSION;
+    call.request_context = ctx;
+    call.work = (uint64_t) work_number;
+    call.call = (uint64_t) call_number;
+    call.operation.data = operation_copy.data;
+    call.operation.len = operation_copy.len;
+    call.arguments_hta.data = arguments_hta.data;
+    call.arguments_hta.len = arguments_hta.len;
+    call.arguments_value = event->as.vector.items[7];
+    call.completer.context = completion;
+    call.completer.succeed = ngx_http_hoplite_complete_success;
+    call.completer.fail = ngx_http_hoplite_complete_failure;
+
+    rc = provider->invoke(&call);
+    if (rc == HOPLITE_HOST_PROVIDER_PENDING) {
+        if (completion->completed) {
+            return NGX_OK;
+        }
+        completion->retained = 1;
+        ctx->provider = provider;
+        return NGX_OK;
+    }
+    if (rc == HOPLITE_HOST_PROVIDER_OK) {
+        if (!completion->completed) {
+            return ngx_http_hoplite_provider_reject(
+                &call, "native provider returned without completing")
+                   == HOPLITE_HOST_PROVIDER_OK
+                ? NGX_OK : NGX_ERROR;
+        }
+        return NGX_OK;
+    }
+
+    if (!completion->completed) {
+        completion->completed = 1;
+        ctx->completion = NULL;
+    }
+    return NGX_ERROR;
+""",
+              "dispatch public host call",
+          )
+          source = replace_once(
+              source,
+              """    ctx->sleep = NULL;
+    ctx->provider = NULL;
+    if (hoplite_call_resolve(ngx_http_hoplite_runtime, sleep->call, NULL, 0) != 0
+        || ngx_http_hoplite_drain(event->log) != NGX_OK)
+    {
+""",
+              """    ctx->sleep = NULL;
+    if (sleep->completer.succeed(
+            sleep->completer.context, NULL, 0)
+        != HOPLITE_HOST_PROVIDER_OK)
+    {
+""",
+              "complete retained provider call",
+          )
+          source = replace_once(
+              source,
+              """    if (ctx->provider != NULL && ctx->provider->cancel != NULL) {
+        ctx->provider->cancel(ctx);
+    }
+    ctx->provider = NULL;
+
+    if (!ctx->done""",
+              """    if (ctx->provider != NULL && ctx->provider->cancel != NULL) {
+        ctx->provider->cancel(ctx);
+    }
+    if (ctx->completion != NULL) {
+        ctx->completion->completed = 1;
+        ctx->completion = NULL;
+    }
+    ctx->provider = NULL;
+
+    if (!ctx->done""",
+              "cancel completion on cleanup",
+          )
+          source = replace_once(
+              source,
+              """    hoplite_host_registry_init(&ngx_http_hoplite_providers);
+    if (ngx_http_hoplite_provider_register(
+            &ngx_http_hoplite_nginx_provider) != NGX_OK)
+""",
+              """    if (hoplite_host_provider_register_v1(
+            &ngx_http_hoplite_nginx_provider)
+        != HOPLITE_HOST_PROVIDER_REGISTER_OK)
+""",
+              "register built-in through public ABI",
+          )
+          module.write_text(source)
+
+          config = Path("core/nginx/config")
+          source = config.read_text()
+          source = replace_once(
+              source,
+              """ngx_module_srcs="$ngx_addon_dir/ngx_http_hoplite_module.c \\
+                 $ngx_addon_dir/hoplite_hta.c"
+""",
+              """ngx_module_srcs="$ngx_addon_dir/ngx_http_hoplite_module.c \\
+                 $ngx_addon_dir/hoplite_hta.c \\
+                 $ngx_addon_dir/hoplite_host_provider.c"
+""",
+              "link provider registry implementation",
+          )
+          config.write_text(source)
+          PY
+          git diff --check
+      - name: Test the portable provider registry ABI
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror \
+            -I core/nginx \
+            core/nginx/hoplite_host_provider.c \
+            core/nginx/tests/host_provider_api.c \
+            -o /tmp/hoplite-host-provider-api-test
+          /tmp/hoplite-host-provider-api-test
+      - name: Commit the provider dispatch boundary
+        run: |
+          git config user.name "greenways-release-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            core/nginx/hoplite_hta.c \
+            core/nginx/ngx_http_hoplite_module.c \
+            core/nginx/config
+          git commit -m "Dispatch through the exported native provider ABI"
+          git push origin HEAD:agent/export-native-host-provider-abi
