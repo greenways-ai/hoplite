@@ -75,6 +75,13 @@ jobs:
           cc -std=c11 -Wall -Wextra -Werror \
             -I hoplite/core/abi/data-plane-ffi/include \
             -fsyntax-only /tmp/hoplite-data-plane-header.c
+      - name: Test the fixed-capacity host-provider registry
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror \
+            -I hoplite/core/nginx \
+            hoplite/core/nginx/tests/host_registry.c \
+            -o /tmp/hoplite-host-registry-test
+          /tmp/hoplite-host-registry-test
 
   nginx-module:
     runs-on: ubuntu-latest
@@ -90,10 +97,11 @@ jobs:
           submodules: recursive
       - name: Build the production image
         run: docker build -f hoplite/packaging/docker/Dockerfile -t hoplite-ci .
-      - name: Smoke-test the slim server and request-body V3
+      - name: Smoke-test the production server, request bodies, and host providers
         run: |
           docker run --rm hoplite-ci version
           bash hoplite/packaging/scripts/smoke-request-body-v3.sh hoplite-ci
+          bash hoplite/packaging/scripts/smoke-host-providers.sh hoplite-ci
 
   packaging:
     runs-on: ubuntu-latest
@@ -116,13 +124,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Validate benchmark scripts and checked-in pending reports
+      - name: Validate benchmark and smoke scripts
         run: |
           bash -n packaging/scripts/benchmark-http.sh
           bash -n packaging/scripts/measure-stack-footprints.sh
           bash -n packaging/scripts/run-benchmarks.sh
           bash -n packaging/scripts/run-with-docker-top-compat.sh
           bash -n packaging/scripts/smoke-request-body-v3.sh
+          bash -n packaging/scripts/smoke-host-providers.sh
           bash -n packaging/scripts/validate-benchmark-data.sh
 
           compat_test_root="$(mktemp -d)"
