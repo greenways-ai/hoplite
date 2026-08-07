@@ -10,6 +10,7 @@ on:
       - 'core/src/main.rs'
       - 'core/examples/app.hal'
       - 'packaging/scripts/generate-nginx-request-body-v3'
+      - 'packaging/scripts/fix-nginx-request-body-v3'
       - '.github/workflows/generate-nginx-request-body-v3.yml'
   workflow_dispatch:
 
@@ -50,7 +51,9 @@ jobs:
           PYTHONDONTWRITEBYTECODE: '1'
         run: |
           python3 -m py_compile packaging/scripts/generate-nginx-request-body-v3
+          python3 -m py_compile packaging/scripts/fix-nginx-request-body-v3
           python3 packaging/scripts/generate-nginx-request-body-v3
+          python3 packaging/scripts/fix-nginx-request-body-v3
           cargo fmt --manifest-path core/Cargo.toml --all
 
       - name: Test the complete locked Rust workspace
