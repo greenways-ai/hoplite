@@ -8,7 +8,7 @@ on:
       - '.github/workflows/finalize-data-plane-lockfile.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: finalize-data-plane-lockfile
@@ -22,6 +22,8 @@ jobs:
         with:
           ref: agent/data-plane-resource-registry
           path: hoplite
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
@@ -34,9 +36,15 @@ jobs:
         run: |
           cargo generate-lockfile --manifest-path core/Cargo.toml
           cargo test --manifest-path core/Cargo.toml --workspace --locked
-      - uses: actions/upload-artifact@v4
-        with:
-          name: hoplite-data-plane-lockfile
-          path: hoplite/core/Cargo.lock
-          if-no-files-found: error
-          retention-days: 7
+      - name: Commit the verified lockfile
+        working-directory: hoplite
+        run: |
+          if git diff --quiet -- core/Cargo.lock; then
+            echo 'Cargo.lock is already current.'
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add core/Cargo.lock
+          git commit -m "Regenerate the data-plane workspace lockfile"
+          git push origin HEAD:agent/data-plane-resource-registry
