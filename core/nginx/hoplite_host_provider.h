@@ -40,6 +40,8 @@ typedef struct {
     hoplite_host_service_t operation;
     /* Exact standalone HTA1 frame for the Hara call arguments. */
     hoplite_host_service_t arguments_hta;
+    /* Request-event scoped decoded view; never retain this pointer. */
+    const void *arguments_value;
     hoplite_host_completer_v1_t completer;
 } hoplite_host_call_v1_t;
 
