@@ -902,7 +902,7 @@ ngx_http_hoplite_init_process(ngx_cycle_t *cycle)
     ngx_queue_init(&ngx_http_hoplite_requests);
     ngx_http_hoplite_queue_ready = 1;
     ngx_http_hoplite_runtime = hoplite_runtime_new();
-    if (ngx_http_hoplite_runtime == NULL || hoplite_abi_version() != 2) {
+    if (ngx_http_hoplite_runtime == NULL || hoplite_abi_version() < 2) {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
                       "hoplite runtime could not be initialized");
         return NGX_ERROR;

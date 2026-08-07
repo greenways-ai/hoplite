@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "../abi/data-plane-ffi/include/hoplite_data_plane.h"
+
 typedef struct hoplite_runtime hoplite_runtime_t;
 
 typedef struct {
@@ -31,11 +33,35 @@ typedef struct {
     hoplite_header_at_fn header_at;
 } hoplite_request_v2_t;
 
+/*
+ * V3 preserves the complete V2 request metadata layout and adds one optional
+ * native body descriptor plus server-selected limits. A null body pointer
+ * requires every limit field to be zero.
+ *
+ * After the runtime, request and outcome pointers pass their non-null preflight,
+ * a non-null body transfers exclusive descriptor lifecycle ownership to the
+ * worker runtime, including later validation failure. The caller must not reuse
+ * or close the descriptor after that transfer. If top-level pointer preflight
+ * fails, ownership remains with the caller.
+ */
+typedef struct {
+    hoplite_request_v2_t request;
+    const hoplite_request_body_v1 *body;
+    uint64_t max_body_bytes;
+    size_t max_chunk_bytes;
+    uint32_t require_declared_length;
+} hoplite_request_v3_t;
+
 typedef struct {
     uint32_t kind;
     uint64_t id;
 } hoplite_outcome_v2_t;
 
+/*
+ * Returns the highest runtime ABI version supported by this library. ABI
+ * additions preserve earlier versioned symbols, so a V2-only host accepts any
+ * return value greater than or equal to 2 rather than requiring exact equality.
+ */
 uint32_t hoplite_abi_version(void);
 hoplite_runtime_t *hoplite_runtime_new(void);
 void hoplite_runtime_free(hoplite_runtime_t *runtime);
@@ -65,6 +91,32 @@ int hoplite_handler_invoke_v2(hoplite_runtime_t *runtime,
                               uint32_t adapter,
                               const hoplite_request_v2_t *request,
                               hoplite_outcome_v2_t *outcome);
+int hoplite_app_invoke_v3(hoplite_runtime_t *runtime,
+                          uint64_t app,
+                          const hoplite_request_v3_t *request,
+                          hoplite_outcome_v2_t *outcome);
+int hoplite_handler_invoke_v3(hoplite_runtime_t *runtime,
+                              uint64_t handler,
+                              uint32_t adapter,
+                              const hoplite_request_v3_t *request,
+                              hoplite_outcome_v2_t *outcome);
+
+/*
+ * Resolve one request body through the owning suspended work. The trusted host
+ * must pass the work id carried by the corresponding Hoplite host-call event.
+ * A handle associated with another live work or a closed work fails before a
+ * native callback runs.
+ */
+int hoplite_request_body_read_v3(hoplite_runtime_t *runtime,
+                                 uint64_t work,
+                                 uint64_t handle,
+                                 uint8_t *output,
+                                 size_t capacity,
+                                 size_t *returned);
+int hoplite_request_body_finish_v3(hoplite_runtime_t *runtime,
+                                   uint64_t work,
+                                   uint64_t handle);
+
 int hoplite_response_status_v2(hoplite_runtime_t *runtime,
                                uint64_t response,
                                uint16_t *status);

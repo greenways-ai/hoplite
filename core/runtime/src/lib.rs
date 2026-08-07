@@ -1,6 +1,9 @@
 #![allow(clippy::missing_safety_doc)]
 
 use hara_wasm::{core, hta, kernel, vm};
+use hoplite_data_plane_abi::{BodyLimits, ResourceHandle};
+use hoplite_data_plane_ffi::HopliteRequestBodyV1;
+use hoplite_data_plane_registry::ResourceRegistry;
 
 use core::{Promise, PromiseRejection, PromiseState, Value};
 use std::cell::RefCell;
@@ -10,7 +13,7 @@ use std::ptr;
 use std::rc::Rc;
 use std::{ffi::c_void, slice, str};
 
-const ABI_VERSION: u32 = 2;
+const ABI_VERSION: u32 = 3;
 type HostCall = (u64, Promise, String, String, Vec<Value>);
 
 type WorkId = u64;
@@ -107,6 +110,17 @@ pub struct HopliteRequestV2 {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
+pub struct HopliteRequestV3 {
+    pub request: HopliteRequestV2,
+    pub body: *const HopliteRequestBodyV1,
+    pub max_body_bytes: u64,
+    pub max_chunk_bytes: usize,
+    /// `0` means false and `1` means true.
+    pub require_declared_length: u32,
+}
+
+#[repr(C)]
 pub struct HopliteOutcomeV2 {
     /// 0 = error, 1 = complete, 2 = suspended.
     pub kind: u32,
@@ -116,6 +130,7 @@ pub struct HopliteOutcomeV2 {
 #[derive(Clone, Copy)]
 struct RequestRecord {
     request: HopliteRequestV2,
+    body: Option<ResourceHandle>,
 }
 
 struct NativeResponse {
@@ -156,6 +171,7 @@ pub struct HopliteRuntime {
     apps: HashMap<AppId, AppRouter>,
     works: HashMap<WorkId, Work>,
     requests: Rc<RefCell<HashMap<RequestId, RequestRecord>>>,
+    resources: Rc<RefCell<ResourceRegistry>>,
     raw_builders: Rc<RefCell<HashMap<RequestId, RawBuilder>>>,
     responses: HashMap<ResponseId, NativeResponse>,
     host: Rc<dyn Fn(String, String, Vec<Value>) -> Result<Value, String>>,
@@ -218,6 +234,26 @@ fn request_headers(record: RequestRecord) -> Result<Vec<(String, String)>, Strin
     Ok(headers)
 }
 
+fn close_request_body_descriptor(descriptor: HopliteRequestBodyV1) {
+    if descriptor.context.is_null() {
+        return;
+    }
+    if let Some(close) = descriptor.close {
+        unsafe { close(descriptor.context) };
+    }
+}
+
+fn request_body_value(record: RequestRecord) -> Result<Option<Value>, String> {
+    record
+        .body
+        .map(|handle| {
+            i64::try_from(handle.get()).map(Value::Number).map_err(|_| {
+                "hoplite/request-body-invalid: handle exceeds Hara integer range".into()
+            })
+        })
+        .transpose()
+}
+
 fn request_entries(
     requests: &Rc<RefCell<HashMap<RequestId, RequestRecord>>>,
     request: RequestId,
@@ -227,7 +263,7 @@ fn request_entries(
         .into_iter()
         .map(|(name, value)| (Value::String(name), Value::String(value)))
         .collect();
-    Ok(vec![
+    let mut entries = vec![
         (
             Value::Keyword("method".into()),
             Value::String(slice_string(record.request.method)?),
@@ -249,7 +285,11 @@ fn request_entries(
             Value::String(slice_string(record.request.remote_address)?),
         ),
         (Value::Keyword("headers".into()), Value::Map(headers)),
-    ])
+    ];
+    if let Some(body) = request_body_value(record)? {
+        entries.push((Value::Keyword("body-handle".into()), body));
+    }
+    Ok(entries)
 }
 
 fn request_value(
@@ -294,6 +334,7 @@ fn request_lookup(
         "query-string" => Some(Value::String(slice_string(record.request.query_string)?)),
         "remote-address" => Some(Value::String(slice_string(record.request.remote_address)?)),
         "headers" => Some(request_value(requests, receiver.handle, "headers")?),
+        "body-handle" => request_body_value(record)?,
         _ => None,
     })
 }
@@ -640,6 +681,7 @@ impl HopliteRuntime {
     fn new() -> Self {
         let namespaces = hara_wasm::embedding_namespace_registry();
         let requests = Rc::new(RefCell::new(HashMap::new()));
+        let resources = Rc::new(RefCell::new(ResourceRegistry::new()));
         let raw_builders = Rc::new(RefCell::new(HashMap::new()));
         let mut protocols = core::ProtocolRegistry::core();
         install_request_protocols(&mut protocols, requests.clone());
@@ -673,6 +715,7 @@ impl HopliteRuntime {
             apps: HashMap::new(),
             works: HashMap::new(),
             requests,
+            resources,
             raw_builders,
             responses: HashMap::new(),
             host,
@@ -687,17 +730,85 @@ impl HopliteRuntime {
         work
     }
 
-    fn allocate_request(&mut self, request: HopliteRequestV2) -> RequestId {
+    fn register_request_v3(
+        &mut self,
+        request: HopliteRequestV3,
+    ) -> Result<(HopliteRequestV2, Option<ResourceHandle>), String> {
+        if request.body.is_null() {
+            if request.max_body_bytes != 0
+                || request.max_chunk_bytes != 0
+                || request.require_declared_length != 0
+            {
+                return Err(
+                    "hoplite/request-body-invalid: body limits require a body descriptor".into(),
+                );
+            }
+            return Ok((request.request, None));
+        }
+
+        let descriptor = unsafe { *request.body };
+        let require_declared_length = match request.require_declared_length {
+            0 => false,
+            1 => true,
+            value => {
+                close_request_body_descriptor(descriptor);
+                return Err(format!(
+                    "hoplite/request-body-invalid: require_declared_length must be 0 or 1, received {value}"
+                ));
+            }
+        };
+        let limits = BodyLimits {
+            max_body_bytes: request.max_body_bytes,
+            max_chunk_bytes: request.max_chunk_bytes,
+            require_declared_length,
+        };
+        // SAFETY: the V3 invocation transfers exclusive ownership of
+        // this descriptor from its native caller into the worker.
+        let registered = unsafe {
+            self.resources
+                .borrow_mut()
+                .insert_request(descriptor, limits)
+        };
+        match registered {
+            Ok(handle) if handle.get() <= i64::MAX as u64 => Ok((request.request, Some(handle))),
+            Ok(handle) => {
+                let _ = self.resources.borrow_mut().remove(handle);
+                Err("hoplite/request-body-invalid: handle exceeds Hara integer range".into())
+            }
+            Err(error) => Err(format!("hoplite/request-body-invalid: {error}")),
+        }
+    }
+
+    fn work_owns_request_body(&self, work: WorkId, handle: ResourceHandle) -> bool {
+        let Some(request) = self.works.get(&work).and_then(|owner| owner.request) else {
+            return false;
+        };
+        let requests = self.requests.borrow();
+        matches!(
+            requests.get(&request),
+            Some(record) if record.body == Some(handle)
+        )
+    }
+
+    fn allocate_request(
+        &mut self,
+        request: HopliteRequestV2,
+        body: Option<ResourceHandle>,
+    ) -> RequestId {
         let id = self.next_request;
         self.next_request = self.next_request.saturating_add(1);
         self.requests
             .borrow_mut()
-            .insert(id, RequestRecord { request });
+            .insert(id, RequestRecord { request, body });
         id
     }
 
     fn close_request(&mut self, request: RequestId) {
-        self.requests.borrow_mut().remove(&request);
+        if let Some(record) = self.requests.borrow_mut().remove(&request) {
+            if let Some(body) = record.body {
+                let _ = self.resources.borrow_mut().remove(body);
+            }
+        }
         self.raw_builders.borrow_mut().remove(&request);
     }
 
@@ -775,67 +886,90 @@ impl HopliteRuntime {
         }
     }
 
-    fn app_invoke(&mut self, app: AppId, request: HopliteRequestV2) -> Result<InvokeState, String> {
-        let method = slice_string(request.method)?.to_ascii_uppercase();
-        let path = slice_string(request.path)?;
-        let router = self
-            .apps
-            .get(&app)
-            .ok_or_else(|| format!("unknown app {app}"))?;
-        let route = router
-            .routes
-            .iter()
-            .filter(|route| route.method == "ANY" || route.method == method)
-            .filter_map(|route| route_score(&route.path, &path).map(|score| (score, route)))
-            .max_by_key(|(score, _)| *score)
-            .map(|(_, route)| (route.handler, route.adapter));
-        let Some((handler, adapter)) = route else {
-            return Ok(InvokeState::Complete(self.store_response(native_response(
-                response_value(404, "Not Found\n"),
-            )?)));
-        };
-
-        let request_id = self.allocate_request(request);
-        match adapter {
-            RouteAdapter::Raw => {
-                let binding = request_value(&self.requests, request_id, "exchange")?;
-                self.invoke_direct(handler, binding, request_id)
-            }
-            RouteAdapter::Request => {
-                let binding = request_value(&self.requests, request_id, "request")?;
-                self.invoke_direct(handler, binding, request_id)
-            }
-            RouteAdapter::RequestHta => {
-                let value = Value::Map(
-                    request_entries(&self.requests, request_id)?
-                        .into_iter()
-                        .collect(),
-                );
+    fn app_invoke_with_body(
+        &mut self,
+        app: AppId,
+        request: HopliteRequestV2,
+        body: Option<ResourceHandle>,
+    ) -> Result<InvokeState, String> {
+        let has_body = body.is_some();
+        let request_id = self.allocate_request(request, body);
+        let result = (|| {
+            let method = slice_string(request.method)?.to_ascii_uppercase();
+            let path = slice_string(request.path)?;
+            let router = self
+                .apps
+                .get(&app)
+                .ok_or_else(|| format!("unknown app {app}"))?;
+            let route = router
+                .routes
+                .iter()
+                .filter(|route| route.method == "ANY" || route.method == method)
+                .filter_map(|route| route_score(&route.path, &path).map(|score| (score, route)))
+                .max_by_key(|(score, _)| *score)
+                .map(|(_, route)| (route.handler, route.adapter));
+            let Some((handler, adapter)) = route else {
                 self.close_request(request_id);
-                let portable = hta::decode(&hta::encode(&value)?)?;
-                self.work_call(handler, portable)
-                    .map(InvokeState::Suspended)
-                    .map_err(|_| "cannot start HTA route".into())
+                return Ok(InvokeState::Complete(self.store_response(native_response(
+                    response_value(404, "Not Found\n"),
+                )?)));
+            };
+
+            match adapter {
+                RouteAdapter::Raw => {
+                    let binding = request_value(&self.requests, request_id, "exchange")?;
+                    self.invoke_direct(handler, binding, request_id)
+                }
+                RouteAdapter::Request => {
+                    let binding = request_value(&self.requests, request_id, "request")?;
+                    self.invoke_direct(handler, binding, request_id)
+                }
+                RouteAdapter::RequestHta if has_body => Err(
+                    "hoplite/request-body-adapter-invalid: body handles require request or raw adapter"
+                        .into(),
+                ),
+                RouteAdapter::RequestHta => {
+                    let value = Value::Map(
+                        request_entries(&self.requests, request_id)?
+                            .into_iter()
+                            .collect(),
+                    );
+                    self.close_request(request_id);
+                    let portable = hta::decode(&hta::encode(&value)?)?;
+                    self.work_call(handler, portable)
+                        .map(InvokeState::Suspended)
+                        .map_err(|_| "cannot start HTA route".into())
+                }
             }
+        })();
+        if result.is_err() {
+            self.close_request(request_id);
         }
+        result
     }
 
-    fn handler_invoke(
+    fn app_invoke(&mut self, app: AppId, request: HopliteRequestV2) -> Result<InvokeState, String> {
+        self.app_invoke_with_body(app, request, None)
+    }
+
+    fn handler_invoke_with_body(
         &mut self,
         handler: HandlerId,
         adapter: RouteAdapter,
         request: HopliteRequestV2,
+        body: Option<ResourceHandle>,
     ) -> Result<InvokeState, String> {
-        let request_id = self.allocate_request(request);
-        match adapter {
-            RouteAdapter::Raw => {
-                let binding = request_value(&self.requests, request_id, "exchange")?;
-                self.invoke_direct(handler, binding, request_id)
-            }
-            RouteAdapter::Request => {
-                let binding = request_value(&self.requests, request_id, "request")?;
-                self.invoke_direct(handler, binding, request_id)
-            }
+        let has_body = body.is_some();
+        let request_id = self.allocate_request(request, body);
+        let result = match adapter {
+            RouteAdapter::Raw => request_value(&self.requests, request_id, "exchange")
+                .and_then(|binding| self.invoke_direct(handler, binding, request_id)),
+            RouteAdapter::Request => request_value(&self.requests, request_id, "request")
+                .and_then(|binding| self.invoke_direct(handler, binding, request_id)),
+            RouteAdapter::RequestHta if has_body => Err(
+                "hoplite/request-body-adapter-invalid: body handles require request or raw adapter"
+                    .into(),
+            ),
             RouteAdapter::RequestHta => {
                 let value = Value::Map(
                     request_entries(&self.requests, request_id)?
@@ -848,7 +982,20 @@ impl HopliteRuntime {
                     .map(InvokeState::Suspended)
                     .map_err(|_| "cannot start HTA handler".into())
             }
+        };
+        if result.is_err() {
+            self.close_request(request_id);
         }
+        result
+    }
+
+    fn handler_invoke(
+        &mut self,
+        handler: HandlerId,
+        adapter: RouteAdapter,
+        request: HopliteRequestV2,
+    ) -> Result<InvokeState, String> {
+        self.handler_invoke_with_body(handler, adapter, request, None)
     }
 
     fn host_handler(
@@ -1641,6 +1788,145 @@ pub unsafe extern "C" fn hoplite_handler_invoke_v2(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn hoplite_app_invoke_v3(
+    runtime: *mut HopliteRuntime,
+    app: u64,
+    request: *const HopliteRequestV3,
+    outcome: *mut HopliteOutcomeV2,
+) -> i32 {
+    if request.is_null() || outcome.is_null() {
+        return 1;
+    }
+    (*outcome).kind = 0;
+    (*outcome).id = 0;
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        let (request, body) = runtime.register_request_v3(*request).map_err(|_| ())?;
+        match runtime
+            .app_invoke_with_body(app, request, body)
+            .map_err(|_| ())?
+        {
+            InvokeState::Complete(response) => {
+                (*outcome).kind = 1;
+                (*outcome).id = response;
+            }
+            InvokeState::Suspended(work) => {
+                (*outcome).kind = 2;
+                (*outcome).id = work;
+            }
+        }
+        Ok::<i32, ()>(0)
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_handler_invoke_v3(
+    runtime: *mut HopliteRuntime,
+    handler: u64,
+    adapter: u32,
+    request: *const HopliteRequestV3,
+    outcome: *mut HopliteOutcomeV2,
+) -> i32 {
+    if request.is_null() || outcome.is_null() {
+        return 1;
+    }
+    (*outcome).kind = 0;
+    (*outcome).id = 0;
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        let (request, body) = runtime.register_request_v3(*request).map_err(|_| ())?;
+        let adapter = match RouteAdapter::from_abi(adapter) {
+            Ok(adapter) => adapter,
+            Err(_) => {
+                if let Some(body) = body {
+                    let _ = runtime.resources.borrow_mut().remove(body);
+                }
+                return Err(());
+            }
+        };
+        match runtime
+            .handler_invoke_with_body(handler, adapter, request, body)
+            .map_err(|_| ())?
+        {
+            InvokeState::Complete(response) => {
+                (*outcome).kind = 1;
+                (*outcome).id = response;
+            }
+            InvokeState::Suspended(work) => {
+                (*outcome).kind = 2;
+                (*outcome).id = work;
+            }
+        }
+        Ok::<i32, ()>(0)
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_request_body_read_v3(
+    runtime: *mut HopliteRuntime,
+    work: u64,
+    handle: u64,
+    output: *mut u8,
+    capacity: usize,
+    returned: *mut usize,
+) -> i32 {
+    if returned.is_null() || (output.is_null() && capacity != 0) {
+        return 1;
+    }
+    *returned = 0;
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        let handle = ResourceHandle::new(handle).map_err(|_| ())?;
+        if !runtime.work_owns_request_body(work, handle) {
+            return Err(());
+        }
+        let output = if capacity == 0 {
+            &mut []
+        } else {
+            slice::from_raw_parts_mut(output, capacity)
+        };
+        let read = {
+            let mut resources = runtime.resources.borrow_mut();
+            resources.read_request(handle, output).map_err(|_| ())?
+        };
+        *returned = read;
+        Ok::<i32, ()>(0)
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_request_body_finish_v3(
+    runtime: *mut HopliteRuntime,
+    work: u64,
+    handle: u64,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        let handle = ResourceHandle::new(handle).map_err(|_| ())?;
+        if !runtime.work_owns_request_body(work, handle) {
+            return Err(());
+        }
+        {
+            let resources = runtime.resources.borrow();
+            resources.finish_request(handle).map_err(|_| ())?;
+        }
+        Ok::<i32, ()>(0)
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(1)
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn hoplite_response_status_v2(
     runtime: *mut HopliteRuntime,
     response: u64,
@@ -1881,6 +2167,7 @@ pub unsafe extern "C" fn hoplite_work_close(runtime: *mut HopliteRuntime, work: 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hara_wasm::lang::IPeekFirst;
 
     struct TestRequest {
         headers: Vec<(&'static str, &'static str)>,
@@ -1918,6 +2205,58 @@ mod tests {
             remote_address: test_slice("127.0.0.1"),
             header_count: context.headers.len(),
             header_at: Some(test_header_at),
+        }
+    }
+
+    struct TestBody {
+        bytes: Vec<u8>,
+        cursor: usize,
+        close_count: usize,
+    }
+
+    unsafe extern "C" fn test_body_read(
+        context: *mut c_void,
+        output: *mut u8,
+        capacity: usize,
+        returned: *mut usize,
+    ) -> i32 {
+        let body = &mut *(context as *mut TestBody);
+        let remaining = body.bytes.len().saturating_sub(body.cursor);
+        let count = capacity.min(remaining);
+        if count != 0 {
+            slice::from_raw_parts_mut(output, capacity)[..count]
+                .copy_from_slice(&body.bytes[body.cursor..body.cursor + count]);
+            body.cursor += count;
+        }
+        *returned = count;
+        0
+    }
+
+    unsafe extern "C" fn test_body_close(context: *mut c_void) {
+        let body = &mut *(context as *mut TestBody);
+        body.close_count += 1;
+    }
+
+    fn test_body_descriptor(body: &mut TestBody) -> HopliteRequestBodyV1 {
+        HopliteRequestBodyV1 {
+            context: body as *mut TestBody as *mut c_void,
+            declared_length: body.bytes.len() as u64,
+            has_declared_length: 1,
+            read: Some(test_body_read),
+            close: Some(test_body_close),
+        }
+    }
+
+    fn test_request_v3(
+        request: HopliteRequestV2,
+        descriptor: &HopliteRequestBodyV1,
+    ) -> HopliteRequestV3 {
+        HopliteRequestV3 {
+            request,
+            body: descriptor,
+            max_body_bytes: 16,
+            max_chunk_bytes: 2,
+            require_declared_length: 1,
         }
     }
 
@@ -2221,6 +2560,232 @@ mod tests {
         assert_eq!(response.body, b"/raw");
         assert_eq!(response.headers, vec![("x-mode".into(), "raw".into())]);
         assert_eq!(runtime.works.len(), works_before);
+    }
+
+    #[test]
+    fn request_v3_projects_only_an_opaque_body_handle() {
+        let mut runtime = HopliteRuntime::new();
+        runtime.work_start(
+            "(ns body.sync) (defn show [request] {:status 200 :body (if (:body-handle request) \"present\" \"missing\")}) nil",
+            None,
+        );
+        let _ = take_event(&mut runtime);
+        let handler = runtime.handler_prepare("body.sync/show").unwrap();
+        let mut request_context = TestRequest { headers: vec![] };
+        let mut body_context = TestBody {
+            bytes: b"body".to_vec(),
+            cursor: 0,
+            close_count: 0,
+        };
+        let descriptor = test_body_descriptor(&mut body_context);
+        let request = test_request_v3(test_request(&mut request_context, "/body"), &descriptor);
+        let (request, body) = runtime.register_request_v3(request).unwrap();
+        let InvokeState::Complete(response) = runtime
+            .handler_invoke_with_body(handler, RouteAdapter::Request, request, body)
+            .unwrap()
+        else {
+            panic!("body route suspended")
+        };
+        assert_eq!(runtime.responses[&response].body, b"present");
+        assert!(runtime.resources.borrow().is_empty());
+        assert_eq!(body_context.close_count, 1);
+    }
+
+    #[test]
+    fn request_v3_body_survives_async_work_and_closes_with_request_scope() {
+        let mut runtime = HopliteRuntime::new();
+        runtime.work_start(
+            "(ns body.async) (defn show [request] (std.foundation.coroutine/await (std.native.Host/call \"nginx\" \"use-body\" [(:body-handle request)])) {:status 200 :body \"done\"}) nil",
+            None,
+        );
+        let _ = take_event(&mut runtime);
+        let handler = runtime.handler_prepare("body.async/show").unwrap();
+        let mut request_context = TestRequest { headers: vec![] };
+        let mut body_context = TestBody {
+            bytes: b"abcd".to_vec(),
+            cursor: 0,
+            close_count: 0,
+        };
+        let descriptor = test_body_descriptor(&mut body_context);
+        let request = test_request_v3(test_request(&mut request_context, "/body"), &descriptor);
+        let (request, body) = runtime.register_request_v3(request).unwrap();
+        let handle = body.expect("body handle");
+        let InvokeState::Suspended(work) = runtime
+            .handler_invoke_with_body(handler, RouteAdapter::Request, request, Some(handle))
+            .unwrap()
+        else {
+            panic!("body route completed synchronously")
+        };
+        let Value::Vector(call) = take_event(&mut runtime) else {
+            panic!("host event")
+        };
+        let call_id = match call.get(1) {
+            Some(Value::Number(value)) => *value as u64,
+            _ => panic!("call id"),
+        };
+        let event_work = match call.get(2) {
+            Some(Value::Number(value)) => *value as u64,
+            _ => panic!("work id"),
+        };
+        assert_eq!(event_work, work);
+        let arguments = match call.get(7) {
+            Some(Value::Vector(arguments)) => arguments,
+            _ => panic!("host argument vector"),
+        };
+        assert!(
+            matches!(arguments.peek_first(), Some(Value::Number(value)) if value == handle.get() as i64)
+        );
+
+        let foreign_work = runtime.start_value(Value::Nil);
+        let mut output = [0_u8; 8];
+        let mut returned = usize::MAX;
+        assert_eq!(
+            unsafe {
+                hoplite_request_body_read_v3(
+                    &mut runtime,
+                    foreign_work,
+                    handle.get(),
+                    output.as_mut_ptr(),
+                    output.len(),
+                    &mut returned,
+                )
+            },
+            1
+        );
+        assert_eq!(returned, 0);
+        assert_eq!(
+            unsafe {
+                hoplite_request_body_read_v3(
+                    &mut runtime,
+                    work,
+                    handle.get(),
+                    output.as_mut_ptr(),
+                    output.len(),
+                    &mut returned,
+                )
+            },
+            0
+        );
+        assert_eq!(returned, 2);
+        assert_eq!(&output[..2], b"ab");
+        assert_eq!(
+            unsafe {
+                hoplite_request_body_read_v3(
+                    &mut runtime,
+                    work,
+                    handle.get(),
+                    output.as_mut_ptr(),
+                    output.len(),
+                    &mut returned,
+                )
+            },
+            0
+        );
+        assert_eq!(returned, 2);
+        assert_eq!(&output[..2], b"cd");
+        assert_eq!(
+            unsafe { hoplite_request_body_finish_v3(&mut runtime, foreign_work, handle.get()) },
+            1
+        );
+        assert_eq!(
+            unsafe { hoplite_request_body_finish_v3(&mut runtime, work, handle.get()) },
+            0
+        );
+        assert!(runtime.work_close(foreign_work));
+
+        runtime.call_deliver(call_id, true, Value::Nil).unwrap();
+        let Value::Vector(done) = take_event(&mut runtime) else {
+            panic!("completion event")
+        };
+        assert!(matches!(done.get(0), Some(Value::Number(0))));
+        assert_eq!(body_context.close_count, 0);
+        assert!(runtime.work_close(work));
+        assert_eq!(body_context.close_count, 1);
+        assert!(!runtime.resources.borrow().contains(handle));
+        returned = usize::MAX;
+        assert_eq!(
+            unsafe {
+                hoplite_request_body_read_v3(
+                    &mut runtime,
+                    work,
+                    handle.get(),
+                    output.as_mut_ptr(),
+                    output.len(),
+                    &mut returned,
+                )
+            },
+            1
+        );
+        assert_eq!(returned, 0);
+    }
+
+    #[test]
+    fn request_v3_invalid_adapter_closes_transferred_body() {
+        let mut runtime = HopliteRuntime::new();
+        let mut request_context = TestRequest { headers: vec![] };
+        let mut body_context = TestBody {
+            bytes: b"body".to_vec(),
+            cursor: 0,
+            close_count: 0,
+        };
+        let descriptor = test_body_descriptor(&mut body_context);
+        let request = test_request_v3(test_request(&mut request_context, "/body"), &descriptor);
+        let mut outcome = HopliteOutcomeV2 { kind: 7, id: 9 };
+        assert_eq!(
+            unsafe { hoplite_handler_invoke_v3(&mut runtime, 0, 99, &request, &mut outcome,) },
+            1
+        );
+        assert_eq!(outcome.kind, 0);
+        assert_eq!(outcome.id, 0);
+        assert_eq!(body_context.close_count, 1);
+        assert!(runtime.resources.borrow().is_empty());
+    }
+
+    #[test]
+    fn request_v3_rejects_portable_adapter_and_closes_body() {
+        let mut runtime = HopliteRuntime::new();
+        runtime.work_start(
+            "(ns body.portable) (defn show [request] {:status 200 :body \"unused\"}) nil",
+            None,
+        );
+        let _ = take_event(&mut runtime);
+        let handler = runtime.handler_prepare("body.portable/show").unwrap();
+        let mut request_context = TestRequest { headers: vec![] };
+        let mut body_context = TestBody {
+            bytes: b"body".to_vec(),
+            cursor: 0,
+            close_count: 0,
+        };
+        let descriptor = test_body_descriptor(&mut body_context);
+        let request = test_request_v3(test_request(&mut request_context, "/body"), &descriptor);
+        let (request, body) = runtime.register_request_v3(request).unwrap();
+        let error = match runtime.handler_invoke_with_body(
+            handler,
+            RouteAdapter::RequestHta,
+            request,
+            body,
+        ) {
+            Ok(_) => panic!("portable body route unexpectedly accepted"),
+            Err(error) => error,
+        };
+        assert!(error.contains("body handles require request or raw adapter"));
+        assert_eq!(body_context.close_count, 1);
+        assert!(runtime.resources.borrow().is_empty());
+    }
+
+    #[test]
+    fn request_v3_rejects_ambiguous_absent_body_limits() {
+        let mut runtime = HopliteRuntime::new();
+        let mut request_context = TestRequest { headers: vec![] };
+        let request = HopliteRequestV3 {
+            request: test_request(&mut request_context, "/body"),
+            body: ptr::null(),
+            max_body_bytes: 16,
+            max_chunk_bytes: 2,
+            require_declared_length: 1,
+        };
+        assert!(runtime.register_request_v3(request).is_err());
+        assert!(runtime.resources.borrow().is_empty());
     }
 
     #[test]
