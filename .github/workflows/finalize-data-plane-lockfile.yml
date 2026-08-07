@@ -8,7 +8,7 @@ on:
       - '.github/workflows/finalize-data-plane-lockfile.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: finalize-data-plane-lockfile
@@ -22,8 +22,6 @@ jobs:
         with:
           ref: agent/data-plane-resource-registry
           path: hoplite
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
@@ -36,24 +34,9 @@ jobs:
         run: |
           cargo generate-lockfile --manifest-path core/Cargo.toml
           cargo test --manifest-path core/Cargo.toml --workspace --locked
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('.github/workflows/ci.yml')
-          source = path.read_text()
-          old = 'cargo test --manifest-path hoplite/core/Cargo.toml --workspace'
-          new = 'cargo test --manifest-path hoplite/core/Cargo.toml --workspace --locked'
-          if new not in source:
-              if source.count(old) != 1:
-                  raise SystemExit('expected one CI workspace-test command')
-              source = source.replace(old, new, 1)
-              path.write_text(source)
-          PY
-      - name: Commit the generated lockfile and remove this one-shot workflow
-        working-directory: hoplite
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git rm .github/workflows/finalize-data-plane-lockfile.yml
-          git add .github/workflows/ci.yml core/Cargo.lock
-          git commit -m "Regenerate the data-plane workspace lockfile"
-          git push origin HEAD:agent/data-plane-resource-registry
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hoplite-data-plane-lockfile
+          path: hoplite/core/Cargo.lock
+          if-no-files-found: error
+          retention-days: 7
