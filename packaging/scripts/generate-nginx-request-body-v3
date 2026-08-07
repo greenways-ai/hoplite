@@ -1,0 +1,547 @@
+#!/usr/bin/env python3
+"""Materialize the bounded Nginx request-body adapter for request ABI V3.
+
+The patch is generated from exact structural anchors so the large Nginx module
+change can be compiled and exercised before it is retained as ordinary source.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def replace_once(path: str, old: str, new: str, label: str) -> None:
+    target = ROOT / path
+    source = target.read_text(encoding="utf-8")
+    if new in source:
+        return
+    count = source.count(old)
+    if count != 1:
+        raise SystemExit(f"{label}: expected one anchor, found {count}")
+    target.write_text(source.replace(old, new, 1), encoding="utf-8")
+
+
+def replace_between(path: str, start: str, end: str, replacement: str, marker: str) -> None:
+    target = ROOT / path
+    source = target.read_text(encoding="utf-8")
+    if marker in source:
+        return
+    start_index = source.find(start)
+    end_index = source.find(end, start_index)
+    if start_index < 0 or end_index < 0:
+        raise SystemExit(f"cannot locate generated range in {path}")
+    target.write_text(
+        source[:start_index] + replacement + source[end_index:],
+        encoding="utf-8",
+    )
+
+
+def patch_nginx_module() -> None:
+    path = "core/nginx/ngx_http_hoplite_module.c"
+    replace_once(
+        path,
+        "typedef struct {\n    ngx_str_t handler;\n    uint64_t prepared_handler;\n    ngx_uint_t app;\n    ngx_uint_t adapter;\n} ngx_http_hoplite_loc_conf_t;",
+        "typedef struct {\n    ngx_str_t handler;\n    uint64_t prepared_handler;\n    ngx_uint_t app;\n    ngx_uint_t adapter;\n    ngx_flag_t request_body;\n    size_t request_body_max;\n    size_t request_body_chunk;\n} ngx_http_hoplite_loc_conf_t;",
+        "extend location configuration",
+    )
+    replace_once(
+        path,
+        "typedef struct ngx_http_hoplite_ctx_s ngx_http_hoplite_ctx_t;",
+        "typedef struct {\n    ngx_http_request_t *request;\n    ngx_chain_t *chain;\n    off_t offset;\n    ngx_flag_t closed;\n} ngx_http_hoplite_body_t;\n\ntypedef struct ngx_http_hoplite_ctx_s ngx_http_hoplite_ctx_t;",
+        "add native request body context",
+    )
+    replace_once(
+        path,
+        "    ngx_flag_t done;\n    ngx_http_hoplite_sleep_t *sleep;",
+        "    ngx_flag_t done;\n    ngx_http_hoplite_sleep_t *sleep;\n    ngx_http_hoplite_body_t body;",
+        "retain the body context with request state",
+    )
+    replace_once(
+        path,
+        "    {\n        ngx_string(\"hoplite_content\"),\n        NGX_HTTP_LOC_CONF | NGX_CONF_TAKE12,\n        ngx_http_hoplite_content,\n        NGX_HTTP_LOC_CONF_OFFSET,\n        0,\n        NULL\n    },\n    ngx_null_command",
+        "    {\n        ngx_string(\"hoplite_content\"),\n        NGX_HTTP_LOC_CONF | NGX_CONF_TAKE12,\n        ngx_http_hoplite_content,\n        NGX_HTTP_LOC_CONF_OFFSET,\n        0,\n        NULL\n    },\n    {\n        ngx_string(\"hoplite_request_body\"),\n        NGX_HTTP_LOC_CONF | NGX_CONF_FLAG,\n        ngx_conf_set_flag_slot,\n        NGX_HTTP_LOC_CONF_OFFSET,\n        offsetof(ngx_http_hoplite_loc_conf_t, request_body),\n        NULL\n    },\n    {\n        ngx_string(\"hoplite_request_body_max\"),\n        NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1,\n        ngx_conf_set_size_slot,\n        NGX_HTTP_LOC_CONF_OFFSET,\n        offsetof(ngx_http_hoplite_loc_conf_t, request_body_max),\n        NULL\n    },\n    {\n        ngx_string(\"hoplite_request_body_chunk\"),\n        NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1,\n        ngx_conf_set_size_slot,\n        NGX_HTTP_LOC_CONF_OFFSET,\n        offsetof(ngx_http_hoplite_loc_conf_t, request_body_chunk),\n        NULL\n    },\n    ngx_null_command",
+        "register request body directives",
+    )
+
+    handler = r'''static int32_t
+ngx_http_hoplite_body_read(void *data, uint8_t *output,
+                           size_t capacity, size_t *returned)
+{
+    ngx_http_hoplite_body_t *body = data;
+    ngx_buf_t *buffer;
+    off_t length, available;
+    ssize_t read;
+    size_t total = 0, amount;
+
+    if (body == NULL || output == NULL || returned == NULL || body->closed) {
+        return 1;
+    }
+
+    while (total < capacity && body->chain != NULL) {
+        buffer = body->chain->buf;
+        length = ngx_buf_size(buffer);
+        if (length < 0 || body->offset < 0 || body->offset > length) {
+            return 1;
+        }
+        if (body->offset == length) {
+            body->chain = body->chain->next;
+            body->offset = 0;
+            continue;
+        }
+        available = length - body->offset;
+        amount = capacity - total;
+        if (available < (off_t) amount) {
+            amount = (size_t) available;
+        }
+
+        if (ngx_buf_in_memory(buffer)) {
+            ngx_memcpy(output + total,
+                       buffer->pos + (size_t) body->offset,
+                       amount);
+        } else if (buffer->in_file && buffer->file != NULL) {
+            read = ngx_read_file(buffer->file,
+                                 output + total,
+                                 amount,
+                                 buffer->file_pos + body->offset);
+            if (read < 0 || (size_t) read != amount) {
+                return 1;
+            }
+        } else {
+            return 1;
+        }
+
+        total += amount;
+        body->offset += (off_t) amount;
+    }
+
+    *returned = total;
+    return HOPLITE_CALLBACK_OK;
+}
+
+static void
+ngx_http_hoplite_body_close(void *data)
+{
+    ngx_http_hoplite_body_t *body = data;
+    if (body == NULL || body->closed) {
+        return;
+    }
+    body->closed = 1;
+    body->request = NULL;
+    body->chain = NULL;
+    body->offset = 0;
+}
+
+static ngx_int_t
+ngx_http_hoplite_invoke(ngx_http_request_t *request,
+                        ngx_http_hoplite_ctx_t *ctx,
+                        ngx_http_hoplite_loc_conf_t *conf,
+                        const hoplite_request_body_v1 *body)
+{
+    hoplite_request_v2_t native_request;
+    hoplite_request_v3_t native_request_v3;
+    hoplite_outcome_v2_t outcome;
+    hoplite_hta_value_t *request_value;
+    hoplite_hta_value_t *result;
+    hoplite_slice_t handler;
+    hoplite_buffer_t buffer;
+    ngx_int_t rc;
+
+    native_request.context = request;
+    native_request.method = ngx_http_hoplite_slice(request->method_name);
+    native_request.uri = ngx_http_hoplite_slice(request->unparsed_uri);
+    native_request.path = ngx_http_hoplite_slice(request->uri);
+    native_request.query_string = ngx_http_hoplite_slice(request->args);
+    native_request.remote_address =
+        ngx_http_hoplite_slice(request->connection->addr_text);
+    native_request.header_count = ngx_http_hoplite_header_count(request);
+    native_request.header_at = ngx_http_hoplite_header_at;
+
+    if (conf->app != NGX_CONF_UNSET_UINT) {
+        if (body == NULL) {
+            rc = hoplite_app_invoke_v2(ngx_http_hoplite_runtime, conf->app,
+                                       &native_request, &outcome);
+        } else {
+            native_request_v3.request = native_request;
+            native_request_v3.body = body;
+            native_request_v3.max_body_bytes = conf->request_body_max;
+            native_request_v3.max_chunk_bytes = conf->request_body_chunk;
+            native_request_v3.require_declared_length = 1;
+            rc = hoplite_app_invoke_v3(ngx_http_hoplite_runtime, conf->app,
+                                       &native_request_v3, &outcome);
+        }
+        if (rc != 0) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        if (outcome.kind == 1) {
+            ctx->response = outcome.id;
+            rc = ngx_http_hoplite_send_native(ctx);
+            if (ctx->response != 0) {
+                (void) hoplite_response_close_v2(ngx_http_hoplite_runtime,
+                                                 ctx->response);
+                ctx->response = 0;
+            }
+            return rc;
+        }
+        if (outcome.kind != 2 || outcome.id == 0) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        ctx->work = outcome.id;
+    } else if (conf->adapter == NGX_HTTP_HOPLITE_REQUEST_HTA) {
+        if (body != NULL) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        request_value = ngx_http_hoplite_request(request);
+        if (request_value == NULL) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        handler.data = conf->handler.data;
+        handler.len = conf->handler.len;
+        if (hoplite_handler_invoke(ngx_http_hoplite_runtime,
+                                   handler,
+                                   NGX_HTTP_HOPLITE_REQUEST_HTA,
+                                   request_value,
+                                   &result,
+                                   &buffer) != 0)
+        {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        if (result != NULL) {
+            ngx_http_hoplite_send_result(ctx, result);
+            hoplite_buffer_free(buffer.data, buffer.len);
+            return NGX_DONE;
+        }
+        if (buffer.data == NULL || buffer.len == 0) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        if (ngx_http_hoplite_work_id(request->pool, &buffer, &ctx->work)
+            != NGX_OK)
+        {
+            hoplite_buffer_free(buffer.data, buffer.len);
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        hoplite_buffer_free(buffer.data, buffer.len);
+    } else {
+        if (conf->prepared_handler == 0) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        if (body == NULL) {
+            rc = hoplite_handler_invoke_v2(ngx_http_hoplite_runtime,
+                                           conf->prepared_handler,
+                                           conf->adapter,
+                                           &native_request,
+                                           &outcome);
+        } else {
+            native_request_v3.request = native_request;
+            native_request_v3.body = body;
+            native_request_v3.max_body_bytes = conf->request_body_max;
+            native_request_v3.max_chunk_bytes = conf->request_body_chunk;
+            native_request_v3.require_declared_length = 1;
+            rc = hoplite_handler_invoke_v3(ngx_http_hoplite_runtime,
+                                           conf->prepared_handler,
+                                           conf->adapter,
+                                           &native_request_v3,
+                                           &outcome);
+        }
+        if (rc != 0) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        if (outcome.kind == 1) {
+            ctx->response = outcome.id;
+            rc = ngx_http_hoplite_send_native(ctx);
+            if (ctx->response != 0) {
+                (void) hoplite_response_close_v2(ngx_http_hoplite_runtime,
+                                                 ctx->response);
+                ctx->response = 0;
+            }
+            return rc;
+        }
+        if (outcome.kind != 2 || outcome.id == 0) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        ctx->work = outcome.id;
+    }
+
+    ngx_queue_insert_tail(&ngx_http_hoplite_requests, &ctx->queue);
+    ctx->queued = 1;
+    request->main->count++;
+    if (ngx_http_hoplite_drain(request->connection->log) != NGX_OK) {
+        ngx_http_hoplite_finish(ctx);
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+    return NGX_DONE;
+}
+
+static void
+ngx_http_hoplite_body_handler(ngx_http_request_t *request)
+{
+    ngx_http_hoplite_ctx_t *ctx;
+    ngx_http_hoplite_loc_conf_t *conf;
+    hoplite_request_body_v1 descriptor;
+    ngx_chain_t *chain;
+    off_t total = 0, size;
+    ngx_int_t rc;
+
+    ctx = ngx_http_get_module_ctx(request, ngx_http_hoplite_module);
+    conf = ngx_http_get_module_loc_conf(request, ngx_http_hoplite_module);
+    if (ctx == NULL || conf == NULL || request->request_body == NULL) {
+        ngx_http_finalize_request(request, NGX_HTTP_INTERNAL_SERVER_ERROR);
+        return;
+    }
+
+    for (chain = request->request_body->bufs;
+         chain != NULL;
+         chain = chain->next)
+    {
+        size = ngx_buf_size(chain->buf);
+        if (size < 0 || total > request->headers_in.content_length_n - size) {
+            ngx_http_finalize_request(request, NGX_HTTP_BAD_REQUEST);
+            return;
+        }
+        total += size;
+    }
+    if (total != request->headers_in.content_length_n) {
+        ngx_http_finalize_request(request, NGX_HTTP_BAD_REQUEST);
+        return;
+    }
+
+    ctx->body.request = request;
+    ctx->body.chain = request->request_body->bufs;
+    ctx->body.offset = 0;
+    ctx->body.closed = 0;
+    descriptor.context = &ctx->body;
+    descriptor.declared_length = (uint64_t) total;
+    descriptor.has_declared_length = 1;
+    descriptor.read = ngx_http_hoplite_body_read;
+    descriptor.close = ngx_http_hoplite_body_close;
+
+    rc = ngx_http_hoplite_invoke(request, ctx, conf, &descriptor);
+    ngx_http_finalize_request(request, rc);
+}
+
+static ngx_int_t
+ngx_http_hoplite_handler(ngx_http_request_t *request)
+{
+    ngx_http_hoplite_loc_conf_t *conf;
+    ngx_http_hoplite_ctx_t *ctx;
+    ngx_http_cleanup_t *cleanup;
+    ngx_int_t rc;
+
+    if (ngx_http_hoplite_runtime == NULL) {
+        return NGX_HTTP_SERVICE_UNAVAILABLE;
+    }
+    conf = ngx_http_get_module_loc_conf(request, ngx_http_hoplite_module);
+    if (conf == NULL) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+    ctx = ngx_pcalloc(request->pool, sizeof(ngx_http_hoplite_ctx_t));
+    if (ctx == NULL) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+    ctx->request = request;
+    ngx_queue_init(&ctx->queue);
+    ngx_http_set_ctx(request, ctx, ngx_http_hoplite_module);
+    cleanup = ngx_http_cleanup_add(request, 0);
+    if (cleanup == NULL) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+    cleanup->handler = ngx_http_hoplite_cleanup;
+    cleanup->data = ctx;
+
+    if (!conf->request_body || request->headers_in.content_length_n == 0) {
+        return ngx_http_hoplite_invoke(request, ctx, conf, NULL);
+    }
+    if (hoplite_abi_version() < 3) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+    if (conf->adapter == NGX_HTTP_HOPLITE_REQUEST_HTA) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+    if (request->headers_in.content_length_n < 0) {
+        return NGX_HTTP_LENGTH_REQUIRED;
+    }
+    if ((uint64_t) request->headers_in.content_length_n
+        > (uint64_t) conf->request_body_max)
+    {
+        return NGX_HTTP_REQUEST_ENTITY_TOO_LARGE;
+    }
+
+    request->request_body_in_clean_file = 1;
+    rc = ngx_http_read_client_request_body(request,
+                                           ngx_http_hoplite_body_handler);
+    if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
+        return rc;
+    }
+    return NGX_DONE;
+}
+
+'''
+    replace_between(
+        path,
+        "static ngx_int_t\nngx_http_hoplite_handler(",
+        "static ngx_int_t\nngx_http_hoplite_read_file",
+        handler,
+        "ngx_http_hoplite_body_read",
+    )
+
+    replace_once(
+        path,
+        "        conf->app = NGX_CONF_UNSET_UINT;\n        conf->adapter = NGX_CONF_UNSET_UINT;",
+        "        conf->app = NGX_CONF_UNSET_UINT;\n        conf->adapter = NGX_CONF_UNSET_UINT;\n        conf->request_body = NGX_CONF_UNSET;\n        conf->request_body_max = NGX_CONF_UNSET_SIZE;\n        conf->request_body_chunk = NGX_CONF_UNSET_SIZE;",
+        "initialize body configuration",
+    )
+    replace_once(
+        path,
+        "    ngx_conf_merge_uint_value(conf->adapter, previous->adapter,\n                              NGX_HTTP_HOPLITE_REQUEST);\n    (void) cf;\n    return NGX_CONF_OK;",
+        "    ngx_conf_merge_uint_value(conf->adapter, previous->adapter,\n                              NGX_HTTP_HOPLITE_REQUEST);\n    ngx_conf_merge_value(conf->request_body, previous->request_body, 0);\n    ngx_conf_merge_size_value(conf->request_body_max,\n                              previous->request_body_max, 8 * 1024 * 1024);\n    ngx_conf_merge_size_value(conf->request_body_chunk,\n                              previous->request_body_chunk, 64 * 1024);\n    if (conf->request_body_chunk == 0\n        || conf->request_body_max == 0\n        || conf->request_body_chunk > conf->request_body_max)\n    {\n        return \"hoplite request body limits must be positive and chunk <= max\";\n    }\n    if (conf->request_body\n        && conf->adapter == NGX_HTTP_HOPLITE_REQUEST_HTA)\n    {\n        return \"hoplite_request_body cannot be used with request+hta\";\n    }\n    (void) cf;\n    return NGX_CONF_OK;",
+        "merge and validate body configuration",
+    )
+
+
+def patch_app_model() -> None:
+    path = "core/src/app.rs"
+    replace_once(
+        path,
+        "#[derive(Clone, Debug, PartialEq, Eq)]\npub struct Route {\n    pub method: String,\n    pub path: String,\n    pub handler: String,\n    pub name: Option<String>,\n    pub summary: Option<String>,\n    pub adapter: RouteAdapter,\n}",
+        "#[derive(Clone, Debug, PartialEq, Eq)]\npub struct Route {\n    pub method: String,\n    pub path: String,\n    pub handler: String,\n    pub name: Option<String>,\n    pub summary: Option<String>,\n    pub adapter: RouteAdapter,\n}\n\n#[derive(Clone, Debug, PartialEq, Eq)]\npub struct RequestBodyPolicy {\n    pub max_bytes: usize,\n    pub max_chunk_bytes: usize,\n}",
+        "add the app request body policy",
+    )
+    replace_once(
+        path,
+        "    pub routes: Vec<Route>,\n    pub proxies: Vec<Proxy>,",
+        "    pub routes: Vec<Route>,\n    pub request_body: Option<RequestBodyPolicy>,\n    pub proxies: Vec<Proxy>,",
+        "retain app request body policy",
+    )
+    replace_once(
+        path,
+        "    let proxies = sequence_field(&value, \"proxies\")",
+        "    let request_body = parse_request_body(\n        field(&value, \"request/body\"),\n        &format!(\"Hoplite app {name:?}\"),\n    )?;\n    let proxies = sequence_field(&value, \"proxies\")",
+        "parse request body policy",
+    )
+    replace_once(
+        path,
+        "    if routes.is_empty() {\n        return Err(format!(\"Hoplite app {name:?} has no resource operations\"));\n    }\n    let openapi_path",
+        "    if routes.is_empty() {\n        return Err(format!(\"Hoplite app {name:?} has no resource operations\"));\n    }\n    if request_body.is_some()\n        && routes.iter().any(|route| route.adapter == RouteAdapter::RequestHta)\n    {\n        return Err(format!(\n            \"Hoplite app {name:?} cannot combine :request/body with :request+hta routes\"\n        ));\n    }\n    let openapi_path",
+        "reject portable body handles",
+    )
+    replace_once(
+        path,
+        "        routes,\n        proxies,",
+        "        routes,\n        request_body,\n        proxies,",
+        "store request body policy",
+    )
+    helper = r'''fn parse_request_body(
+    value: Option<Value>,
+    context: &str,
+) -> Result<Option<RequestBodyPolicy>, String> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let entries = core::map_entries(&value)
+        .ok_or_else(|| format!("{context} :request/body must be a map"))?;
+    for (key, _) in &entries {
+        let Value::Keyword(key) = key else {
+            return Err(format!("{context} :request/body keys must be keywords"));
+        };
+        if !matches!(key.as_str(), "max-bytes" | "max-chunk-bytes") {
+            return Err(format!(
+                "{context} :request/body contains unsupported field :{}",
+                key.as_str()
+            ));
+        }
+    }
+    let max_bytes = number_field(&value, "max-bytes")
+        .ok_or_else(|| format!("{context} :request/body requires :max-bytes"))?;
+    let max_bytes = usize::try_from(max_bytes)
+        .ok()
+        .filter(|value| *value > 0)
+        .ok_or_else(|| format!("{context} :request/body :max-bytes must be positive"))?;
+    let max_chunk_bytes = number_field(&value, "max-chunk-bytes")
+        .map(|value| {
+            usize::try_from(value)
+                .ok()
+                .filter(|value| *value > 0)
+                .ok_or_else(|| {
+                    format!(
+                        "{context} :request/body :max-chunk-bytes must be positive"
+                    )
+                })
+        })
+        .transpose()?
+        .unwrap_or(max_bytes.min(64 * 1024));
+    if max_chunk_bytes > max_bytes {
+        return Err(format!(
+            "{context} :request/body :max-chunk-bytes cannot exceed :max-bytes"
+        ));
+    }
+    Ok(Some(RequestBodyPolicy {
+        max_bytes,
+        max_chunk_bytes,
+    }))
+}
+
+'''
+    replace_once(
+        path,
+        "fn parse_proxy(value: &Value, context: &str) -> Result<Proxy, String> {",
+        helper + "fn parse_proxy(value: &Value, context: &str) -> Result<Proxy, String> {",
+        "add request body policy parser",
+    )
+
+
+def patch_nginx_generation() -> None:
+    path = "core/src/main.rs"
+    old = '''        locations.push_str(&format!(
+            "        location / {{\\n            hoplite_app {};\\n        }}\\n",
+            application.id
+        ));'''
+    new = '''        let request_body = application
+            .request_body
+            .as_ref()
+            .map(|policy| {
+                format!(
+                    "            client_max_body_size {};\\n            hoplite_request_body on;\\n            hoplite_request_body_max {};\\n            hoplite_request_body_chunk {};\\n",
+                    policy.max_bytes, policy.max_bytes, policy.max_chunk_bytes
+                )
+            })
+            .unwrap_or_default();
+        locations.push_str(&format!(
+            "        location / {{\\n{}            hoplite_app {};\\n        }}\\n",
+            request_body, application.id
+        ));'''
+    replace_once(path, old, new, "generate bounded body directives")
+
+
+def patch_example() -> None:
+    path = "core/examples/app.hal"
+    replace_once(
+        path,
+        "(defn inspect\n  [request]\n  {:status 200\n   :headers {\"content-type\" \"text/plain; charset=utf-8\"}\n   :body \"inspect\"})",
+        "(defn inspect\n  [request]\n  {:status 200\n   :headers {\"content-type\" \"text/plain; charset=utf-8\"}\n   :body \"inspect\"})\n\n(defn body-handle\n  [request]\n  {:status 200\n   :headers {\"content-type\" \"text/plain; charset=utf-8\"}\n   :body (if (:body-handle request)\n           \"native-body-handle\\n\"\n           \"missing-body-handle\\n\")})",
+        "add body handle example handler",
+    )
+    replace_once(
+        path,
+        "    {:name \"example\"\n     :resources",
+        "    {:name \"example\"\n     :request/body {:max-bytes 32\n                    :max-chunk-bytes 8}\n     :resources",
+        "enable the bounded example body profile",
+    )
+    replace_once(
+        path,
+        "      [\"/inspect\"\n       {:get {:name \"inspect\"\n              :handler #'inspect}}]]}))",
+        "      [\"/inspect\"\n       {:get {:name \"inspect\"\n              :handler #'inspect}}]\n      [\"/body-handle\"\n       {:post {:name \"body-handle\"\n               :summary \"Projects an opaque native body handle\"\n               :handler #'body-handle}}]]}))",
+        "add example body route",
+    )
+
+
+def main() -> None:
+    patch_nginx_module()
+    patch_app_model()
+    patch_nginx_generation()
+    patch_example()
+    print("generated bounded Nginx request-body support for Hoplite ABI V3")
+
+
+if __name__ == "__main__":
+    main()
