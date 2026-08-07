@@ -1,8 +1,8 @@
 (ns hoplite.app
   (:require [hoplite.core :as h]))
 
-;; This example is also the production-image conformance surface for the
-;; request-body V3 adapter. The materializer adds the bounded body route below.
+;; This example is the production-image conformance surface for the bounded
+;; request-body adapter and registered native host providers.
 
 (defn hello
   [request]
@@ -19,6 +19,24 @@
    :headers {"content-type" "text/plain; charset=utf-8"
              "x-hoplite" "promise-resumed"}
    :body "Hara coroutine resumed from the Nginx event loop\n"})
+
+(defn ^:async unknown-host-service
+  [request]
+  (std.foundation.coroutine/await
+    (std.native.Host/call "missing" "noop" []))
+  {:status 200 :body "unexpected host service success\n"})
+
+(defn ^:async unknown-host-operation
+  [request]
+  (std.foundation.coroutine/await
+    (std.native.Host/call "nginx" "missing" []))
+  {:status 200 :body "unexpected host operation success\n"})
+
+(defn ^:async invalid-host-arguments
+  [request]
+  (std.foundation.coroutine/await
+    (std.native.Host/call "nginx" "sleep" [-1]))
+  {:status 200 :body "unexpected invalid host call success\n"})
 
 (defn inspect
   [request]
@@ -46,8 +64,20 @@
               :handler #'hello}}]
       ["/delay"
        {:get {:name "delay"
-              :summary "A coroutine resumed by nginx"
+              :summary "A coroutine resumed by the nginx host provider"
               :handler #'delayed}}]
+      ["/host/unknown-service"
+       {:get {:name "unknown-host-service"
+              :summary "Rejects an unregistered host service"
+              :handler #'unknown-host-service}}]
+      ["/host/unknown-operation"
+       {:get {:name "unknown-host-operation"
+              :summary "Rejects an unsupported provider operation"
+              :handler #'unknown-host-operation}}]
+      ["/host/invalid-arguments"
+       {:get {:name "invalid-host-arguments"
+              :summary "Rejects malformed provider arguments"
+              :handler #'invalid-host-arguments}}]
       ["/inspect"
        {:get {:name "inspect"
               :handler #'inspect}}]
