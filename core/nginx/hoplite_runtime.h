@@ -57,6 +57,11 @@ typedef struct {
     uint64_t id;
 } hoplite_outcome_v2_t;
 
+/*
+ * Returns the highest runtime ABI version supported by this library. ABI
+ * additions preserve earlier versioned symbols, so a V2-only host accepts any
+ * return value greater than or equal to 2 rather than requiring exact equality.
+ */
 uint32_t hoplite_abi_version(void);
 hoplite_runtime_t *hoplite_runtime_new(void);
 void hoplite_runtime_free(hoplite_runtime_t *runtime);
