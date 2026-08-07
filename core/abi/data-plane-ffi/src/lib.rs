@@ -6,11 +6,13 @@
 //! an arbitrary raw pointer into an active body source. Activating a descriptor
 //! transfers ownership through an explicitly unsafe constructor.
 
+// The implementation predates this ownership wrapper and contains callback
+// conformance tests whose unsafe operations are already isolated inside unsafe
+// extern functions. Keep the stricter lint on the public ownership boundary.
+#[allow(unsafe_op_in_unsafe_fn)]
 mod implementation;
 
-use hoplite_data_plane_abi::{
-    BodyError, BodyLimits, RequestBody, ResponseBody,
-};
+use hoplite_data_plane_abi::{BodyError, BodyLimits, RequestBody, ResponseBody};
 use std::ffi::c_void;
 
 pub use implementation::{
@@ -170,10 +172,10 @@ mod tests {
         let count = capacity.min(remaining);
         if count != 0 {
             // SAFETY: the bridge supplies a writable buffer of `capacity`.
-            unsafe { slice::from_raw_parts_mut(output, capacity) }[..count]
-                .copy_from_slice(
-                    &context.bytes[context.cursor..context.cursor + count],
-                );
+            let output = unsafe { slice::from_raw_parts_mut(output, capacity) };
+            output[..count].copy_from_slice(
+                &context.bytes[context.cursor..context.cursor + count],
+            );
             context.cursor += count;
         }
         // SAFETY: `returned` is supplied by the bridge and is non-null.
