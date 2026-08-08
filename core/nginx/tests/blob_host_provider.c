@@ -7,12 +7,17 @@
 #include "hoplite_blob_store_provider.h"
 #include "hoplite_host_provider.h"
 
+#define HOPLITE_HARA_BLOB_ROOT_ENV "HOPLITE_HARA_BLOB_ROOT"
+#define HOPLITE_BLOB_TEST_EXPECT_INIT_FAILURE \
+    "HOPLITE_BLOB_TEST_EXPECT_INIT_FAILURE"
+
 struct hoplite_blob_store_provider {
     uint32_t marker;
 };
 
 static struct hoplite_blob_store_provider fake_provider = {0x424c4f42u};
-static size_t open_count;
+static size_t memory_open_count;
+static size_t filesystem_open_count;
 static size_t close_count;
 static size_t execute_count;
 static size_t free_count;
@@ -20,7 +25,53 @@ static size_t release_count;
 static size_t succeed_count;
 static size_t fail_count;
 static uint64_t released_work;
+static int filesystem_expected;
 static int32_t completion_result = HOPLITE_HOST_PROVIDER_OK;
+
+static unsigned long long
+expected_limit(const char *name, unsigned long long default_value)
+{
+    const char *value = getenv(name);
+    char *end = NULL;
+    unsigned long long parsed;
+
+    if (value == NULL || value[0] == '\0') {
+        return default_value;
+    }
+    parsed = strtoull(value, &end, 10);
+    assert(end != value);
+    assert(end != NULL);
+    assert(*end == '\0');
+    assert(parsed != 0);
+    return parsed;
+}
+
+static void
+assert_limits(const hoplite_blob_store_limits_v1_t *limits)
+{
+    assert(limits != NULL);
+    assert(limits->max_object_bytes == expected_limit(
+        "HOPLITE_HARA_BLOB_MAX_OBJECT_BYTES",
+        16u * 1024u * 1024u));
+    assert(limits->max_append_bytes == (size_t) expected_limit(
+        "HOPLITE_HARA_BLOB_MAX_APPEND_BYTES",
+        1024u * 1024u));
+    assert(limits->max_source_chunk_bytes == (size_t) expected_limit(
+        "HOPLITE_HARA_BLOB_MAX_SOURCE_CHUNK_BYTES",
+        64u * 1024u));
+    assert(limits->max_staging_key_bytes == (size_t) expected_limit(
+        "HOPLITE_HARA_BLOB_MAX_STAGING_KEY_BYTES",
+        256u));
+    assert(limits->max_media_type_bytes == (size_t) expected_limit(
+        "HOPLITE_HARA_BLOB_MAX_MEDIA_TYPE_BYTES",
+        256u));
+    assert(limits->max_staging_entries == (size_t) expected_limit(
+        "HOPLITE_HARA_BLOB_MAX_STAGING_ENTRIES",
+        1024u));
+    assert(limits->max_objects == (size_t) expected_limit(
+        "HOPLITE_HARA_BLOB_MAX_OBJECTS",
+        65536u));
+}
 
 uint32_t
 hoplite_blob_store_provider_abi_version(void)
@@ -33,16 +84,31 @@ hoplite_blob_store_provider_open_memory_v1(
     const hoplite_blob_store_limits_v1_t *limits,
     hoplite_blob_store_provider_t **provider)
 {
-    assert(limits != NULL);
-    assert(limits->max_object_bytes == 16u * 1024u * 1024u);
-    assert(limits->max_append_bytes == 1024u * 1024u);
-    assert(limits->max_source_chunk_bytes == 64u * 1024u);
-    assert(limits->max_staging_key_bytes == 256u);
-    assert(limits->max_media_type_bytes == 256u);
-    assert(limits->max_staging_entries == 1024u);
-    assert(limits->max_objects == 65536u);
+    assert(!filesystem_expected);
+    assert_limits(limits);
     assert(provider != NULL);
-    open_count++;
+    memory_open_count++;
+    *provider = &fake_provider;
+    return HOPLITE_BLOB_STORE_PROVIDER_OK;
+}
+
+int32_t
+hoplite_blob_store_provider_open_filesystem_v1(
+    const uint8_t *root,
+    size_t root_len,
+    const hoplite_blob_store_limits_v1_t *limits,
+    hoplite_blob_store_provider_t **provider)
+{
+    const char *expected = getenv(HOPLITE_HARA_BLOB_ROOT_ENV);
+
+    assert(filesystem_expected);
+    assert(expected != NULL);
+    assert(root != NULL);
+    assert(root_len == strlen(expected));
+    assert(memcmp(root, expected, root_len) == 0);
+    assert_limits(limits);
+    assert(provider != NULL);
+    filesystem_open_count++;
     *provider = &fake_provider;
     return HOPLITE_BLOB_STORE_PROVIDER_OK;
 }
@@ -222,13 +288,26 @@ main(void)
     };
     const hoplite_host_provider_v1_t *provider;
     hoplite_host_call_v1_t call;
+    const char *root = getenv(HOPLITE_HARA_BLOB_ROOT_ENV);
     size_t before;
+
+    filesystem_expected = root != NULL && root[0] != '\0';
+    if (getenv(HOPLITE_BLOB_TEST_EXPECT_INIT_FAILURE) != NULL) {
+        assert(hoplite_blob_host_provider_init_process_v1()
+               == HOPLITE_BLOB_HOST_PROVIDER_ERROR);
+        assert(memory_open_count == 0);
+        assert(filesystem_open_count == 0);
+        assert(hoplite_host_provider_find_v1(service) == NULL);
+        hoplite_blob_host_provider_exit_process_v1();
+        return 0;
+    }
 
     assert(hoplite_blob_host_provider_init_process_v1()
            == HOPLITE_BLOB_HOST_PROVIDER_OK);
     assert(hoplite_blob_host_provider_init_process_v1()
            == HOPLITE_BLOB_HOST_PROVIDER_OK);
-    assert(open_count == 1);
+    assert(memory_open_count == (filesystem_expected ? 0u : 1u));
+    assert(filesystem_open_count == (filesystem_expected ? 1u : 0u));
 
     provider = hoplite_host_provider_find_v1(service);
     assert(provider != NULL);
