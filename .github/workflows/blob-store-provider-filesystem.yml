@@ -29,9 +29,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.78.0
         with:
           components: rustfmt,clippy
-      - name: Materialize the installed-store provider boundary
+      - name: Materialize the installed-store provider source
         run: |
-          python3 scripts/materialize-blob-provider-filesystem.py
+          if ! grep -q '^enum InstalledBlobStore' \
+            core/abi/blob-store-provider-ffi/src/lib.rs; then
+            python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path("scripts/materialize-blob-provider-filesystem.py").read_text()
+          cutoff = source.index("WORKFLOW.write_text")
+          Path("/tmp/materialize-blob-provider-filesystem.py").write_text(source[:cutoff])
+          PY
+            python3 /tmp/materialize-blob-provider-filesystem.py
+          fi
           cargo generate-lockfile \
             --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml
           cargo fmt \
@@ -39,14 +49,13 @@ jobs:
             --all
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            core/abi/blob-store-provider-ffi \
-            .github/workflows/blob-store-provider-filesystem.yml \
-            scripts/materialize-blob-provider-filesystem.py
-          git commit -m "Bind filesystem storage to the hara.blob provider FFI"
-          git fetch origin agent/filesystem-blob-provider-ffi
-          git rebase origin/agent/filesystem-blob-provider-ffi
-          git push origin HEAD:agent/filesystem-blob-provider-ffi
+          git add core/abi/blob-store-provider-ffi
+          if ! git diff --cached --quiet; then
+            git commit -m "Bind filesystem storage to the hara.blob provider FFI"
+            git fetch origin agent/filesystem-blob-provider-ffi
+            git rebase origin/agent/filesystem-blob-provider-ffi
+            git push origin HEAD:agent/filesystem-blob-provider-ffi
+          fi
       - name: Reject warnings
         run: |
           cargo clippy \
