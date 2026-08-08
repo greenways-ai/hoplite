@@ -70,7 +70,7 @@
           :staging-key blob-staging-key
           :expected-digest blob-digest
           :expected-size blob-size
-          :media-type "text/plain; charset=utf-8"}]))
+          :media-type "text/plain"}]))
     (std.foundation.coroutine/await
       (std.native.Host/call
         "hara.blob"
