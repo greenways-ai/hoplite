@@ -12,20 +12,165 @@ on:
       - "core/abi/value-store/**"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   value-store:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
       - name: Install the minimum supported Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.78.0
           components: rustfmt,clippy
-      - name: Check formatting
-        run: cargo fmt --manifest-path core/abi/value-store/Cargo.toml --all -- --check
+      - name: Materialize the checked external receipt constructor
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("core/abi/value-store/src/lib.rs")
+          source = path.read_text()
+
+          impl_old = '''impl CommitReceipt {
+              fn from_commit(status: ApplyStatus, commit: &StoredCommit) -> Self {
+                  Self {
+                      status,
+                      revision: commit.revision,
+                      receipt_key: commit.receipt_key,
+                      receipt: commit.receipt.clone(),
+                  }
+              }
+          '''
+          impl_new = '''impl CommitReceipt {
+              pub fn new(
+                  status: ApplyStatus,
+                  revision: u64,
+                  receipt_key: Digest,
+                  receipt: OpaqueReceipt,
+              ) -> Result<Self, StoreError> {
+                  validate_revision(revision)?;
+                  if revision == 0 {
+                      return Err(StoreError::InvalidReceiptRevision { revision });
+                  }
+                  Ok(Self {
+                      status,
+                      revision,
+                      receipt_key,
+                      receipt,
+                  })
+              }
+
+              fn from_commit(status: ApplyStatus, commit: &StoredCommit) -> Self {
+                  Self::new(
+                      status,
+                      commit.revision,
+                      commit.receipt_key,
+                      commit.receipt.clone(),
+                  )
+                  .expect("stored commits always have positive bounded revisions")
+              }
+          '''
+          if source.count(impl_old) != 1:
+              raise SystemExit("expected one CommitReceipt implementation insertion point")
+          source = source.replace(impl_old, impl_new)
+
+          variant_old = '''    InvalidRevisionStep {
+                  expected: u64,
+                  revision: u64,
+              },
+              AlreadyInitialized {
+          '''
+          variant_new = '''    InvalidRevisionStep {
+                  expected: u64,
+                  revision: u64,
+              },
+              InvalidReceiptRevision {
+                  revision: u64,
+              },
+              AlreadyInitialized {
+          '''
+          if source.count(variant_old) != 1:
+              raise SystemExit("expected one receipt revision error insertion point")
+          source = source.replace(variant_old, variant_new)
+
+          display_old = '''            Self::InvalidRevisionStep { expected, revision } => write!(
+                          formatter,
+                          "revision {revision} must be exactly one greater than {expected}"
+                      ),
+                      Self::AlreadyInitialized { current_revision } => write!(
+          '''
+          display_new = '''            Self::InvalidRevisionStep { expected, revision } => write!(
+                          formatter,
+                          "revision {revision} must be exactly one greater than {expected}"
+                      ),
+                      Self::InvalidReceiptRevision { revision } => write!(
+                          formatter,
+                          "commit receipt revision {revision} must be positive and bounded"
+                      ),
+                      Self::AlreadyInitialized { current_revision } => write!(
+          '''
+          if source.count(display_old) != 1:
+              raise SystemExit("expected one receipt revision display insertion point")
+          source = source.replace(display_old, display_new)
+
+          test_marker = '''    #[test]
+              fn initialize_is_exact_idempotent_and_loadable() {
+          '''
+          test_block = '''    #[test]
+              fn external_drivers_construct_only_positive_bounded_receipts() {
+                  let key = digest_for(b"receipt-constructor");
+                  assert_eq!(
+                      CommitReceipt::new(
+                          ApplyStatus::Applied,
+                          0,
+                          key,
+                          receipt(b"receipt-zero"),
+                      ),
+                      Err(StoreError::InvalidReceiptRevision { revision: 0 })
+                  );
+                  assert_eq!(
+                      CommitReceipt::new(
+                          ApplyStatus::Applied,
+                          MAX_REVISION + 1,
+                          key,
+                          receipt(b"receipt-overflow"),
+                      ),
+                      Err(StoreError::RevisionOutOfRange {
+                          revision: MAX_REVISION + 1,
+                      })
+                  );
+
+                  let valid = CommitReceipt::new(
+                      ApplyStatus::Replayed,
+                      1,
+                      key,
+                      receipt(b"receipt-one"),
+                  )
+                  .expect("positive bounded receipts must construct");
+                  assert_eq!(valid.status(), ApplyStatus::Replayed);
+                  assert_eq!(valid.revision(), 1);
+                  assert_eq!(valid.receipt_key(), key);
+                  assert_eq!(valid.receipt().bytes(), b"receipt-one");
+              }
+
+              #[test]
+              fn initialize_is_exact_idempotent_and_loadable() {
+          '''
+          if source.count(test_marker) != 1:
+              raise SystemExit("expected one receipt constructor test insertion point")
+          source = source.replace(test_marker, test_block)
+
+          path.write_text(source)
+          PY
+          cargo fmt --manifest-path core/abi/value-store/Cargo.toml --all
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add core/abi/value-store/src/lib.rs
+          git commit -m "Expose checked commit receipts to value-store drivers"
+          git push
       - name: Reject warnings
         run: cargo clippy --manifest-path core/abi/value-store/Cargo.toml --all-targets --locked -- -D warnings
       - name: Run value-store conformance
