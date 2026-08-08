@@ -1,6 +1,12 @@
 name: Filesystem hara.blob driver
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - core/abi/blob-store/**
+      - core/abi/blob-store-filesystem/**
+      - .github/workflows/blob-store-filesystem.yml
   pull_request:
     paths:
       - core/abi/blob-store/**
@@ -8,7 +14,7 @@ on:
       - .github/workflows/blob-store-filesystem.yml
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: filesystem-hara-blob-${{ github.ref }}
@@ -20,45 +26,14 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@1.78.0
         with:
           components: rustfmt,clippy
-      - name: Materialize the staging-path ownership repair
+      - name: Check formatting
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path("core/abi/blob-store-filesystem/src/lib.rs")
-          source = path.read_text()
-          old = '''        let data = OpenOptions::new()
-              .create_new(true)
-              .read(true)
-              .write(true)
-              .open(data_path)
-          '''
-          new = '''        let data = OpenOptions::new()
-              .create_new(true)
-              .read(true)
-              .write(true)
-              .open(&data_path)
-          '''
-          if source.count(old) != 1:
-              raise SystemExit("expected one staging-create path ownership site")
-          path.write_text(source.replace(old, new))
-          PY
           cargo fmt \
             --manifest-path core/abi/blob-store-filesystem/Cargo.toml \
-            --all
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add core/abi/blob-store-filesystem/src/lib.rs
-          git commit -m "Preserve the staging path for rollback"
-          git fetch origin agent/filesystem-blob-store
-          git rebase origin/agent/filesystem-blob-store
-          git push origin HEAD:agent/filesystem-blob-store
+            --all -- --check
       - name: Reject warnings
         run: |
           cargo clippy \

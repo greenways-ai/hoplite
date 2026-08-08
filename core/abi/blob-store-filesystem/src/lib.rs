@@ -480,7 +480,7 @@ impl BlobStore for FilesystemBlobStore {
             .create_new(true)
             .read(true)
             .write(true)
-            .open(data_path)
+            .open(&data_path)
             .map_err(|error| io_error("blob-filesystem-staging-create", error))?;
         data.sync_all()
             .map_err(|error| io_error("blob-filesystem-staging-create-sync", error))?;
