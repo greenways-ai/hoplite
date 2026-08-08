@@ -66,7 +66,11 @@ size = 524288
 Path(sys.argv[1]).write_bytes((pattern * ((size + len(pattern) - 1) // len(pattern)))[:size])
 PY
 
-docker run --detach --name "$container" -p 127.0.0.1::8080 "$image" >/dev/null
+docker run --detach \
+  --name "$container" \
+  --env HOPLITE_HARA_BLOB_ROOT=/tmp/hoplite-response-source-store \
+  -p 127.0.0.1::8080 \
+  "$image" >/dev/null
 
 port=''
 for _ in $(seq 1 50); do
