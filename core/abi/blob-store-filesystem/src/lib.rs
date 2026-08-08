@@ -65,6 +65,7 @@ impl FilesystemBlobStore {
         ensure_regular_or_missing(&lock_path, "blob-filesystem-lock-invalid")?;
         let lock = OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(&lock_path)
@@ -162,6 +163,7 @@ impl FilesystemBlobStore {
         ensure_regular_or_missing(&self.lock_path, "blob-filesystem-lock-invalid")?;
         let file = OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(&self.lock_path)
@@ -263,7 +265,7 @@ impl FilesystemBlobStore {
             let file = OpenOptions::new()
                 .read(true)
                 .write(true)
-                .open(&data_path)
+                .open(data_path)
                 .map_err(|error| io_error("blob-filesystem-staging-recover-open", error))?;
             file.set_len(metadata.offset)
                 .map_err(|error| io_error("blob-filesystem-staging-recover-truncate", error))?;
@@ -478,7 +480,7 @@ impl BlobStore for FilesystemBlobStore {
             .create_new(true)
             .read(true)
             .write(true)
-            .open(&data_path)
+            .open(data_path)
             .map_err(|error| io_error("blob-filesystem-staging-create", error))?;
         data.sync_all()
             .map_err(|error| io_error("blob-filesystem-staging-create-sync", error))?;
@@ -543,7 +545,7 @@ impl BlobStore for FilesystemBlobStore {
         let mut data = OpenOptions::new()
             .read(true)
             .write(true)
-            .open(&data_path)
+            .open(data_path)
             .map_err(|error| io_error("blob-filesystem-staging-append-open", error))?;
         let actual = data
             .seek(SeekFrom::End(0))
@@ -674,7 +676,7 @@ impl BlobStore for FilesystemBlobStore {
         let (_, data_path) = self.object_paths(request.digest);
         let mut file = OpenOptions::new()
             .read(true)
-            .open(&data_path)
+            .open(data_path)
             .map_err(|error| io_error("blob-filesystem-object-source-open", error))?;
         file.seek(SeekFrom::Start(request.offset))
             .map_err(|error| io_error("blob-filesystem-object-source-seek", error))?;

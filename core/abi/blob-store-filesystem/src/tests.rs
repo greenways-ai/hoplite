@@ -1,5 +1,4 @@
 use super::*;
-use sha2::Digest as _;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_ROOT: AtomicU64 = AtomicU64::new(1);
@@ -292,18 +291,18 @@ fn two_instances_serialize_writers_and_reject_stale_offsets() {
 #[test]
 fn restart_truncates_uncommitted_tail_to_the_last_metadata_offset() {
     let root = TestRoot::new("append-recovery");
-    let store = store(&root);
-    store
+    let active = store(&root);
+    active
         .staging_open(open_request("upload-a", b"abcdef"))
         .unwrap();
-    append(&store, "upload-a", 0, b"ab");
-    let (_, data_path) = store.staging_paths(&key("upload-a"));
+    append(&active, "upload-a", 0, b"ab");
+    let (_, data_path) = active.staging_paths(&key("upload-a"));
     {
         let mut data = OpenOptions::new().append(true).open(&data_path).unwrap();
         data.write_all(b"uncommitted").unwrap();
         data.sync_all().unwrap();
     }
-    drop(store);
+    drop(active);
 
     let reopened = store(&root);
     assert_eq!(
