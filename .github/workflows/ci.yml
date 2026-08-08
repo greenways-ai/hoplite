@@ -90,6 +90,42 @@ jobs:
             hoplite/core/nginx/tests/host_provider_api.c \
             -o /tmp/hoplite-host-provider-api-test
           /tmp/hoplite-host-provider-api-test
+      - name: Verify work-scoped provider body access
+        run: |
+          cat > /tmp/hoplite-provider-body-access.c <<'EOF'
+          #include "hoplite_host_provider.h"
+
+          static void check_signatures(void) {
+            int32_t (*read_body)(
+                void *, uint64_t, uint64_t, uint8_t *, size_t, size_t *) =
+              hoplite_host_request_body_read_v1;
+            int32_t (*finish_body)(void *, uint64_t, uint64_t) =
+              hoplite_host_request_body_finish_v1;
+            (void)read_body;
+            (void)finish_body;
+          }
+
+          int main(void) {
+            check_signatures();
+            return HOPLITE_HOST_RESOURCE_OK == 0 &&
+                       HOPLITE_HOST_RESOURCE_ERROR < 0
+                     ? 0
+                     : 1;
+          }
+          EOF
+          cc -std=c11 -Wall -Wextra -Werror \
+            -I hoplite/core/nginx \
+            -fsyntax-only /tmp/hoplite-provider-body-access.c
+          grep -F 'hoplite_host_request_body_read_v1(' \
+            hoplite/core/nginx/ngx_http_hoplite_module.c
+          grep -F 'hoplite_host_request_body_finish_v1(' \
+            hoplite/core/nginx/ngx_http_hoplite_module.c
+          grep -F 'ctx->work == work' \
+            hoplite/core/nginx/ngx_http_hoplite_module.c
+          grep -F '& HOPLITE_HOST_PROVIDER_REQUEST_BODY' \
+            hoplite/core/nginx/ngx_http_hoplite_module.c
+          grep -F 'ctx->native_provider = native_provider;' \
+            hoplite/core/nginx/ngx_http_hoplite_module.c
 
   nginx-module:
     runs-on: ubuntu-latest
