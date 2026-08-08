@@ -807,6 +807,12 @@ pub unsafe extern "C" fn hoplite_blob_store_provider_response_close_scoped_v1(
 /// This entrypoint always fails closed because it cannot prove the opaque
 /// request identity that opened the source. Request-serving hosts must call
 /// [`hoplite_blob_store_provider_response_read_scoped_v1`].
+///
+/// # Safety
+///
+/// `provider` must be a live provider pointer. `returned` must be writable and,
+/// when `capacity` is non-zero, `output` must be writable for that many bytes.
+/// No response source is accessed by this compatibility entrypoint.
 #[no_mangle]
 pub unsafe extern "C" fn hoplite_blob_store_provider_response_read_v1(
     provider: *mut HopliteBlobStoreProvider,
@@ -834,6 +840,11 @@ pub unsafe extern "C" fn hoplite_blob_store_provider_response_read_v1(
 /// This entrypoint always fails closed because it cannot prove the opaque
 /// request identity that opened the source. Request-serving hosts must call
 /// [`hoplite_blob_store_provider_response_close_scoped_v1`].
+///
+/// # Safety
+///
+/// `provider` must be a live provider pointer. No response source is accessed
+/// or closed by this compatibility entrypoint.
 #[no_mangle]
 pub unsafe extern "C" fn hoplite_blob_store_provider_response_close_v1(
     provider: *mut HopliteBlobStoreProvider,
