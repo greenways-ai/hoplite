@@ -2,6 +2,7 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
+#include "hoplite_blob_host_provider.h"
 #include "hoplite_hta.h"
 #include "hoplite_host_provider.h"
 #include "hoplite_runtime.h"
@@ -327,6 +328,9 @@ ngx_http_hoplite_finish(ngx_http_hoplite_ctx_t *ctx)
     if (ctx->queued) {
         ngx_queue_remove(&ctx->queue);
         ctx->queued = 0;
+    }
+    if (ctx->work != 0) {
+        (void) hoplite_blob_host_provider_release_work_v1(ctx->work);
     }
     if (ngx_http_hoplite_runtime != NULL && ctx->work != 0) {
         (void) hoplite_work_close(ngx_http_hoplite_runtime, ctx->work);
@@ -1051,6 +1055,9 @@ ngx_http_hoplite_cleanup(void *data)
     ctx->provider = NULL;
     ctx->native_provider = NULL;
 
+    if (ctx->work != 0) {
+        (void) hoplite_blob_host_provider_release_work_v1(ctx->work);
+    }
     if (!ctx->done && ngx_http_hoplite_runtime != NULL && ctx->work != 0) {
         (void) hoplite_work_cancel(ngx_http_hoplite_runtime, ctx->work);
         (void) hoplite_work_close(ngx_http_hoplite_runtime, ctx->work);
@@ -1448,6 +1455,7 @@ ngx_http_hoplite_init_process(ngx_cycle_t *cycle)
 {
     ngx_http_hoplite_main_conf_t *conf;
     int32_t value_store_status;
+    int32_t blob_status;
 
     ngx_queue_init(&ngx_http_hoplite_requests);
     ngx_http_hoplite_queue_ready = 1;
@@ -1463,6 +1471,12 @@ ngx_http_hoplite_init_process(ngx_cycle_t *cycle)
     if (value_store_status == HOPLITE_VALUE_STORE_HOST_PROVIDER_ERROR) {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
                       "hoplite hara.store provider could not be initialized");
+        return NGX_ERROR;
+    }
+    blob_status = hoplite_blob_host_provider_init_process_v1();
+    if (blob_status == HOPLITE_BLOB_HOST_PROVIDER_ERROR) {
+        ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
+                      "hoplite hara.blob provider could not be initialized");
         return NGX_ERROR;
     }
     ngx_http_hoplite_runtime = hoplite_runtime_new();
@@ -1503,6 +1517,7 @@ ngx_http_hoplite_exit_process(ngx_cycle_t *cycle)
         hoplite_runtime_free(ngx_http_hoplite_runtime);
         ngx_http_hoplite_runtime = NULL;
     }
+    hoplite_blob_host_provider_exit_process_v1();
     hoplite_value_store_host_provider_exit_process_v1();
     ngx_http_hoplite_queue_ready = 0;
 }

@@ -45,11 +45,8 @@ type RequestReadV1 = unsafe extern "C" fn(
     returned: *mut usize,
 ) -> i32;
 
-type RequestFinishV1 = unsafe extern "C" fn(
-    request_context: *mut c_void,
-    work: u64,
-    source_handle: u64,
-) -> i32;
+type RequestFinishV1 =
+    unsafe extern "C" fn(request_context: *mut c_void, work: u64, source_handle: u64) -> i32;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -279,12 +276,7 @@ impl ResponseRegistry {
         Ok(handle)
     }
 
-    fn read(
-        &mut self,
-        work: u64,
-        handle: u64,
-        output: &mut [u8],
-    ) -> Result<usize, BlobError> {
+    fn read(&mut self, work: u64, handle: u64, output: &mut [u8]) -> Result<usize, BlobError> {
         let entry = self
             .entries
             .get_mut(&handle)
@@ -446,7 +438,10 @@ pub unsafe extern "C" fn hoplite_blob_store_provider_open_memory_v1(
     unsafe { *output = ptr::null_mut() };
     catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: checked non-null above; the value is copied immediately.
-        let limits = unsafe { *limits }.into_limits().validate().map_err(|_| ())?;
+        let limits = unsafe { *limits }
+            .into_limits()
+            .validate()
+            .map_err(|_| ())?;
         let call = SharedCall::new();
         let responses = Arc::new(Mutex::new(ResponseRegistry::new()));
         let provider = CanonicalProvider::new(
@@ -498,8 +493,8 @@ pub unsafe extern "C" fn hoplite_blob_store_provider_execute_v1(
             unsafe { input_bytes(operation, operation_len) }.map_err(|_| STATUS_INVALID)?,
         )
         .map_err(|_| STATUS_INVALID)?;
-        let arguments = unsafe { input_bytes(arguments_hta, arguments_hta_len) }
-            .map_err(|_| STATUS_INVALID)?;
+        let arguments =
+            unsafe { input_bytes(arguments_hta, arguments_hta_len) }.map_err(|_| STATUS_INVALID)?;
         if call.abi_version != ABI_VERSION
             || call.request_context.is_null()
             || call.work == 0
@@ -547,7 +542,8 @@ pub unsafe extern "C" fn hoplite_blob_store_provider_response_read_v1(
     capacity: usize,
     returned: *mut usize,
 ) -> i32 {
-    if returned.is_null() || (capacity != 0 && output.is_null()) || work == 0 || source_handle == 0 {
+    if returned.is_null() || (capacity != 0 && output.is_null()) || work == 0 || source_handle == 0
+    {
         return STATUS_INVALID;
     }
     // SAFETY: returned was checked non-null.
@@ -688,11 +684,7 @@ mod tests {
         let amount = capacity.min(fixture.bytes.len().saturating_sub(fixture.cursor));
         if amount != 0 {
             unsafe {
-                ptr::copy_nonoverlapping(
-                    fixture.bytes.as_ptr().add(fixture.cursor),
-                    output,
-                    amount,
-                )
+                ptr::copy_nonoverlapping(fixture.bytes.as_ptr().add(fixture.cursor), output, amount)
             };
         }
         fixture.cursor += amount;
@@ -700,11 +692,7 @@ mod tests {
         STATUS_OK
     }
 
-    unsafe extern "C" fn request_finish(
-        context: *mut c_void,
-        work: u64,
-        handle: u64,
-    ) -> i32 {
+    unsafe extern "C" fn request_finish(context: *mut c_void, work: u64, handle: u64) -> i32 {
         if context.is_null() {
             return STATUS_RESOURCE_ERROR;
         }
@@ -857,7 +845,15 @@ mod tests {
 
     fn source_handle(frame: &[u8]) -> u64 {
         let document = Document::parse(frame).unwrap();
-        u64::try_from(document.root().require("source-handle").unwrap().as_i64().unwrap()).unwrap()
+        u64::try_from(
+            document
+                .root()
+                .require("source-handle")
+                .unwrap()
+                .as_i64()
+                .unwrap(),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -886,7 +882,15 @@ mod tests {
         };
 
         assert_eq!(
-            unsafe { execute(provider, &call, "staging/open", &open_request("upload.a", &bytes)) }.0,
+            unsafe {
+                execute(
+                    provider,
+                    &call,
+                    "staging/open",
+                    &open_request("upload.a", &bytes),
+                )
+            }
+            .0,
             RESULT_SUCCESS
         );
         assert_eq!(
@@ -957,15 +961,11 @@ mod tests {
         assert_eq!(returned, 4);
         assert_eq!(&output[..returned], b"cdef");
         assert_eq!(
-            unsafe {
-                hoplite_blob_store_provider_response_close_v1(provider, call.work, handle)
-            },
+            unsafe { hoplite_blob_store_provider_response_close_v1(provider, call.work, handle) },
             STATUS_OK
         );
         assert_eq!(
-            unsafe {
-                hoplite_blob_store_provider_response_close_v1(provider, call.work, handle)
-            },
+            unsafe { hoplite_blob_store_provider_response_close_v1(provider, call.work, handle) },
             STATUS_RESOURCE_ERROR
         );
         unsafe { hoplite_blob_store_provider_close_v1(provider) };
@@ -1008,7 +1008,12 @@ mod tests {
 
         let bytes = fixture.bytes.clone();
         unsafe {
-            execute(provider, &call, "staging/open", &open_request("upload.b", &bytes));
+            execute(
+                provider,
+                &call,
+                "staging/open",
+                &open_request("upload.b", &bytes),
+            );
             execute(
                 provider,
                 &call,
@@ -1063,9 +1068,7 @@ mod tests {
         let mut invalid_limits = limits();
         invalid_limits.max_source_chunk_bytes = invalid_limits.max_append_bytes + 1;
         assert_eq!(
-            unsafe {
-                hoplite_blob_store_provider_open_memory_v1(&invalid_limits, &mut provider)
-            },
+            unsafe { hoplite_blob_store_provider_open_memory_v1(&invalid_limits, &mut provider) },
             STATUS_FAILURE
         );
         assert!(provider.is_null());
