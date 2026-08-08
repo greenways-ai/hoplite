@@ -48,10 +48,9 @@ jobs:
 
           tests = Path("core/abi/value-store-sqlite/src/tests.rs")
           source = tests.read_text()
-          old = '''                 VALUES (?1, 0, 2, ?2, ?3, ?4)",
-          '''
-          new = '''                 VALUES (?1, 0, 1, ?2, ?3, ?4)",
-          '''
+
+          old = "VALUES (?1, 0, 2, ?2, ?3, ?4)"
+          new = "VALUES (?1, 0, 1, ?2, ?3, ?4)"
           if source.count(old) != 1:
               raise SystemExit("expected one duplicate receipt revision fixture")
           source = source.replace(old, new)
@@ -60,26 +59,22 @@ jobs:
               'expect_err("schema must reject a duplicate stored revision")',
           )
 
-          old = '''    let error = SqliteValueStore::open(database.path(), limits())
-              .expect_err("unsupported schema must be rejected");
-          '''
-          new = '''    let error = match SqliteValueStore::open(database.path(), limits()) {
+          old = '''let error = SqliteValueStore::open(database.path(), limits())
+              .expect_err("unsupported schema must be rejected");'''
+          new = '''let error = match SqliteValueStore::open(database.path(), limits()) {
               Ok(_) => panic!("unsupported schema must be rejected"),
               Err(error) => error,
-          };
-          '''
+          };'''
           if source.count(old) != 1:
               raise SystemExit("expected one unsupported schema assertion")
           source = source.replace(old, new)
 
-          old = '''    let error = SqliteValueStore::open(database.path(), limits())
-              .expect_err("orphan receipts must fail verification");
-          '''
-          new = '''    let error = match SqliteValueStore::open(database.path(), limits()) {
+          old = '''let error = SqliteValueStore::open(database.path(), limits())
+              .expect_err("orphan receipts must fail verification");'''
+          new = '''let error = match SqliteValueStore::open(database.path(), limits()) {
               Ok(_) => panic!("orphan receipts must fail verification"),
               Err(error) => error,
-          };
-          '''
+          };'''
           if source.count(old) != 1:
               raise SystemExit("expected one orphan receipt assertion")
           source = source.replace(old, new)
