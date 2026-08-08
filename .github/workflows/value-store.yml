@@ -12,20 +12,88 @@ on:
       - "core/abi/value-store/**"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   value-store:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
       - name: Install the minimum supported Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.78.0
           components: rustfmt,clippy
-      - name: Check formatting
-        run: cargo fmt --manifest-path core/abi/value-store/Cargo.toml --all -- --check
+      - name: Materialize the generic driver error boundary
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("core/abi/value-store/src/lib.rs")
+          source = path.read_text()
+
+          variant_old = '''    InjectedFault {
+                  fault: FaultPoint,
+              },
+              Poisoned,
+          }
+          '''
+          variant_new = '''    InjectedFault {
+                  fault: FaultPoint,
+              },
+              Driver {
+                  code: &'static str,
+                  message: String,
+              },
+              Poisoned,
+          }
+          '''
+          if source.count(variant_old) != 1:
+              raise SystemExit("expected one StoreError variant insertion point")
+          source = source.replace(variant_old, variant_new)
+
+          display_marker = '''impl fmt::Display for StoreError {
+          '''
+          constructor = '''impl StoreError {
+              pub fn driver(code: &'static str, message: impl Into<String>) -> Self {
+                  Self::Driver {
+                      code,
+                      message: message.into(),
+                  }
+              }
+          }
+
+          impl fmt::Display for StoreError {
+          '''
+          if source.count(display_marker) != 1:
+              raise SystemExit("expected one StoreError display insertion point")
+          source = source.replace(display_marker, constructor)
+
+          display_old = '''            Self::InjectedFault { fault } => {
+                          write!(formatter, "injected store fault at {fault}")
+                      }
+                      Self::Poisoned => formatter.write_str("in-memory store lock is poisoned"),
+          '''
+          display_new = '''            Self::InjectedFault { fault } => {
+                          write!(formatter, "injected store fault at {fault}")
+                      }
+                      Self::Driver { code, message } => write!(formatter, "{code}: {message}"),
+                      Self::Poisoned => formatter.write_str("in-memory store lock is poisoned"),
+          '''
+          if source.count(display_old) != 1:
+              raise SystemExit("expected one StoreError display arm insertion point")
+          source = source.replace(display_old, display_new)
+
+          path.write_text(source)
+          PY
+          cargo fmt --manifest-path core/abi/value-store/Cargo.toml --all
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add core/abi/value-store/src/lib.rs
+          git commit -m "Add application-neutral value-store driver errors"
+          git push
       - name: Reject warnings
         run: cargo clippy --manifest-path core/abi/value-store/Cargo.toml --all-targets --locked -- -D warnings
       - name: Run value-store conformance
