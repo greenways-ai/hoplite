@@ -19,17 +19,12 @@ const NIL: u8 = 0;
 const I64: u8 = 3;
 const STRING: u8 = 4;
 const KEYWORD: u8 = 6;
+#[cfg(test)]
 const VECTOR: u8 = 9;
 const MAP: u8 = 11;
 
 const LOAD_FIELDS: &[&str] = &["operation", "protocol"];
-const INITIALIZE_FIELDS: &[&str] = &[
-    "operation",
-    "protocol",
-    "revision",
-    "value",
-    "value-digest",
-];
+const INITIALIZE_FIELDS: &[&str] = &["operation", "protocol", "revision", "value", "value-digest"];
 const COMPARE_AND_SWAP_FIELDS: &[&str] = &[
     "expected-revision",
     "operation",
@@ -46,10 +41,7 @@ const RECEIPT_FIELDS: &[&str] = &["operation", "protocol", "receipt-key"];
 pub enum Error {
     Hta(HtaError),
     InvalidRequest(&'static str),
-    OperationMismatch {
-        call: String,
-        request: String,
-    },
+    OperationMismatch { call: String, request: String },
     Store(StoreError),
 }
 
@@ -86,7 +78,9 @@ impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Hta(error) => write!(formatter, "invalid provider HTA: {error}"),
-            Self::InvalidRequest(message) => write!(formatter, "invalid hara.store request: {message}"),
+            Self::InvalidRequest(message) => {
+                write!(formatter, "invalid hara.store request: {message}")
+            }
             Self::OperationMismatch { call, request } => write!(
                 formatter,
                 "host operation {call:?} does not match request operation {request:?}"
@@ -188,18 +182,16 @@ where
     fn initialize(&self, request: Node<'_, '_>) -> Result<Vec<u8>, Error> {
         let snapshot = Snapshot::new(
             request_revision(request, "revision")?,
-            request_value(request)?,
+            self.value_from_request(request)?,
         )?;
         let snapshot = self.store.initialize(snapshot)?;
         snapshot_result("initialize", &snapshot)
     }
 
     fn compare_and_swap(&self, request: Node<'_, '_>) -> Result<Vec<u8>, Error> {
-        let value = request_value(request)?;
-        let receipt = OpaqueReceipt::new(
-            request.require("receipt")?.standalone_frame(),
-            self.limits,
-        )?;
+        let value = self.value_from_request(request)?;
+        let receipt =
+            OpaqueReceipt::new(request.require("receipt")?.standalone_frame(), self.limits)?;
         let compare = CompareAndSwap::new(
             request_revision(request, "expected-revision")?,
             request_revision(request, "revision")?,
@@ -241,17 +233,6 @@ where
     }
 }
 
-fn request_value<S, V>(request: Node<'_, '_>) -> Result<CanonicalValue, Error>
-where
-    S: OpaqueValueStore,
-    V: DigestVerifier,
-{
-    let _ = std::marker::PhantomData::<(S, V)>;
-    Err(Error::InvalidRequest(
-        "internal request value helper was not bound to a provider",
-    ))
-}
-
 fn exact_fields(request: Node<'_, '_>, expected: &[&str]) -> Result<(), Error> {
     if request.kind() != Kind::Map || request.len()? != expected.len() {
         return Err(Error::InvalidRequest("request fields are not exact"));
@@ -260,7 +241,9 @@ fn exact_fields(request: Node<'_, '_>, expected: &[&str]) -> Result<(), Error> {
     for index in 0..request.len()? {
         let (key, _) = request.pair(index)?;
         if !matches!(key.kind(), Kind::String | Kind::Keyword) {
-            return Err(Error::InvalidRequest("request keys must be strings or keywords"));
+            return Err(Error::InvalidRequest(
+                "request keys must be strings or keywords",
+            ));
         }
         let key = key.as_text()?;
         if !expected.contains(&key) || seen.contains(&key) {
@@ -300,7 +283,10 @@ fn snapshot_result(operation: &str, snapshot: &Snapshot) -> Result<Vec<u8>, Erro
         ("protocol", bare_string(RESULT_PROTOCOL)),
         ("revision", bare_i64(snapshot.revision())?),
         ("value", bare_from_frame(snapshot.value().bytes())?),
-        ("value-digest", bare_string(&snapshot.value().digest().to_string())),
+        (
+            "value-digest",
+            bare_string(&snapshot.value().digest().to_string()),
+        ),
     ])
 }
 
@@ -314,7 +300,10 @@ fn receipt_result(operation: &str, receipt: &CommitReceipt) -> Result<Vec<u8>, E
         ("operation", bare_string(operation)),
         ("protocol", bare_string(RESULT_PROTOCOL)),
         ("receipt", bare_from_frame(receipt.receipt().bytes())?),
-        ("receipt-key", bare_string(&receipt.receipt_key().to_string())),
+        (
+            "receipt-key",
+            bare_string(&receipt.receipt_key().to_string()),
+        ),
         ("revision", bare_i64(receipt.revision())?),
         ("status", bare_string(status.name())),
     ])
@@ -369,7 +358,9 @@ fn bare_i64(value: u64) -> Result<Vec<u8>, Error> {
 
 fn bare_from_frame(frame: &[u8]) -> Result<Vec<u8>, Error> {
     if !frame.starts_with(MAGIC) || frame.len() <= MAGIC.len() {
-        return Err(Error::InvalidRequest("opaque value is not a complete HTA1 frame"));
+        return Err(Error::InvalidRequest(
+            "opaque value is not a complete HTA1 frame",
+        ));
     }
     Document::parse(frame)?;
     Ok(frame[MAGIC.len()..].to_vec())
@@ -388,9 +379,7 @@ mod tests {
             let mut output = [0_u8; 32];
             for (index, byte) in bytes.iter().copied().enumerate() {
                 let slot = index % output.len();
-                output[slot] = output[slot]
-                    .wrapping_add(byte)
-                    .wrapping_add(index as u8);
+                output[slot] = output[slot].wrapping_add(byte).wrapping_add(index as u8);
             }
             output
         }
@@ -450,12 +439,7 @@ mod tests {
     }
 
     fn provider() -> Provider<InMemoryStore, TestVerifier> {
-        Provider::new(
-            InMemoryStore::new(),
-            TestVerifier,
-            StoreLimits::default(),
-        )
-        .unwrap()
+        Provider::new(InMemoryStore::new(), TestVerifier, StoreLimits::default()).unwrap()
     }
 
     fn initialize_request(value: &[u8], revision: i64) -> Vec<u8> {
@@ -479,9 +463,21 @@ mod tests {
         let initialized = provider
             .execute("initialize", &arguments(initialize_request(&initial, 0)))
             .unwrap();
-        let result = Document::parse(&initialized).unwrap().root();
-        assert_eq!(result.map_get("operation").unwrap().unwrap().as_text().unwrap(), "initialize");
-        assert_eq!(result.map_get("value").unwrap().unwrap().standalone_frame(), initial);
+        let initialized_document = Document::parse(&initialized).unwrap();
+        let result = initialized_document.root();
+        assert_eq!(
+            result
+                .map_get("operation")
+                .unwrap()
+                .unwrap()
+                .as_text()
+                .unwrap(),
+            "initialize"
+        );
+        assert_eq!(
+            result.map_get("value").unwrap().unwrap().standalone_frame(),
+            initial
+        );
 
         let loaded = provider
             .execute(
@@ -519,9 +515,25 @@ mod tests {
         let applied = provider
             .execute("compare-and-swap", &arguments(compare.clone()))
             .unwrap();
-        let applied = Document::parse(&applied).unwrap().root();
-        assert_eq!(applied.map_get("status").unwrap().unwrap().as_text().unwrap(), "applied");
-        assert_eq!(applied.map_get("receipt").unwrap().unwrap().standalone_frame(), receipt);
+        let applied_document = Document::parse(&applied).unwrap();
+        let applied = applied_document.root();
+        assert_eq!(
+            applied
+                .map_get("status")
+                .unwrap()
+                .unwrap()
+                .as_text()
+                .unwrap(),
+            "applied"
+        );
+        assert_eq!(
+            applied
+                .map_get("receipt")
+                .unwrap()
+                .unwrap()
+                .standalone_frame(),
+            receipt
+        );
 
         let replayed = provider
             .execute("compare-and-swap", &arguments(compare))
@@ -548,9 +560,25 @@ mod tests {
                 ])),
             )
             .unwrap();
-        let receipt_lookup = Document::parse(&receipt_lookup).unwrap().root();
-        assert_eq!(receipt_lookup.map_get("status").unwrap().unwrap().as_text().unwrap(), "replayed");
-        assert_eq!(receipt_lookup.map_get("receipt").unwrap().unwrap().standalone_frame(), receipt);
+        let receipt_document = Document::parse(&receipt_lookup).unwrap();
+        let receipt_lookup = receipt_document.root();
+        assert_eq!(
+            receipt_lookup
+                .map_get("status")
+                .unwrap()
+                .unwrap()
+                .as_text()
+                .unwrap(),
+            "replayed"
+        );
+        assert_eq!(
+            receipt_lookup
+                .map_get("receipt")
+                .unwrap()
+                .unwrap()
+                .standalone_frame(),
+            receipt
+        );
     }
 
     #[test]
