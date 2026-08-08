@@ -1,0 +1,58 @@
+name: Filesystem hara.blob driver
+
+on:
+  push:
+    branches: [agent/filesystem-blob-store]
+    paths:
+      - core/abi/blob-store/**
+      - core/abi/blob-store-filesystem/**
+      - .github/workflows/blob-store-filesystem.yml
+  pull_request:
+    paths:
+      - core/abi/blob-store/**
+      - core/abi/blob-store-filesystem/**
+      - .github/workflows/blob-store-filesystem.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: filesystem-hara-blob-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  filesystem-blob-store:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+      - uses: dtolnay/rust-toolchain@1.78.0
+        with:
+          components: rustfmt,clippy
+      - name: Materialize the standalone lock and formatting
+        run: |
+          cargo generate-lockfile \
+            --manifest-path core/abi/blob-store-filesystem/Cargo.toml
+          cargo fmt \
+            --manifest-path core/abi/blob-store-filesystem/Cargo.toml \
+            --all
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add core/abi/blob-store-filesystem
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Materialize the filesystem blob-store crate"
+          git push
+      - name: Reject warnings
+        run: |
+          cargo clippy \
+            --manifest-path core/abi/blob-store-filesystem/Cargo.toml \
+            --all-targets --locked -- -D warnings
+      - name: Run restart and integrity conformance
+        run: |
+          cargo test \
+            --manifest-path core/abi/blob-store-filesystem/Cargo.toml \
+            --all-targets --locked
