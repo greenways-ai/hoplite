@@ -60,11 +60,22 @@ typedef struct hoplite_blob_store_result_v1 {
 uint32_t hoplite_blob_store_provider_abi_version(void);
 
 /*
- * Create one worker-owned, application-neutral in-memory provider. The caller
- * supplies trusted positive limits; Hara values cannot select the driver or
- * mutate these limits.
+ * Create one worker-owned, application-neutral in-memory provider for
+ * deterministic tests and development. The caller supplies trusted positive
+ * limits; Hara values cannot select the driver or mutate these limits.
  */
 int32_t hoplite_blob_store_provider_open_memory_v1(
+    const hoplite_blob_store_limits_v1_t *limits,
+    hoplite_blob_store_provider_t **provider);
+
+/*
+ * Create one worker-owned, application-neutral trusted-root filesystem
+ * provider. The UTF-8 root and fixed limits come only from trusted startup
+ * configuration. A HAL request cannot select or modify either value.
+ */
+int32_t hoplite_blob_store_provider_open_filesystem_v1(
+    const uint8_t *root,
+    size_t root_len,
     const hoplite_blob_store_limits_v1_t *limits,
     hoplite_blob_store_provider_t **provider);
 
