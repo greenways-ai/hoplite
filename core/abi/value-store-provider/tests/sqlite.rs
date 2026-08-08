@@ -232,10 +232,7 @@ fn preserves_exact_values_receipts_and_replay_across_restart() {
             frame(&[NIL])
         );
         let initialized = store
-            .execute(
-                "initialize",
-                &arguments(initialize_request(&initial, 0)),
-            )
+            .execute("initialize", &arguments(initialize_request(&initial, 0)))
             .expect("initialize");
         assert_eq!(result_text(&initialized, "operation"), "initialize");
         assert_eq!(result_frame(&initialized, "value"), initial);
@@ -269,10 +266,7 @@ fn preserves_exact_values_receipts_and_replay_across_restart() {
         assert_eq!(result_frame(&replayed, "receipt"), opaque_receipt);
 
         let found = store
-            .execute(
-                "receipt",
-                &arguments(receipt_request(&receipt_key)),
-            )
+            .execute("receipt", &arguments(receipt_request(&receipt_key)))
             .expect("receipt lookup after restart");
         assert_eq!(result_text(&found, "status"), "replayed");
         assert_eq!(result_frame(&found, "receipt"), opaque_receipt);
@@ -291,10 +285,7 @@ fn preserves_stale_writer_and_receipt_collision_laws_across_connections() {
     let second = provider(&database.path);
     let initial = value(0, "initial");
     first
-        .execute(
-            "initialize",
-            &arguments(initialize_request(&initial, 0)),
-        )
+        .execute("initialize", &arguments(initialize_request(&initial, 0)))
         .expect("initialize");
 
     let committed = value(1, "committed");
