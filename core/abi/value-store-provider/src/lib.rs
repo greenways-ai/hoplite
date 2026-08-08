@@ -20,7 +20,6 @@ const I64: u8 = 3;
 const STRING: u8 = 4;
 const KEYWORD: u8 = 6;
 #[cfg(test)]
-#[cfg(test)]
 const VECTOR: u8 = 9;
 const MAP: u8 = 11;
 
