@@ -206,6 +206,45 @@ hoplite_blob_store_provider_execute_v1(
     return HOPLITE_BLOB_STORE_PROVIDER_OK;
 }
 
+int32_t
+hoplite_blob_store_provider_response_read_scoped_v1(
+    hoplite_blob_store_provider_t *provider,
+    void *request_context,
+    uint64_t work,
+    uint64_t source_handle,
+    uint8_t *output,
+    size_t capacity,
+    size_t *returned)
+{
+    static const uint8_t source[] = "source";
+    size_t amount;
+
+    assert(provider == &fake_provider);
+    assert(request_context == &fake_provider);
+    assert(work == 71);
+    assert(source_handle == 19);
+    assert(output != NULL);
+    assert(returned != NULL);
+    amount = capacity < sizeof(source) - 1 ? capacity : sizeof(source) - 1;
+    memcpy(output, source, amount);
+    *returned = amount;
+    return HOPLITE_BLOB_STORE_PROVIDER_OK;
+}
+
+int32_t
+hoplite_blob_store_provider_response_close_scoped_v1(
+    hoplite_blob_store_provider_t *provider,
+    void *request_context,
+    uint64_t work,
+    uint64_t source_handle)
+{
+    assert(provider == &fake_provider);
+    assert(request_context == &fake_provider);
+    assert(work == 71);
+    assert(source_handle == 19);
+    return HOPLITE_BLOB_STORE_PROVIDER_OK;
+}
+
 size_t
 hoplite_blob_store_provider_release_work_v1(
     hoplite_blob_store_provider_t *provider,
@@ -353,6 +392,26 @@ main(void)
     assert(released_work == 71);
     assert(hoplite_blob_host_provider_release_work_v1(0) == 0);
     assert(release_count == 1);
+
+    {
+        uint8_t output[8];
+        size_t returned = 99;
+        assert(hoplite_blob_host_provider_response_read_v1(
+                   &fake_provider, 71, 19,
+                   output, sizeof(output), &returned)
+               == HOPLITE_BLOB_HOST_PROVIDER_OK);
+        assert(returned == sizeof("source") - 1);
+        assert(memcmp(output, "source", returned) == 0);
+        returned = 99;
+        assert(hoplite_blob_host_provider_response_read_v1(
+                   NULL, 71, 19,
+                   output, sizeof(output), &returned)
+               == HOPLITE_BLOB_HOST_PROVIDER_ERROR);
+        assert(returned == 0);
+        assert(hoplite_blob_host_provider_response_close_v1(
+                   &fake_provider, 71, 19)
+               == HOPLITE_BLOB_HOST_PROVIDER_OK);
+    }
 
     assert(execute_count == 5);
     hoplite_blob_host_provider_exit_process_v1();

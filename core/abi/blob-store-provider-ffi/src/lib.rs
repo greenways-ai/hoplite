@@ -238,6 +238,7 @@ impl ByteSource for HostRequestSource {
 }
 
 struct ResponseEntry {
+    request_context: usize,
     work: u64,
     source: ProviderResponseSource,
 }
@@ -255,11 +256,16 @@ impl ResponseRegistry {
         }
     }
 
-    fn register(&mut self, work: u64, source: ProviderResponseSource) -> Result<u64, BlobError> {
-        if work == 0 {
+    fn register(
+        &mut self,
+        request_context: usize,
+        work: u64,
+        source: ProviderResponseSource,
+    ) -> Result<u64, BlobError> {
+        if request_context == 0 || work == 0 {
             return Err(BlobError::driver(
-                "blob-response-work-invalid",
-                "response source requires an owning work",
+                "blob-response-owner-invalid",
+                "response source requires an owning request and work",
             ));
         }
         let handle = self.next;
@@ -275,7 +281,14 @@ impl ResponseRegistry {
                 "response source handle space is exhausted",
             )
         })?;
-        self.entries.insert(handle, ResponseEntry { work, source });
+        self.entries.insert(
+            handle,
+            ResponseEntry {
+                request_context,
+                work,
+                source,
+            },
+        );
         Ok(handle)
     }
 
@@ -288,6 +301,26 @@ impl ResponseRegistry {
                 BlobError::source(
                     "blob-response-source-forbidden",
                     "response source is not owned by this work",
+                )
+            })?;
+        entry.source.read(output)
+    }
+
+    fn read_scoped(
+        &mut self,
+        request_context: usize,
+        work: u64,
+        handle: u64,
+        output: &mut [u8],
+    ) -> Result<usize, BlobError> {
+        let entry = self
+            .entries
+            .get_mut(&handle)
+            .filter(|entry| entry.request_context == request_context && entry.work == work)
+            .ok_or_else(|| {
+                BlobError::source(
+                    "blob-response-source-forbidden",
+                    "response source is not owned by this request and work",
                 )
             })?;
         entry.source.read(output)
@@ -309,6 +342,30 @@ impl ResponseRegistry {
             .entries
             .remove(&handle)
             .expect("owned response source was checked above");
+        entry.source.close()
+    }
+
+    fn close_scoped(
+        &mut self,
+        request_context: usize,
+        work: u64,
+        handle: u64,
+    ) -> Result<(), BlobError> {
+        let owned = self
+            .entries
+            .get(&handle)
+            .map(|entry| entry.request_context == request_context && entry.work == work)
+            .unwrap_or(false);
+        if !owned {
+            return Err(BlobError::source(
+                "blob-response-source-forbidden",
+                "response source is not owned by this request and work",
+            ));
+        }
+        let mut entry = self
+            .entries
+            .remove(&handle)
+            .expect("scoped response source was checked above");
         entry.source.close()
     }
 
@@ -343,7 +400,7 @@ struct HostResponseRegistrar {
 impl ResponseSourceRegistrar<ProviderResponseSource> for HostResponseRegistrar {
     fn register(&self, source: ProviderResponseSource) -> Result<u64, BlobError> {
         let call = self.call.get()?;
-        lock(&self.responses)?.register(call.work, source)
+        lock(&self.responses)?.register(call.request_context, call.work, source)
     }
 }
 
@@ -692,6 +749,90 @@ pub unsafe extern "C" fn hoplite_blob_store_provider_execute_v1(
             STATUS_FAILURE
         }
     }
+}
+
+/// Read from one immutable request-and-work-scoped response source.
+///
+/// # Safety
+///
+/// `provider` must remain live. `request_context` must be the exact opaque
+/// request identity supplied when the source was opened. `returned` must be
+/// writable, and when `capacity` is non-zero `output` must be writable for that
+/// many bytes. Ownership is checked before any source callback runs.
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_blob_store_provider_response_read_scoped_v1(
+    provider: *mut HopliteBlobStoreProvider,
+    request_context: *mut c_void,
+    work: u64,
+    source_handle: u64,
+    output: *mut u8,
+    capacity: usize,
+    returned: *mut usize,
+) -> i32 {
+    if request_context.is_null()
+        || returned.is_null()
+        || (capacity != 0 && output.is_null())
+        || work == 0
+        || source_handle == 0
+    {
+        return STATUS_INVALID;
+    }
+    // SAFETY: returned was checked non-null.
+    unsafe { *returned = 0 };
+    catch_unwind(AssertUnwindSafe(|| {
+        // SAFETY: provider must originate from an open function.
+        let provider = unsafe { provider_ref(provider) }.map_err(|_| STATUS_INVALID)?;
+        let output = if capacity == 0 {
+            &mut []
+        } else {
+            // SAFETY: output is non-null and writable for capacity bytes.
+            unsafe { slice::from_raw_parts_mut(output, capacity) }
+        };
+        let read = lock(&provider.responses)
+            .and_then(|mut responses| {
+                responses.read_scoped(request_context as usize, work, source_handle, output)
+            })
+            .map_err(|_| STATUS_RESOURCE_ERROR)?;
+        // SAFETY: returned remains valid for this synchronous call.
+        unsafe { *returned = read };
+        Ok::<(), i32>(())
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .map(|_| STATUS_OK)
+    .unwrap_or(STATUS_RESOURCE_ERROR)
+}
+
+/// Close one immutable request-and-work-scoped response source.
+///
+/// # Safety
+///
+/// `provider` must remain live. `request_context`, work and handle must exactly
+/// match the values that opened the source. A source cannot be closed twice.
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_blob_store_provider_response_close_scoped_v1(
+    provider: *mut HopliteBlobStoreProvider,
+    request_context: *mut c_void,
+    work: u64,
+    source_handle: u64,
+) -> i32 {
+    if request_context.is_null() || work == 0 || source_handle == 0 {
+        return STATUS_INVALID;
+    }
+    catch_unwind(AssertUnwindSafe(|| {
+        // SAFETY: provider must originate from an open function.
+        let provider = unsafe { provider_ref(provider) }.map_err(|_| STATUS_INVALID)?;
+        lock(&provider.responses)
+            .and_then(|mut responses| {
+                responses.close_scoped(request_context as usize, work, source_handle)
+            })
+            .map_err(|_| STATUS_RESOURCE_ERROR)?;
+        Ok::<(), i32>(())
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .map(|_| STATUS_OK)
+    .unwrap_or(STATUS_RESOURCE_ERROR)
 }
 
 /// Read from one immutable work-scoped response source.

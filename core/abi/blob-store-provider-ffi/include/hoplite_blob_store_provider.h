@@ -111,6 +111,26 @@ int32_t hoplite_blob_store_provider_response_close_v1(
     uint64_t work,
     uint64_t source_handle);
 
+/*
+ * Stronger scoped variants used by request-serving hosts. The exact opaque
+ * request identity and work must match the source-opening call before bytes are
+ * read or the source is closed.
+ */
+int32_t hoplite_blob_store_provider_response_read_scoped_v1(
+    hoplite_blob_store_provider_t *provider,
+    void *request_context,
+    uint64_t work,
+    uint64_t source_handle,
+    uint8_t *output,
+    size_t capacity,
+    size_t *returned);
+
+int32_t hoplite_blob_store_provider_response_close_scoped_v1(
+    hoplite_blob_store_provider_t *provider,
+    void *request_context,
+    uint64_t work,
+    uint64_t source_handle);
+
 /* Close every response source retained by one completed or cancelled work. */
 size_t hoplite_blob_store_provider_release_work_v1(
     hoplite_blob_store_provider_t *provider,

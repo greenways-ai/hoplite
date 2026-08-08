@@ -341,10 +341,27 @@ fn durable_provider_survives_restart_and_preserves_work_scoped_sources() {
 
     let mut buffer = [0_u8; 5];
     let mut returned = 99_usize;
+    let mut wrong_request = RequestFixture::empty(work);
     assert_eq!(
         unsafe {
-            hoplite_blob_store_provider_response_read_v1(
+            hoplite_blob_store_provider_response_read_scoped_v1(
                 provider,
+                &mut wrong_request as *mut RequestFixture as *mut c_void,
+                work,
+                handle,
+                buffer.as_mut_ptr(),
+                buffer.len(),
+                &mut returned,
+            )
+        },
+        STATUS_RESOURCE_ERROR
+    );
+    assert_eq!(returned, 0);
+    assert_eq!(
+        unsafe {
+            hoplite_blob_store_provider_response_read_scoped_v1(
+                provider,
+                &mut fixture as *mut RequestFixture as *mut c_void,
                 work + 1,
                 handle,
                 buffer.as_mut_ptr(),
@@ -360,8 +377,9 @@ fn durable_provider_survives_restart_and_preserves_work_scoped_sources() {
     loop {
         returned = 0;
         let status = unsafe {
-            hoplite_blob_store_provider_response_read_v1(
+            hoplite_blob_store_provider_response_read_scoped_v1(
                 provider,
+                &mut fixture as *mut RequestFixture as *mut c_void,
                 work,
                 handle,
                 buffer.as_mut_ptr(),
@@ -377,11 +395,25 @@ fn durable_provider_survives_restart_and_preserves_work_scoped_sources() {
     }
     assert_eq!(output, bytes[3..17]);
     assert_eq!(
-        unsafe { hoplite_blob_store_provider_response_close_v1(provider, work, handle) },
+        unsafe {
+            hoplite_blob_store_provider_response_close_scoped_v1(
+                provider,
+                &mut fixture as *mut RequestFixture as *mut c_void,
+                work,
+                handle,
+            )
+        },
         STATUS_OK
     );
     assert_eq!(
-        unsafe { hoplite_blob_store_provider_response_close_v1(provider, work, handle) },
+        unsafe {
+            hoplite_blob_store_provider_response_close_scoped_v1(
+                provider,
+                &mut fixture as *mut RequestFixture as *mut c_void,
+                work,
+                handle,
+            )
+        },
         STATUS_RESOURCE_ERROR
     );
     unsafe { hoplite_blob_store_provider_close_v1(provider) };

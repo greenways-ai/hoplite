@@ -290,6 +290,60 @@ hoplite_blob_host_provider_init_process_v1(void)
     return hoplite_blob_register_provider(root, &limits);
 }
 
+int32_t
+hoplite_blob_host_provider_response_read_v1(
+    void *request_context,
+    uint64_t work,
+    uint64_t source_handle,
+    uint8_t *output,
+    size_t capacity,
+    size_t *returned)
+{
+    if (returned != NULL) {
+        *returned = 0;
+    }
+    if (hoplite_blob_state != HOPLITE_BLOB_HOST_READY
+        || hoplite_blob_provider == NULL
+        || request_context == NULL
+        || work == 0 || source_handle == 0
+        || output == NULL || capacity == 0 || returned == NULL)
+    {
+        return HOPLITE_BLOB_HOST_PROVIDER_ERROR;
+    }
+    return hoplite_blob_store_provider_response_read_scoped_v1(
+               hoplite_blob_provider,
+               request_context,
+               work,
+               source_handle,
+               output,
+               capacity,
+               returned) == HOPLITE_BLOB_STORE_PROVIDER_OK
+        ? HOPLITE_BLOB_HOST_PROVIDER_OK
+        : HOPLITE_BLOB_HOST_PROVIDER_ERROR;
+}
+
+int32_t
+hoplite_blob_host_provider_response_close_v1(
+    void *request_context,
+    uint64_t work,
+    uint64_t source_handle)
+{
+    if (hoplite_blob_state != HOPLITE_BLOB_HOST_READY
+        || hoplite_blob_provider == NULL
+        || request_context == NULL
+        || work == 0 || source_handle == 0)
+    {
+        return HOPLITE_BLOB_HOST_PROVIDER_ERROR;
+    }
+    return hoplite_blob_store_provider_response_close_scoped_v1(
+               hoplite_blob_provider,
+               request_context,
+               work,
+               source_handle) == HOPLITE_BLOB_STORE_PROVIDER_OK
+        ? HOPLITE_BLOB_HOST_PROVIDER_OK
+        : HOPLITE_BLOB_HOST_PROVIDER_ERROR;
+}
+
 size_t
 hoplite_blob_host_provider_release_work_v1(uint64_t work)
 {
