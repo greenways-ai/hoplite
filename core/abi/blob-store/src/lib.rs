@@ -99,9 +99,7 @@ impl Limits {
         if self.max_append_bytes == 0 {
             return Err(Error::InvalidLimits("max_append_bytes must be positive"));
         }
-        if self.max_source_chunk_bytes == 0
-            || self.max_source_chunk_bytes > self.max_append_bytes
-        {
+        if self.max_source_chunk_bytes == 0 || self.max_source_chunk_bytes > self.max_append_bytes {
             return Err(Error::InvalidLimits(
                 "max_source_chunk_bytes must be positive and no greater than max_append_bytes",
             ));
@@ -158,12 +156,36 @@ pub struct MediaType(String);
 impl MediaType {
     pub fn new(value: impl Into<String>, limits: Limits) -> Result<Self, Error> {
         let value = value.into();
-        validate_logical_text(
-            &value,
-            limits.validate()?.max_media_type_bytes,
-            Error::InvalidMediaType,
-        )?;
-        if !value.contains('/') || value.chars().any(char::is_whitespace) {
+        let limit = limits.validate()?.max_media_type_bytes;
+        let Some((type_name, subtype)) = value.split_once('/') else {
+            return Err(Error::InvalidMediaType);
+        };
+        let token = |character: char| {
+            character.is_ascii_alphanumeric()
+                || matches!(
+                    character,
+                    '!' | '#'
+                        | '$'
+                        | '&'
+                        | '\''
+                        | '*'
+                        | '+'
+                        | '-'
+                        | '.'
+                        | '^'
+                        | '_'
+                        | '`'
+                        | '|'
+                        | '~'
+                )
+        };
+        if value.len() > limit
+            || type_name.is_empty()
+            || subtype.is_empty()
+            || subtype.contains('/')
+            || !type_name.chars().all(token)
+            || !subtype.chars().all(token)
+        {
             return Err(Error::InvalidMediaType);
         }
         Ok(Self(value))
@@ -174,11 +196,7 @@ impl MediaType {
     }
 }
 
-fn validate_logical_text(
-    value: &str,
-    limit: usize,
-    error: Error,
-) -> Result<(), Error> {
+fn validate_logical_text(value: &str, limit: usize, error: Error) -> Result<(), Error> {
     if value.is_empty()
         || value.len() > limit
         || value
@@ -348,10 +366,7 @@ pub trait BlobStore: Send + Sync {
 
     fn staging_abort(&self, staging_key: &StagingKey) -> Result<(), Error>;
 
-    fn staging_verify_commit(
-        &self,
-        request: StagingCommit,
-    ) -> Result<ObjectDescriptor, Error>;
+    fn staging_verify_commit(&self, request: StagingCommit) -> Result<ObjectDescriptor, Error>;
 
     fn object_open_source(&self, request: ObjectRange) -> Result<Self::Source, Error>;
 }
@@ -537,9 +552,11 @@ where
         state
             .staging
             .get(key)
-            .map(|entry| u64::try_from(entry.bytes.len()).map_err(|_| Error::SourceProtocol {
-                detail: "staging length exceeds u64",
-            }))
+            .map(|entry| {
+                u64::try_from(entry.bytes.len()).map_err(|_| Error::SourceProtocol {
+                    detail: "staging length exceeds u64",
+                })
+            })
             .transpose()
     }
 
@@ -551,11 +568,7 @@ where
             .map(|entry| entry.descriptor.clone()))
     }
 
-    fn consume_source(
-        &self,
-        source: &mut dyn ByteSource,
-        length: usize,
-    ) -> Result<Vec<u8>, Error> {
+    fn consume_source(&self, source: &mut dyn ByteSource, length: usize) -> Result<Vec<u8>, Error> {
         let result = self.read_exact_source(source, length);
         let finish = source.finish();
         match (result, finish) {
@@ -655,12 +668,13 @@ where
             });
         }
         let mut state = self.lock_state()?;
-        let current = state
-            .staging
-            .get_mut(&request.staging_key)
-            .ok_or_else(|| Error::StagingMissing {
-                staging_key: request.staging_key.clone(),
-            })?;
+        let current =
+            state
+                .staging
+                .get_mut(&request.staging_key)
+                .ok_or_else(|| Error::StagingMissing {
+                    staging_key: request.staging_key.clone(),
+                })?;
         let offset = current.bytes.len() as u64;
         if offset != request.offset {
             return Err(Error::OffsetMismatch {
@@ -668,13 +682,12 @@ where
                 actual: request.offset,
             });
         }
-        let next = request
-            .offset
-            .checked_add(request.length as u64)
-            .ok_or(Error::ObjectLimitExceeded {
+        let next = request.offset.checked_add(request.length as u64).ok_or(
+            Error::ObjectLimitExceeded {
                 limit: current.expected_size,
                 actual: u64::MAX,
-            })?;
+            },
+        )?;
         if next > current.expected_size {
             return Err(Error::ObjectLimitExceeded {
                 limit: current.expected_size,
@@ -695,26 +708,28 @@ where
         Ok(())
     }
 
-    fn staging_verify_commit(
-        &self,
-        request: StagingCommit,
-    ) -> Result<ObjectDescriptor, Error> {
+    fn staging_verify_commit(&self, request: StagingCommit) -> Result<ObjectDescriptor, Error> {
         let mut state = self.lock_state()?;
-        if let Some(object) = state.objects.get(&request.expected_digest) {
-            if object.descriptor.size == request.expected_size {
+        if let Some(descriptor) = state
+            .objects
+            .get(&request.expected_digest)
+            .map(|object| object.descriptor.clone())
+        {
+            if descriptor.size == request.expected_size {
                 state.staging.remove(&request.staging_key);
-                return Ok(object.descriptor.clone());
+                return Ok(descriptor);
             }
             return Err(Error::ObjectConflict {
                 digest: request.expected_digest,
             });
         }
-        let current = state
-            .staging
-            .get(&request.staging_key)
-            .ok_or_else(|| Error::StagingMissing {
-                staging_key: request.staging_key.clone(),
-            })?;
+        let current =
+            state
+                .staging
+                .get(&request.staging_key)
+                .ok_or_else(|| Error::StagingMissing {
+                    staging_key: request.staging_key.clone(),
+                })?;
         if current.expected_digest != request.expected_digest
             || current.expected_size != request.expected_size
         {
@@ -841,9 +856,7 @@ mod tests {
             let mut output = [0_u8; 32];
             for (index, byte) in bytes.iter().copied().enumerate() {
                 let slot = index % output.len();
-                output[slot] = output[slot]
-                    .wrapping_add(byte)
-                    .wrapping_add(index as u8);
+                output[slot] = output[slot].wrapping_add(byte).wrapping_add(index as u8);
             }
             output
         }
@@ -870,15 +883,11 @@ mod tests {
 
     impl ByteSource for VecSource {
         fn read(&mut self, output: &mut [u8]) -> Result<usize, Error> {
-            if self
-                .fail_after
-                .is_some_and(|limit| self.cursor >= limit)
-            {
+            if self.fail_after.is_some_and(|limit| self.cursor >= limit) {
                 return Err(Error::source("fixture-read", "injected read failure"));
             }
             let amount = output.len().min(self.bytes.len() - self.cursor);
-            output[..amount]
-                .copy_from_slice(&self.bytes[self.cursor..self.cursor + amount]);
+            output[..amount].copy_from_slice(&self.bytes[self.cursor..self.cursor + amount]);
             self.cursor += amount;
             Ok(amount)
         }
@@ -973,13 +982,8 @@ mod tests {
             .unwrap();
         let descriptor = store
             .staging_verify_commit(
-                StagingCommit::new(
-                    key("upload.a"),
-                    digest(bytes),
-                    bytes.len() as u64,
-                    limits(),
-                )
-                .unwrap(),
+                StagingCommit::new(key("upload.a"), digest(bytes), bytes.len() as u64, limits())
+                    .unwrap(),
             )
             .unwrap();
         assert_eq!(descriptor.size, 8);
@@ -1068,7 +1072,7 @@ mod tests {
             Err(Error::IncompleteStaging { .. })
         ));
 
-        let store = store();
+        let store = self::store();
         let wrong = digest(b"wxyz");
         store
             .staging_open(
