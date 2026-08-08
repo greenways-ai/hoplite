@@ -31,8 +31,52 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.78.0
         with:
           components: rustfmt,clippy
-      - name: Materialize the standalone lock and formatting
+      - name: Materialize the first review repairs
         run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          lib = Path("core/abi/blob-store-filesystem/src/lib.rs")
+          source = lib.read_text()
+
+          old = ".create(true)\n            .read(true)"
+          new = ".create(true)\n            .truncate(false)\n            .read(true)"
+          if source.count(old) != 2:
+              raise SystemExit("expected exactly two non-truncating lock opens")
+          source = source.replace(old, new)
+
+          old = ".open(&data_path)"
+          new = ".open(data_path)"
+          if source.count(old) != 2:
+              raise SystemExit("expected exactly two owned data-path opens")
+          source = source.replace(old, new)
+          lib.write_text(source)
+
+          tests = Path("core/abi/blob-store-filesystem/src/tests.rs")
+          source = tests.read_text()
+          import_line = "use sha2::Digest as _;\n"
+          if source.count(import_line) != 1:
+              raise SystemExit("expected one redundant Digest import")
+          source = source.replace(import_line, "")
+
+          start = source.index(
+              "fn restart_truncates_uncommitted_tail_to_the_last_metadata_offset()"
+          )
+          end = source.index("\n#[test]\n", start)
+          section = source[start:end]
+          replacements = {
+              "let store = store(&root);": "let active = store(&root);",
+              "store\n        .staging_open": "active\n        .staging_open",
+              "append(&store,": "append(&active,",
+              "store.staging_paths": "active.staging_paths",
+              "drop(store);": "drop(active);",
+          }
+          for old, new in replacements.items():
+              if section.count(old) != 1:
+                  raise SystemExit(f"expected one recovery-test occurrence: {old}")
+              section = section.replace(old, new)
+          tests.write_text(source[:start] + section + source[end:])
+          PY
           cargo generate-lockfile \
             --manifest-path core/abi/blob-store-filesystem/Cargo.toml
           cargo fmt \
@@ -44,7 +88,7 @@ jobs:
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "Materialize the filesystem blob-store crate"
+          git commit -m "Repair filesystem blob-store conformance"
           git push
       - name: Reject warnings
         run: |
