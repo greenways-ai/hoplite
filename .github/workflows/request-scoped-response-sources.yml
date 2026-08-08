@@ -1,0 +1,94 @@
+name: Request-scoped hara.blob response sources
+
+on:
+  push:
+    branches:
+      - agent/request-scoped-response-sources
+    paths:
+      - core/abi/blob-store-provider-ffi/**
+      - core/nginx/hoplite_blob_host_provider.c
+      - core/nginx/hoplite_blob_host_provider.h
+      - core/nginx/hoplite_host_provider.c
+      - core/nginx/hoplite_host_provider.h
+      - core/nginx/tests/blob_host_provider.c
+      - scripts/materialize-request-scoped-response-sources.py
+      - .github/workflows/request-scoped-response-sources.yml
+  pull_request:
+    paths:
+      - core/abi/blob-store-provider-ffi/**
+      - core/nginx/hoplite_blob_host_provider.c
+      - core/nginx/hoplite_blob_host_provider.h
+      - core/nginx/hoplite_host_provider.c
+      - core/nginx/hoplite_host_provider.h
+      - core/nginx/tests/blob_host_provider.c
+      - .github/workflows/request-scoped-response-sources.yml
+
+permissions:
+  contents: write
+
+jobs:
+  scoped-sources:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/request-scoped-response-sources
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@1.78.0
+        with:
+          components: rustfmt,clippy
+      - name: Materialize exact request ownership
+        if: hashFiles('scripts/materialize-request-scoped-response-sources.py') != ''
+        run: |
+          python3 scripts/materialize-request-scoped-response-sources.py
+          cargo fmt \
+            --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml \
+            --all
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- \
+            core/abi/blob-store-provider-ffi \
+            core/nginx/hoplite_blob_host_provider.c \
+            core/nginx/hoplite_blob_host_provider.h \
+            core/nginx/tests/blob_host_provider.c \
+            scripts/materialize-request-scoped-response-sources.py
+          git commit -m "Scope blob response sources to the owning request"
+          git fetch origin agent/request-scoped-response-sources
+          git rebase origin/agent/request-scoped-response-sources
+          git push origin HEAD:agent/request-scoped-response-sources
+      - name: Check formatting
+        run: |
+          cargo fmt \
+            --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml \
+            --all -- --check
+      - name: Reject warnings
+        run: |
+          cargo clippy \
+            --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml \
+            --all-targets --locked -- -D warnings
+      - name: Run provider ownership conformance
+        run: |
+          cargo test \
+            --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml \
+            --all-targets --locked
+      - name: Compile and run the native host ownership contract
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror \
+            -I core/nginx \
+            -I core/abi/blob-store-provider-ffi/include \
+            core/nginx/hoplite_host_provider.c \
+            core/nginx/hoplite_blob_host_provider.c \
+            core/nginx/tests/blob_host_provider.c \
+            -o /tmp/hoplite-blob-host-provider-test
+          /tmp/hoplite-blob-host-provider-test
+      - name: Audit scoped exports
+        run: |
+          grep -F 'hoplite_blob_store_provider_response_read_scoped_v1' \
+            core/abi/blob-store-provider-ffi/include/hoplite_blob_store_provider.h
+          grep -F 'hoplite_blob_store_provider_response_close_scoped_v1' \
+            core/abi/blob-store-provider-ffi/include/hoplite_blob_store_provider.h
+          grep -F 'hoplite_blob_host_provider_response_read_v1' \
+            core/nginx/hoplite_blob_host_provider.h
+          grep -F 'hoplite_blob_host_provider_response_close_v1' \
+            core/nginx/hoplite_blob_host_provider.h
