@@ -95,8 +95,9 @@ int32_t hoplite_blob_store_provider_execute_v1(
     hoplite_blob_store_result_v1_t *result);
 
 /*
- * Read or close an immutable response source registered by object/open-source.
- * The exact owning work must match; a numeric handle alone is never authority.
+ * Legacy work-only entrypoints retained for ABI compatibility. They always
+ * fail closed because a request identity is required for response-source
+ * authority. Request-serving hosts must use the scoped variants below.
  */
 int32_t hoplite_blob_store_provider_response_read_v1(
     hoplite_blob_store_provider_t *provider,
@@ -108,6 +109,26 @@ int32_t hoplite_blob_store_provider_response_read_v1(
 
 int32_t hoplite_blob_store_provider_response_close_v1(
     hoplite_blob_store_provider_t *provider,
+    uint64_t work,
+    uint64_t source_handle);
+
+/*
+ * Stronger scoped variants used by request-serving hosts. The exact opaque
+ * request identity and work must match the source-opening call before bytes are
+ * read or the source is closed.
+ */
+int32_t hoplite_blob_store_provider_response_read_scoped_v1(
+    hoplite_blob_store_provider_t *provider,
+    void *request_context,
+    uint64_t work,
+    uint64_t source_handle,
+    uint8_t *output,
+    size_t capacity,
+    size_t *returned);
+
+int32_t hoplite_blob_store_provider_response_close_scoped_v1(
+    hoplite_blob_store_provider_t *provider,
+    void *request_context,
     uint64_t work,
     uint64_t source_handle);
 

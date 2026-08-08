@@ -6,7 +6,7 @@
 //! Request source callbacks are supplied by a trusted host call already bound
 //! to the exact request and work. Immutable response sources remain native and
 //! are registered under positive handles that are usable only by their owning
-//! work.
+//! request and work.
 
 use hoplite_blob_store::{
     AppendReceipt, BlobStore, ByteSource, DigestVerifier, Error as BlobError, InMemoryBlobStore,
@@ -238,6 +238,7 @@ impl ByteSource for HostRequestSource {
 }
 
 struct ResponseEntry {
+    request_context: usize,
     work: u64,
     source: ProviderResponseSource,
 }
@@ -255,11 +256,16 @@ impl ResponseRegistry {
         }
     }
 
-    fn register(&mut self, work: u64, source: ProviderResponseSource) -> Result<u64, BlobError> {
-        if work == 0 {
+    fn register(
+        &mut self,
+        request_context: usize,
+        work: u64,
+        source: ProviderResponseSource,
+    ) -> Result<u64, BlobError> {
+        if request_context == 0 || work == 0 {
             return Err(BlobError::driver(
-                "blob-response-work-invalid",
-                "response source requires an owning work",
+                "blob-response-owner-invalid",
+                "response source requires an owning request and work",
             ));
         }
         let handle = self.next;
@@ -275,40 +281,58 @@ impl ResponseRegistry {
                 "response source handle space is exhausted",
             )
         })?;
-        self.entries.insert(handle, ResponseEntry { work, source });
+        self.entries.insert(
+            handle,
+            ResponseEntry {
+                request_context,
+                work,
+                source,
+            },
+        );
         Ok(handle)
     }
 
-    fn read(&mut self, work: u64, handle: u64, output: &mut [u8]) -> Result<usize, BlobError> {
+    fn read_scoped(
+        &mut self,
+        request_context: usize,
+        work: u64,
+        handle: u64,
+        output: &mut [u8],
+    ) -> Result<usize, BlobError> {
         let entry = self
             .entries
             .get_mut(&handle)
-            .filter(|entry| entry.work == work)
+            .filter(|entry| entry.request_context == request_context && entry.work == work)
             .ok_or_else(|| {
                 BlobError::source(
                     "blob-response-source-forbidden",
-                    "response source is not owned by this work",
+                    "response source is not owned by this request and work",
                 )
             })?;
         entry.source.read(output)
     }
 
-    fn close(&mut self, work: u64, handle: u64) -> Result<(), BlobError> {
+    fn close_scoped(
+        &mut self,
+        request_context: usize,
+        work: u64,
+        handle: u64,
+    ) -> Result<(), BlobError> {
         let owned = self
             .entries
             .get(&handle)
-            .map(|entry| entry.work == work)
+            .map(|entry| entry.request_context == request_context && entry.work == work)
             .unwrap_or(false);
         if !owned {
             return Err(BlobError::source(
                 "blob-response-source-forbidden",
-                "response source is not owned by this work",
+                "response source is not owned by this request and work",
             ));
         }
         let mut entry = self
             .entries
             .remove(&handle)
-            .expect("owned response source was checked above");
+            .expect("scoped response source was checked above");
         entry.source.close()
     }
 
@@ -343,7 +367,7 @@ struct HostResponseRegistrar {
 impl ResponseSourceRegistrar<ProviderResponseSource> for HostResponseRegistrar {
     fn register(&self, source: ProviderResponseSource) -> Result<u64, BlobError> {
         let call = self.call.get()?;
-        lock(&self.responses)?.register(call.work, source)
+        lock(&self.responses)?.register(call.request_context, call.work, source)
     }
 }
 
@@ -694,31 +718,36 @@ pub unsafe extern "C" fn hoplite_blob_store_provider_execute_v1(
     }
 }
 
-/// Read from one immutable work-scoped response source.
+/// Read from one immutable request-and-work-scoped response source.
 ///
 /// # Safety
 ///
-/// `provider` must remain live. `returned` must be writable, and when
-/// `capacity` is non-zero `output` must be writable for that many bytes. The
-/// supplied work and handle must originate from this provider; ownership is
-/// still checked before any bytes are returned.
+/// `provider` must remain live. `request_context` must be the exact opaque
+/// request identity supplied when the source was opened. `returned` must be
+/// writable, and when `capacity` is non-zero `output` must be writable for that
+/// many bytes. Ownership is checked before any source callback runs.
 #[no_mangle]
-pub unsafe extern "C" fn hoplite_blob_store_provider_response_read_v1(
+pub unsafe extern "C" fn hoplite_blob_store_provider_response_read_scoped_v1(
     provider: *mut HopliteBlobStoreProvider,
+    request_context: *mut c_void,
     work: u64,
     source_handle: u64,
     output: *mut u8,
     capacity: usize,
     returned: *mut usize,
 ) -> i32 {
-    if returned.is_null() || (capacity != 0 && output.is_null()) || work == 0 || source_handle == 0
+    if request_context.is_null()
+        || returned.is_null()
+        || (capacity != 0 && output.is_null())
+        || work == 0
+        || source_handle == 0
     {
         return STATUS_INVALID;
     }
     // SAFETY: returned was checked non-null.
     unsafe { *returned = 0 };
     catch_unwind(AssertUnwindSafe(|| {
-        // SAFETY: provider was created by open_memory_v1.
+        // SAFETY: provider must originate from an open function.
         let provider = unsafe { provider_ref(provider) }.map_err(|_| STATUS_INVALID)?;
         let output = if capacity == 0 {
             &mut []
@@ -727,7 +756,9 @@ pub unsafe extern "C" fn hoplite_blob_store_provider_response_read_v1(
             unsafe { slice::from_raw_parts_mut(output, capacity) }
         };
         let read = lock(&provider.responses)
-            .and_then(|mut responses| responses.read(work, source_handle, output))
+            .and_then(|mut responses| {
+                responses.read_scoped(request_context as usize, work, source_handle, output)
+            })
             .map_err(|_| STATUS_RESOURCE_ERROR)?;
         // SAFETY: returned remains valid for this synchronous call.
         unsafe { *returned = read };
@@ -739,27 +770,29 @@ pub unsafe extern "C" fn hoplite_blob_store_provider_response_read_v1(
     .unwrap_or(STATUS_RESOURCE_ERROR)
 }
 
-/// Close one immutable work-scoped response source.
+/// Close one immutable request-and-work-scoped response source.
 ///
 /// # Safety
 ///
-/// `provider` must be live and owned by the caller. The work and handle must be
-/// values previously returned by this provider; exact ownership is checked and
-/// a source must not be closed twice.
+/// `provider` must remain live. `request_context`, work and handle must exactly
+/// match the values that opened the source. A source cannot be closed twice.
 #[no_mangle]
-pub unsafe extern "C" fn hoplite_blob_store_provider_response_close_v1(
+pub unsafe extern "C" fn hoplite_blob_store_provider_response_close_scoped_v1(
     provider: *mut HopliteBlobStoreProvider,
+    request_context: *mut c_void,
     work: u64,
     source_handle: u64,
 ) -> i32 {
-    if work == 0 || source_handle == 0 {
+    if request_context.is_null() || work == 0 || source_handle == 0 {
         return STATUS_INVALID;
     }
     catch_unwind(AssertUnwindSafe(|| {
-        // SAFETY: provider was created by open_memory_v1.
+        // SAFETY: provider must originate from an open function.
         let provider = unsafe { provider_ref(provider) }.map_err(|_| STATUS_INVALID)?;
         lock(&provider.responses)
-            .and_then(|mut responses| responses.close(work, source_handle))
+            .and_then(|mut responses| {
+                responses.close_scoped(request_context as usize, work, source_handle)
+            })
             .map_err(|_| STATUS_RESOURCE_ERROR)?;
         Ok::<(), i32>(())
     }))
@@ -767,6 +800,61 @@ pub unsafe extern "C" fn hoplite_blob_store_provider_response_close_v1(
     .and_then(Result::ok)
     .map(|_| STATUS_OK)
     .unwrap_or(STATUS_RESOURCE_ERROR)
+}
+
+/// Legacy work-only response read retained for ABI compatibility.
+///
+/// This entrypoint always fails closed because it cannot prove the opaque
+/// request identity that opened the source. Request-serving hosts must call
+/// [`hoplite_blob_store_provider_response_read_scoped_v1`].
+///
+/// # Safety
+///
+/// `provider` must be a live provider pointer. `returned` must be writable and,
+/// when `capacity` is non-zero, `output` must be writable for that many bytes.
+/// No response source is accessed by this compatibility entrypoint.
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_blob_store_provider_response_read_v1(
+    provider: *mut HopliteBlobStoreProvider,
+    work: u64,
+    source_handle: u64,
+    output: *mut u8,
+    capacity: usize,
+    returned: *mut usize,
+) -> i32 {
+    if provider.is_null()
+        || returned.is_null()
+        || (capacity != 0 && output.is_null())
+        || work == 0
+        || source_handle == 0
+    {
+        return STATUS_INVALID;
+    }
+    // SAFETY: returned was checked non-null.
+    unsafe { *returned = 0 };
+    STATUS_RESOURCE_ERROR
+}
+
+/// Legacy work-only response close retained for ABI compatibility.
+///
+/// This entrypoint always fails closed because it cannot prove the opaque
+/// request identity that opened the source. Request-serving hosts must call
+/// [`hoplite_blob_store_provider_response_close_scoped_v1`].
+///
+/// # Safety
+///
+/// `provider` must be a live provider pointer. No response source is accessed
+/// or closed by this compatibility entrypoint.
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_blob_store_provider_response_close_v1(
+    provider: *mut HopliteBlobStoreProvider,
+    work: u64,
+    source_handle: u64,
+) -> i32 {
+    if provider.is_null() || work == 0 || source_handle == 0 {
+        return STATUS_INVALID;
+    }
+    STATUS_RESOURCE_ERROR
 }
 
 /// Close every response source retained by one work.
@@ -1055,7 +1143,7 @@ mod tests {
     }
 
     #[test]
-    fn runs_the_complete_work_scoped_upload_and_range_flow() {
+    fn runs_the_complete_request_scoped_upload_and_range_flow() {
         let mut provider = ptr::null_mut();
         assert_eq!(
             unsafe { hoplite_blob_store_provider_open_memory_v1(&limits(), &mut provider) },
@@ -1128,11 +1216,54 @@ mod tests {
         };
         let handle = source_handle(&opened);
         let mut output = [0_u8; 8];
-        let mut returned = 0_usize;
+        let mut returned = 99_usize;
+        let mut wrong_request = RequestFixture {
+            bytes: Vec::new(),
+            cursor: 0,
+            work: call.work,
+            handle: 0,
+            finishes: 0,
+        };
+
         assert_eq!(
             unsafe {
                 hoplite_blob_store_provider_response_read_v1(
                     provider,
+                    call.work,
+                    handle,
+                    output.as_mut_ptr(),
+                    output.len(),
+                    &mut returned,
+                )
+            },
+            STATUS_RESOURCE_ERROR
+        );
+        assert_eq!(returned, 0);
+        assert_eq!(
+            unsafe { hoplite_blob_store_provider_response_close_v1(provider, call.work, handle) },
+            STATUS_RESOURCE_ERROR
+        );
+
+        assert_eq!(
+            unsafe {
+                hoplite_blob_store_provider_response_read_scoped_v1(
+                    provider,
+                    (&mut wrong_request as *mut RequestFixture).cast(),
+                    call.work,
+                    handle,
+                    output.as_mut_ptr(),
+                    output.len(),
+                    &mut returned,
+                )
+            },
+            STATUS_RESOURCE_ERROR
+        );
+        assert_eq!(returned, 0);
+        assert_eq!(
+            unsafe {
+                hoplite_blob_store_provider_response_read_scoped_v1(
+                    provider,
+                    call.request_context,
                     call.work + 1,
                     handle,
                     output.as_mut_ptr(),
@@ -1145,8 +1276,9 @@ mod tests {
         assert_eq!(returned, 0);
         assert_eq!(
             unsafe {
-                hoplite_blob_store_provider_response_read_v1(
+                hoplite_blob_store_provider_response_read_scoped_v1(
                     provider,
+                    call.request_context,
                     call.work,
                     handle,
                     output.as_mut_ptr(),
@@ -1159,11 +1291,36 @@ mod tests {
         assert_eq!(returned, 4);
         assert_eq!(&output[..returned], b"cdef");
         assert_eq!(
-            unsafe { hoplite_blob_store_provider_response_close_v1(provider, call.work, handle) },
+            unsafe {
+                hoplite_blob_store_provider_response_close_scoped_v1(
+                    provider,
+                    (&mut wrong_request as *mut RequestFixture).cast(),
+                    call.work,
+                    handle,
+                )
+            },
+            STATUS_RESOURCE_ERROR
+        );
+        assert_eq!(
+            unsafe {
+                hoplite_blob_store_provider_response_close_scoped_v1(
+                    provider,
+                    call.request_context,
+                    call.work,
+                    handle,
+                )
+            },
             STATUS_OK
         );
         assert_eq!(
-            unsafe { hoplite_blob_store_provider_response_close_v1(provider, call.work, handle) },
+            unsafe {
+                hoplite_blob_store_provider_response_close_scoped_v1(
+                    provider,
+                    call.request_context,
+                    call.work,
+                    handle,
+                )
+            },
             STATUS_RESOURCE_ERROR
         );
         unsafe { hoplite_blob_store_provider_close_v1(provider) };
@@ -1245,8 +1402,9 @@ mod tests {
         let mut returned = 99;
         assert_eq!(
             unsafe {
-                hoplite_blob_store_provider_response_read_v1(
+                hoplite_blob_store_provider_response_read_scoped_v1(
                     provider,
+                    call.request_context,
                     call.work,
                     handle,
                     ptr::null_mut(),
