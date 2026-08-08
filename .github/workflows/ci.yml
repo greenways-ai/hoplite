@@ -90,6 +90,22 @@ jobs:
             hoplite/core/nginx/tests/host_provider_api.c \
             -o /tmp/hoplite-host-provider-api-test
           /tmp/hoplite-host-provider-api-test
+      - name: Test worker-owned hara.store provider registration
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror \
+            -I hoplite/core/nginx \
+            -I hoplite/core/abi/value-store-provider-ffi/include \
+            hoplite/core/nginx/hoplite_host_provider.c \
+            hoplite/core/nginx/hoplite_value_store_host_provider.c \
+            hoplite/core/nginx/tests/value_store_host_provider.c \
+            -o /tmp/hoplite-value-store-host-provider-test
+          /tmp/hoplite-value-store-host-provider-test disabled
+          /tmp/hoplite-value-store-host-provider-test invalid-env
+          /tmp/hoplite-value-store-host-provider-test
+          grep -F 'hoplite_value_store_host_provider_init_process_v1();' \
+            hoplite/core/nginx/ngx_http_hoplite_module.c
+          grep -F 'hoplite_value_store_host_provider_exit_process_v1();' \
+            hoplite/core/nginx/ngx_http_hoplite_module.c
       - name: Verify work-scoped provider body access
         run: |
           cat > /tmp/hoplite-provider-body-access.c <<'EOF'
