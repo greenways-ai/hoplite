@@ -226,6 +226,14 @@ impl OpaqueValueStore for SqliteValueStore {
             });
         }
 
+        let current = load_snapshot(&transaction, self.limits)?.ok_or(StoreError::Uninitialized)?;
+        if current.revision() != request.expected_revision() {
+            return Err(StoreError::StaleRevision {
+                expected: request.expected_revision(),
+                actual: current.revision(),
+            });
+        }
+
         if let Some(existing_key) = load_receipt_key_by_revision(&transaction, request.revision())?
         {
             return Err(StoreError::driver(
@@ -235,14 +243,6 @@ impl OpaqueValueStore for SqliteValueStore {
                     request.revision()
                 ),
             ));
-        }
-
-        let current = load_snapshot(&transaction, self.limits)?.ok_or(StoreError::Uninitialized)?;
-        if current.revision() != request.expected_revision() {
-            return Err(StoreError::StaleRevision {
-                expected: request.expected_revision(),
-                actual: current.revision(),
-            });
         }
 
         let changed = transaction
