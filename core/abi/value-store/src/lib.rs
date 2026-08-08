@@ -313,13 +313,32 @@ pub struct CommitReceipt {
 }
 
 impl CommitReceipt {
-    fn from_commit(status: ApplyStatus, commit: &StoredCommit) -> Self {
-        Self {
-            status,
-            revision: commit.revision,
-            receipt_key: commit.receipt_key,
-            receipt: commit.receipt.clone(),
+    pub fn new(
+        status: ApplyStatus,
+        revision: u64,
+        receipt_key: Digest,
+        receipt: OpaqueReceipt,
+    ) -> Result<Self, StoreError> {
+        validate_revision(revision)?;
+        if revision == 0 {
+            return Err(StoreError::InvalidReceiptRevision { revision });
         }
+        Ok(Self {
+            status,
+            revision,
+            receipt_key,
+            receipt,
+        })
+    }
+
+    fn from_commit(status: ApplyStatus, commit: &StoredCommit) -> Self {
+        Self::new(
+            status,
+            commit.revision,
+            commit.receipt_key,
+            commit.receipt.clone(),
+        )
+        .expect("stored commits always have positive bounded revisions")
     }
 
     pub const fn status(&self) -> ApplyStatus {
@@ -385,6 +404,9 @@ pub enum StoreError {
         expected: u64,
         revision: u64,
     },
+    InvalidReceiptRevision {
+        revision: u64,
+    },
     AlreadyInitialized {
         current_revision: u64,
     },
@@ -445,6 +467,10 @@ impl fmt::Display for StoreError {
             Self::InvalidRevisionStep { expected, revision } => write!(
                 formatter,
                 "revision {revision} must be exactly one greater than {expected}"
+            ),
+            Self::InvalidReceiptRevision { revision } => write!(
+                formatter,
+                "commit receipt revision {revision} must be positive and bounded"
             ),
             Self::AlreadyInitialized { current_revision } => write!(
                 formatter,
@@ -768,6 +794,33 @@ mod tests {
                 revision: MAX_REVISION,
             })
         );
+    }
+
+    #[test]
+    fn external_drivers_construct_only_positive_bounded_receipts() {
+        let key = digest_for(b"receipt-constructor");
+        assert_eq!(
+            CommitReceipt::new(ApplyStatus::Applied, 0, key, receipt(b"receipt-zero"),),
+            Err(StoreError::InvalidReceiptRevision { revision: 0 })
+        );
+        assert_eq!(
+            CommitReceipt::new(
+                ApplyStatus::Applied,
+                MAX_REVISION + 1,
+                key,
+                receipt(b"receipt-overflow"),
+            ),
+            Err(StoreError::RevisionOutOfRange {
+                revision: MAX_REVISION + 1,
+            })
+        );
+
+        let valid = CommitReceipt::new(ApplyStatus::Replayed, 1, key, receipt(b"receipt-one"))
+            .expect("positive bounded receipts must construct");
+        assert_eq!(valid.status(), ApplyStatus::Replayed);
+        assert_eq!(valid.revision(), 1);
+        assert_eq!(valid.receipt_key(), key);
+        assert_eq!(valid.receipt().bytes(), b"receipt-one");
     }
 
     #[test]
