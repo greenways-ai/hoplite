@@ -5,11 +5,13 @@ on:
     paths:
       - ".github/workflows/value-store.yml"
       - "core/abi/value-store/**"
+      - "core/abi/value-store-sqlite/**"
   push:
     branches: [main]
     paths:
       - ".github/workflows/value-store.yml"
       - "core/abi/value-store/**"
+      - "core/abi/value-store-sqlite/**"
 
 permissions:
   contents: read
@@ -24,9 +26,15 @@ jobs:
         with:
           toolchain: 1.78.0
           components: rustfmt,clippy
-      - name: Check formatting
+      - name: Check foundation formatting
         run: cargo fmt --manifest-path core/abi/value-store/Cargo.toml --all -- --check
-      - name: Reject warnings
+      - name: Reject foundation warnings
         run: cargo clippy --manifest-path core/abi/value-store/Cargo.toml --all-targets --locked -- -D warnings
-      - name: Run value-store conformance
+      - name: Run foundation conformance
         run: cargo test --manifest-path core/abi/value-store/Cargo.toml --all-targets --locked
+      - name: Check SQLite formatting
+        run: cargo fmt --manifest-path core/abi/value-store-sqlite/Cargo.toml --all -- --check
+      - name: Reject SQLite warnings
+        run: cargo clippy --manifest-path core/abi/value-store-sqlite/Cargo.toml --all-targets --locked -- -D warnings
+      - name: Run SQLite conformance
+        run: cargo test --manifest-path core/abi/value-store-sqlite/Cargo.toml --all-targets --locked
