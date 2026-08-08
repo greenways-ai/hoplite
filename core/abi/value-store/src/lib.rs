@@ -402,7 +402,20 @@ pub enum StoreError {
     InjectedFault {
         fault: FaultPoint,
     },
+    Driver {
+        code: &'static str,
+        message: String,
+    },
     Poisoned,
+}
+
+impl StoreError {
+    pub fn driver(code: &'static str, message: impl Into<String>) -> Self {
+        Self::Driver {
+            code,
+            message: message.into(),
+        }
+    }
 }
 
 impl fmt::Display for StoreError {
@@ -452,6 +465,7 @@ impl fmt::Display for StoreError {
             Self::InjectedFault { fault } => {
                 write!(formatter, "injected store fault at {fault}")
             }
+            Self::Driver { code, message } => write!(formatter, "{code}: {message}"),
             Self::Poisoned => formatter.write_str("in-memory store lock is poisoned"),
         }
     }
