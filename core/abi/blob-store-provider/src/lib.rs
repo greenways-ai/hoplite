@@ -89,13 +89,17 @@ impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Hta(error) => write!(formatter, "invalid provider HTA: {error}"),
-            Self::InvalidRequest(message) => write!(formatter, "invalid hara.blob request: {message}"),
+            Self::InvalidRequest(message) => {
+                write!(formatter, "invalid hara.blob request: {message}")
+            }
             Self::OperationMismatch { call, request } => write!(
                 formatter,
                 "host operation {call:?} does not match request operation {request:?}"
             ),
             Self::Blob(error) => write!(formatter, "blob-store error: {error}"),
-            Self::ResponseHandleInvalid => formatter.write_str("response-source registry returned an invalid handle"),
+            Self::ResponseHandleInvalid => {
+                formatter.write_str("response-source registry returned an invalid handle")
+            }
         }
     }
 }
@@ -223,9 +227,7 @@ where
             self.limits,
         )?;
         let mut source = self.request_sources.resolve(source_handle)?;
-        let receipt = self
-            .store
-            .staging_append_from_source(append, &mut source)?;
+        let receipt = self.store.staging_append_from_source(append, &mut source)?;
         append_result(&receipt)
     }
 
@@ -502,7 +504,9 @@ mod tests {
                 .lock()
                 .map_err(|_| BlobError::Poisoned)?
                 .remove(&source_handle)
-                .ok_or_else(|| BlobError::source("blob-source-forbidden", "unknown source handle"))?;
+                .ok_or_else(|| {
+                    BlobError::source("blob-source-forbidden", "unknown source handle")
+                })?;
             Ok(VecSource {
                 bytes: fixture.bytes,
                 cursor: 0,
@@ -519,7 +523,9 @@ mod tests {
 
     impl ByteSource for VecSource {
         fn read(&mut self, output: &mut [u8]) -> Result<usize, BlobError> {
-            let amount = output.len().min(self.bytes.len().saturating_sub(self.cursor));
+            let amount = output
+                .len()
+                .min(self.bytes.len().saturating_sub(self.cursor));
             output[..amount].copy_from_slice(&self.bytes[self.cursor..self.cursor + amount]);
             self.cursor += amount;
             Ok(amount)
@@ -571,10 +577,9 @@ mod tests {
         fn register(&self, source: MemoryResponseSource) -> Result<u64, BlobError> {
             let mut state = self.state.lock().map_err(|_| BlobError::Poisoned)?;
             let handle = state.next;
-            state.next = state
-                .next
-                .checked_add(1)
-                .ok_or_else(|| BlobError::driver("blob-response-handle-exhausted", "handle overflow"))?;
+            state.next = state.next.checked_add(1).ok_or_else(|| {
+                BlobError::driver("blob-response-handle-exhausted", "handle overflow")
+            })?;
             state.sources.insert(handle, source);
             Ok(handle)
         }
@@ -596,11 +601,7 @@ mod tests {
         Digest::from_bytes(TestVerifier.sha256(bytes))
     }
 
-    type TestProvider = Provider<
-        InMemoryBlobStore<TestVerifier>,
-        SharedIngress,
-        SharedEgress,
-    >;
+    type TestProvider = Provider<InMemoryBlobStore<TestVerifier>, SharedIngress, SharedEgress>;
 
     fn provider() -> (TestProvider, SharedIngress, SharedEgress) {
         let ingress = SharedIngress::new();
@@ -771,7 +772,10 @@ mod tests {
                 &arguments(open_source_request(bytes, 2, 4)),
             )
             .unwrap();
-        assert_eq!(result_text(&opened_source, "operation"), "object/open-source");
+        assert_eq!(
+            result_text(&opened_source, "operation"),
+            "object/open-source"
+        );
         assert_eq!(result_i64(&opened_source, "offset"), 2);
         assert_eq!(result_i64(&opened_source, "length"), 4);
         let source_handle = result_i64(&opened_source, "source-handle") as u64;
@@ -878,7 +882,10 @@ mod tests {
         let (provider, _, _) = provider();
         let request = open_request("upload.a", b"x");
         assert_eq!(
-            provider.execute("staging/open", &frame(&request)).unwrap_err().code(),
+            provider
+                .execute("staging/open", &frame(&request))
+                .unwrap_err()
+                .code(),
             "blob-request-invalid"
         );
         assert_eq!(
