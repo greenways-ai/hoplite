@@ -40,6 +40,11 @@ jobs:
           end = source.find("\nfn exact_fields(", start)
           if start >= 0 and end > start:
               source = source[:start] + "\n" + source[end:]
+          source = source.replace(
+              "const VECTOR: u8 = 9;\n",
+              "#[cfg(test)]\nconst VECTOR: u8 = 9;\n",
+              1,
+          )
           replacements = {
               "        let result = Document::parse(&initialized).unwrap().root();\n": (
                   "        let initialized_document = Document::parse(&initialized).unwrap();\n"
