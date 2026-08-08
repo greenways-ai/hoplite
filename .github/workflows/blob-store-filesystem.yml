@@ -26,28 +26,20 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.78.0
         with:
           components: rustfmt,clippy
-      - name: Materialize the staging-path ownership repair
+      - name: Materialize the merged ownership repair
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
           path = Path("core/abi/blob-store-filesystem/src/lib.rs")
           source = path.read_text()
-          old = '''        let data = OpenOptions::new()
-              .create_new(true)
-              .read(true)
-              .write(true)
-              .open(data_path)
-          '''
-          new = '''        let data = OpenOptions::new()
-              .create_new(true)
-              .read(true)
-              .write(true)
-              .open(&data_path)
-          '''
-          if source.count(old) != 1:
-              raise SystemExit("expected one staging-create path ownership site")
-          path.write_text(source.replace(old, new))
+          marker = 'io_error("blob-filesystem-staging-create", error)'
+          marker_at = source.index(marker)
+          open_at = source.rfind(".open(data_path)", 0, marker_at)
+          if open_at < 0:
+              raise SystemExit("expected the staging-create owned path open")
+          source = source[:open_at] + ".open(&data_path)" + source[open_at + len(".open(data_path)"):]
+          path.write_text(source)
           PY
           cargo fmt \
             --manifest-path core/abi/blob-store-filesystem/Cargo.toml \
@@ -56,9 +48,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add core/abi/blob-store-filesystem/src/lib.rs
           git commit -m "Preserve the staging path for rollback"
-          git fetch origin agent/filesystem-blob-store
-          git rebase origin/agent/filesystem-blob-store
-          git push origin HEAD:agent/filesystem-blob-store
+          git fetch origin agent/fix-filesystem-blob-store-merge
+          git rebase origin/agent/fix-filesystem-blob-store-merge
+          git push origin HEAD:agent/fix-filesystem-blob-store-merge
       - name: Reject warnings
         run: |
           cargo clippy \
