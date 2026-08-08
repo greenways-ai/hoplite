@@ -14,61 +14,26 @@ on:
       - "core/abi/value-store-sqlite/**"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   value-store:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
       - name: Install the minimum supported Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.78.0
           components: rustfmt,clippy
-      - name: Materialize stale-writer ordering
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path("core/abi/value-store-sqlite/src/lib.rs")
-          source = path.read_text()
-          collision_marker = "        if let Some(existing_key) = load_receipt_key_by_revision"
-          current_marker = "        let current = load_snapshot"
-          changed_marker = "        let changed = transaction"
-
-          collision_start = source.index(collision_marker)
-          current_start = source.index(current_marker, collision_start)
-          changed_start = source.index(changed_marker, current_start)
-
-          collision_block = source[collision_start:current_start]
-          current_block = source[current_start:changed_start]
-          if "sqlite-revision-receipt-collision" not in collision_block:
-              raise SystemExit("collision marker did not select the expected block")
-          if "StoreError::StaleRevision" not in current_block:
-              raise SystemExit("current marker did not select the stale-writer block")
-
-          path.write_text(
-              source[:collision_start]
-              + current_block
-              + collision_block
-              + source[changed_start:]
-          )
-          PY
-          cargo fmt --manifest-path core/abi/value-store-sqlite/Cargo.toml --all
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add core/abi/value-store-sqlite/src/lib.rs
-          git commit -m "Report stale SQLite writers before revision collisions"
-          git push
       - name: Check foundation formatting
         run: cargo fmt --manifest-path core/abi/value-store/Cargo.toml --all -- --check
       - name: Reject foundation warnings
         run: cargo clippy --manifest-path core/abi/value-store/Cargo.toml --all-targets --locked -- -D warnings
       - name: Run foundation conformance
         run: cargo test --manifest-path core/abi/value-store/Cargo.toml --all-targets --locked
+      - name: Check SQLite formatting
+        run: cargo fmt --manifest-path core/abi/value-store-sqlite/Cargo.toml --all -- --check
       - name: Reject SQLite warnings
         run: cargo clippy --manifest-path core/abi/value-store-sqlite/Cargo.toml --all-targets --locked -- -D warnings
       - name: Run SQLite conformance
