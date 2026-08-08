@@ -2,16 +2,18 @@
 
 //! Work-scoped native boundary for the canonical `hara.blob` adapter.
 //!
-//! The provider owns one application-neutral in-memory blob store per worker.
+//! The provider owns one application-neutral installed blob store per worker.
 //! Request source callbacks are supplied by a trusted host call already bound
 //! to the exact request and work. Immutable response sources remain native and
 //! are registered under positive handles that are usable only by their owning
 //! work.
 
 use hoplite_blob_store::{
-    ByteSource, DigestVerifier, Error as BlobError, InMemoryBlobStore, Limits,
-    MemoryResponseSource, ResponseSource,
+    AppendReceipt, BlobStore, ByteSource, DigestVerifier, Error as BlobError, InMemoryBlobStore,
+    Limits, MemoryResponseSource, ObjectDescriptor, ObjectRange, ResponseSource, StagingAppend,
+    StagingCommit, StagingKey, StagingOpen, StagingStatus,
 };
+use hoplite_blob_store_filesystem::{FilesystemBlobStore, FilesystemResponseSource};
 use hoplite_blob_store_provider::{
     Provider as CanonicalProvider, RequestSourceResolver, ResponseSourceRegistrar,
 };
@@ -19,6 +21,7 @@ use sha2::{Digest as Sha2Digest, Sha256};
 use std::collections::BTreeMap;
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::path::Path;
 use std::ptr;
 use std::slice;
 use std::str;
@@ -236,7 +239,7 @@ impl ByteSource for HostRequestSource {
 
 struct ResponseEntry {
     work: u64,
-    source: MemoryResponseSource,
+    source: ProviderResponseSource,
 }
 
 struct ResponseRegistry {
@@ -252,7 +255,7 @@ impl ResponseRegistry {
         }
     }
 
-    fn register(&mut self, work: u64, source: MemoryResponseSource) -> Result<u64, BlobError> {
+    fn register(&mut self, work: u64, source: ProviderResponseSource) -> Result<u64, BlobError> {
         if work == 0 {
             return Err(BlobError::driver(
                 "blob-response-work-invalid",
@@ -337,8 +340,8 @@ struct HostResponseRegistrar {
     responses: Arc<Mutex<ResponseRegistry>>,
 }
 
-impl ResponseSourceRegistrar<MemoryResponseSource> for HostResponseRegistrar {
-    fn register(&self, source: MemoryResponseSource) -> Result<u64, BlobError> {
+impl ResponseSourceRegistrar<ProviderResponseSource> for HostResponseRegistrar {
+    fn register(&self, source: ProviderResponseSource) -> Result<u64, BlobError> {
         let call = self.call.get()?;
         lock(&self.responses)?.register(call.work, source)
     }
@@ -356,14 +359,91 @@ impl DigestVerifier for Sha256Verifier {
     }
 }
 
-type MemoryProvider = CanonicalProvider<
-    InMemoryBlobStore<Sha256Verifier>,
-    HostRequestResolver,
-    HostResponseRegistrar,
->;
+enum ProviderResponseSource {
+    Memory(MemoryResponseSource),
+    Filesystem(FilesystemResponseSource),
+}
+
+impl ResponseSource for ProviderResponseSource {
+    fn declared_length(&self) -> u64 {
+        match self {
+            Self::Memory(source) => source.declared_length(),
+            Self::Filesystem(source) => source.declared_length(),
+        }
+    }
+
+    fn read(&mut self, output: &mut [u8]) -> Result<usize, BlobError> {
+        match self {
+            Self::Memory(source) => source.read(output),
+            Self::Filesystem(source) => source.read(output),
+        }
+    }
+
+    fn close(&mut self) -> Result<(), BlobError> {
+        match self {
+            Self::Memory(source) => source.close(),
+            Self::Filesystem(source) => source.close(),
+        }
+    }
+}
+
+enum InstalledBlobStore {
+    Memory(InMemoryBlobStore<Sha256Verifier>),
+    Filesystem(FilesystemBlobStore),
+}
+
+impl BlobStore for InstalledBlobStore {
+    type Source = ProviderResponseSource;
+
+    fn staging_open(&self, request: StagingOpen) -> Result<StagingStatus, BlobError> {
+        match self {
+            Self::Memory(store) => store.staging_open(request),
+            Self::Filesystem(store) => store.staging_open(request),
+        }
+    }
+
+    fn staging_append_from_source(
+        &self,
+        request: StagingAppend,
+        source: &mut dyn ByteSource,
+    ) -> Result<AppendReceipt, BlobError> {
+        match self {
+            Self::Memory(store) => store.staging_append_from_source(request, source),
+            Self::Filesystem(store) => store.staging_append_from_source(request, source),
+        }
+    }
+
+    fn staging_abort(&self, staging_key: &StagingKey) -> Result<(), BlobError> {
+        match self {
+            Self::Memory(store) => store.staging_abort(staging_key),
+            Self::Filesystem(store) => store.staging_abort(staging_key),
+        }
+    }
+
+    fn staging_verify_commit(&self, request: StagingCommit) -> Result<ObjectDescriptor, BlobError> {
+        match self {
+            Self::Memory(store) => store.staging_verify_commit(request),
+            Self::Filesystem(store) => store.staging_verify_commit(request),
+        }
+    }
+
+    fn object_open_source(&self, request: ObjectRange) -> Result<Self::Source, BlobError> {
+        match self {
+            Self::Memory(store) => store
+                .object_open_source(request)
+                .map(ProviderResponseSource::Memory),
+            Self::Filesystem(store) => store
+                .object_open_source(request)
+                .map(ProviderResponseSource::Filesystem),
+        }
+    }
+}
+
+type InstalledProvider =
+    CanonicalProvider<InstalledBlobStore, HostRequestResolver, HostResponseRegistrar>;
 
 pub struct HopliteBlobStoreProvider {
-    provider: MemoryProvider,
+    provider: InstalledProvider,
     call: SharedCall,
     responses: Arc<Mutex<ResponseRegistry>>,
     execution: Mutex<()>,
@@ -375,6 +455,30 @@ impl Drop for HopliteBlobStoreProvider {
             responses.close_all();
         }
     }
+}
+
+fn build_provider(
+    store: InstalledBlobStore,
+    limits: Limits,
+) -> Result<Box<HopliteBlobStoreProvider>, ()> {
+    let call = SharedCall::new();
+    let responses = Arc::new(Mutex::new(ResponseRegistry::new()));
+    let provider = CanonicalProvider::new(
+        store,
+        HostRequestResolver { call: call.clone() },
+        HostResponseRegistrar {
+            call: call.clone(),
+            responses: responses.clone(),
+        },
+        limits,
+    )
+    .map_err(|_| ())?;
+    Ok(Box::new(HopliteBlobStoreProvider {
+        provider,
+        call,
+        responses,
+        execution: Mutex::new(()),
+    }))
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> Result<MutexGuard<'_, T>, BlobError> {
@@ -417,7 +521,7 @@ unsafe fn input_bytes<'a>(data: *const u8, len: usize) -> Result<&'a [u8], ()> {
 unsafe fn provider_ref<'a>(
     provider: *mut HopliteBlobStoreProvider,
 ) -> Result<&'a HopliteBlobStoreProvider, ()> {
-    // SAFETY: the caller must pass a live provider returned by open_memory_v1.
+    // SAFETY: the caller must pass a live provider returned by an open function.
     unsafe { provider.as_ref() }.ok_or(())
 }
 
@@ -450,25 +554,59 @@ pub unsafe extern "C" fn hoplite_blob_store_provider_open_memory_v1(
             .into_limits()
             .validate()
             .map_err(|_| ())?;
-        let call = SharedCall::new();
-        let responses = Arc::new(Mutex::new(ResponseRegistry::new()));
-        let provider = CanonicalProvider::new(
+        let store = InstalledBlobStore::Memory(
             InMemoryBlobStore::new(Sha256Verifier, limits).map_err(|_| ())?,
-            HostRequestResolver { call: call.clone() },
-            HostResponseRegistrar {
-                call: call.clone(),
-                responses: responses.clone(),
-            },
-            limits,
-        )
-        .map_err(|_| ())?;
-        let provider = Box::new(HopliteBlobStoreProvider {
-            provider,
-            call,
-            responses,
-            execution: Mutex::new(()),
-        });
+        );
+        let provider = build_provider(store, limits)?;
         // SAFETY: output is valid and receives exclusive ownership.
+        unsafe { *output = Box::into_raw(provider) };
+        Ok::<(), ()>(())
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .map(|_| STATUS_OK)
+    .unwrap_or(STATUS_FAILURE)
+}
+
+/// Open one worker-owned trusted-root filesystem provider.
+///
+/// # Safety
+///
+/// `root` must be readable UTF-8 for `root_len` bytes, `limits` must
+/// point to a readable limits value and `output` must point to a writable
+/// provider pointer for this call. The root and limits are trusted startup
+/// configuration and must not originate in a HAL request.
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_blob_store_provider_open_filesystem_v1(
+    root: *const u8,
+    root_len: usize,
+    limits: *const HopliteBlobStoreLimitsV1,
+    output: *mut *mut HopliteBlobStoreProvider,
+) -> i32 {
+    if root.is_null() || root_len == 0 || limits.is_null() || output.is_null() {
+        return STATUS_INVALID;
+    }
+    // SAFETY: output was checked non-null and is writable for this call.
+    unsafe { *output = ptr::null_mut() };
+    // SAFETY: root is non-null and readable for root_len bytes by contract.
+    let root = match unsafe { input_bytes(root, root_len) }
+        .ok()
+        .and_then(|root| str::from_utf8(root).ok())
+    {
+        Some(root) if !root.is_empty() && !root.as_bytes().contains(&0) => root,
+        _ => return STATUS_INVALID,
+    };
+    // SAFETY: limits was checked non-null and is copied immediately.
+    let limits = match unsafe { *limits }.into_limits().validate() {
+        Ok(limits) => limits,
+        Err(_) => return STATUS_FAILURE,
+    };
+    catch_unwind(AssertUnwindSafe(|| {
+        let store = FilesystemBlobStore::open(Path::new(root), limits)
+            .map(InstalledBlobStore::Filesystem)
+            .map_err(|_| ())?;
+        let provider = build_provider(store, limits)?;
+        // SAFETY: output remains valid and receives exclusive ownership.
         unsafe { *output = Box::into_raw(provider) };
         Ok::<(), ()>(())
     }))
@@ -700,6 +838,9 @@ pub unsafe extern "C" fn hoplite_blob_store_provider_close_v1(
     // SAFETY: ownership was returned by open_memory_v1 and must be consumed once.
     unsafe { drop(Box::from_raw(provider)) };
 }
+
+#[cfg(test)]
+mod filesystem_tests;
 
 #[cfg(test)]
 mod tests {

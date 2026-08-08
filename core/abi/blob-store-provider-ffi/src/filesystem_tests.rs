@@ -1,7 +1,7 @@
 use super::*;
 use hoplite_provider_hta::Document;
-use std::fs;
 use std::fmt::Write as _;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -92,11 +92,7 @@ unsafe extern "C" fn request_read(
     if amount != 0 {
         // SAFETY: output is writable for capacity bytes and amount is bounded.
         unsafe {
-            ptr::copy_nonoverlapping(
-                fixture.bytes.as_ptr().add(fixture.cursor),
-                output,
-                amount,
-            )
+            ptr::copy_nonoverlapping(fixture.bytes.as_ptr().add(fixture.cursor), output, amount)
         };
     }
     fixture.cursor += amount;
@@ -105,11 +101,7 @@ unsafe extern "C" fn request_read(
     STATUS_OK
 }
 
-unsafe extern "C" fn request_finish(
-    context: *mut c_void,
-    work: u64,
-    handle: u64,
-) -> i32 {
+unsafe extern "C" fn request_finish(context: *mut c_void, work: u64, handle: u64) -> i32 {
     if context.is_null() {
         return STATUS_RESOURCE_ERROR;
     }
@@ -308,7 +300,12 @@ fn durable_provider_survives_restart_and_preserves_work_scoped_sources() {
 
     let provider = open_provider(&root);
     let mut fixture = RequestFixture::empty(work);
-    let (kind, _) = execute(provider, &mut fixture, "staging/open", &open_request("upload-a", bytes));
+    let (kind, _) = execute(
+        provider,
+        &mut fixture,
+        "staging/open",
+        &open_request("upload-a", bytes),
+    );
     assert_eq!(kind, RESULT_SUCCESS);
 
     let mut fixture = RequestFixture::with_bytes(work, source, bytes);
@@ -396,12 +393,7 @@ fn filesystem_open_rejects_untrusted_abi_inputs() {
     let mut provider = ptr::null_mut();
     assert_eq!(
         unsafe {
-            hoplite_blob_store_provider_open_filesystem_v1(
-                ptr::null(),
-                0,
-                &limits,
-                &mut provider,
-            )
+            hoplite_blob_store_provider_open_filesystem_v1(ptr::null(), 0, &limits, &mut provider)
         },
         STATUS_INVALID
     );
