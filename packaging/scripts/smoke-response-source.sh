@@ -23,6 +23,10 @@ diagnose() {
   docker inspect "$container" --format '{{json .State}}' >&2 || true
   echo '--- container logs ---' >&2
   docker logs "$container" >&2 || true
+  echo '--- nginx error log ---' >&2
+  docker exec "$container" sh -c 'cat /app/.hoplite/error.log 2>/dev/null || true' >&2 || true
+  echo '--- nginx access log ---' >&2
+  docker exec "$container" sh -c 'cat /app/.hoplite/access.log 2>/dev/null || true' >&2 || true
   echo '--- generated nginx configuration ---' >&2
   docker exec "$container" sh -c 'cat /app/.hoplite/conf/nginx.conf 2>/dev/null || true' >&2 || true
 }
