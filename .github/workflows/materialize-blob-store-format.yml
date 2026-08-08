@@ -32,7 +32,7 @@ jobs:
           from pathlib import Path
           path = Path("core/abi/blob-store/src/lib.rs")
           source = path.read_text()
-          old = (
+          old_object = (
               "        if let Some(object) = state.objects.get(&request.expected_digest) {\n"
               "            if object.descriptor.size == request.expected_size {\n"
               "                state.staging.remove(&request.staging_key);\n"
@@ -43,7 +43,7 @@ jobs:
               "            });\n"
               "        }\n"
           )
-          new = (
+          new_object = (
               "        if let Some(descriptor) = state\n"
               "            .objects\n"
               "            .get(&request.expected_digest)\n"
@@ -58,12 +58,49 @@ jobs:
               "            });\n"
               "        }\n"
           )
-          source = source.replace(old, new, 1)
+          source = source.replace(old_object, new_object, 1)
           source = source.replace(
               "        let store = store();\n        let wrong = digest(b\"wxyz\");\n",
               "        let store = self::store();\n        let wrong = digest(b\"wxyz\");\n",
               1,
           )
+          old_media = (
+              "        let value = value.into();\n"
+              "        validate_logical_text(\n"
+              "            &value,\n"
+              "            limits.validate()?.max_media_type_bytes,\n"
+              "            Error::InvalidMediaType,\n"
+              "        )?;\n"
+              "        if !value.contains('/') || value.chars().any(char::is_whitespace) {\n"
+              "            return Err(Error::InvalidMediaType);\n"
+              "        }\n"
+              "        Ok(Self(value))\n"
+          )
+          new_media = (
+              "        let value = value.into();\n"
+              "        let limit = limits.validate()?.max_media_type_bytes;\n"
+              "        let Some((type_name, subtype)) = value.split_once('/') else {\n"
+              "            return Err(Error::InvalidMediaType);\n"
+              "        };\n"
+              "        let token = |character: char| {\n"
+              "            character.is_ascii_alphanumeric()\n"
+              "                || matches!(\n"
+              "                    character,\n"
+              "                    '!' | '#' | '$' | '&' | '\\'' | '*' | '+' | '-' | '.' | '^' | '_' | '`' | '|' | '~'\n"
+              "                )\n"
+              "        };\n"
+              "        if value.len() > limit\n"
+              "            || type_name.is_empty()\n"
+              "            || subtype.is_empty()\n"
+              "            || subtype.contains('/')\n"
+              "            || !type_name.chars().all(token)\n"
+              "            || !subtype.chars().all(token)\n"
+              "        {\n"
+              "            return Err(Error::InvalidMediaType);\n"
+              "        }\n"
+              "        Ok(Self(value))\n"
+          )
+          source = source.replace(old_media, new_media, 1)
           path.write_text(source)
           PY
           cargo fmt --manifest-path core/abi/blob-store/Cargo.toml --all
