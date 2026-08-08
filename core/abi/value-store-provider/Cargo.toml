@@ -1,0 +1,16 @@
+[package]
+name = "hoplite-value-store-provider"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.78"
+description = "Canonical hara.store protocol adapter for Hoplite value-store drivers"
+
+[dependencies]
+hoplite-provider-hta = { path = "../provider-hta" }
+hoplite-value-store = { path = "../value-store" }
+
+[workspace]
+
+[lib]
+path = "src/lib.rs"
