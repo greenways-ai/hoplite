@@ -1,8 +1,19 @@
 (ns hoplite.app
-  (:require [hoplite.core :as h]))
+  (:require [hoplite.core :as h]
+            [std.foundation.host :as foundation-host]
+            [std.foundation.response-source :as response-source]))
 
-;; This example is also the production-image conformance surface for the
-;; request-body V3 adapter and its bounded native body-handle route.
+;; This example is also the production-image conformance surface for request
+;; bodies, registered host providers, and bounded response-source streaming.
+
+(def response-source-fixture-digest
+  "sha256:aca1cd027e979588d14b877b7b0cb8585ad9fec599eb45801992ee5382b3760f")
+
+(def response-source-fixture-length
+  1048576)
+
+(def response-source-fixture-staging-key
+  "hoplite-response-source-fixture")
 
 (defn hello
   [request]
@@ -52,11 +63,109 @@
            "native-body-handle\n"
            "missing-body-handle\n")})
 
+(defn source-response
+  [opened]
+  {:status 200
+   :headers {"content-type" "application/octet-stream"
+             ;; The Nginx host owns the authoritative descriptor length.
+             "content-length" "1"
+             "x-hoplite-source" "true"}
+   :body
+   (response-source/response-source
+    (get opened :source-handle)
+    (get opened :offset)
+    (get opened :length))})
+
+(defn ^:async upload-response-source
+  [request]
+  (let [source-handle (get request :body-handle)]
+    (if
+     (nil? source-handle)
+     {:status 400
+      :headers {"content-type" "text/plain; charset=utf-8"}
+      :body "response-source fixture requires a request body\n"}
+     (do
+       (std.foundation.coroutine/await
+        (foundation-host/call
+         "hara.blob"
+         "staging/open"
+         {:protocol "hara.blob-request/1"
+          :operation "staging/open"
+          :staging-key response-source-fixture-staging-key
+          :expected-digest response-source-fixture-digest
+          :expected-size response-source-fixture-length
+          :media-type "application/octet-stream"}))
+       (std.foundation.coroutine/await
+        (foundation-host/call
+         "hara.blob"
+         "staging/append-from-source"
+         {:protocol "hara.blob-request/1"
+          :operation "staging/append-from-source"
+          :staging-key response-source-fixture-staging-key
+          :offset 0
+          :length response-source-fixture-length
+          :source-handle source-handle}))
+       (std.foundation.coroutine/await
+        (foundation-host/call
+         "hara.blob"
+         "staging/verify-commit"
+         {:protocol "hara.blob-request/1"
+          :operation "staging/verify-commit"
+          :staging-key response-source-fixture-staging-key
+          :expected-digest response-source-fixture-digest
+          :expected-size response-source-fixture-length}))
+       (let [opened
+             (std.foundation.coroutine/await
+              (foundation-host/call
+               "hara.blob"
+               "object/open-source"
+               {:protocol "hara.blob-request/1"
+                :operation "object/open-source"
+                :digest response-source-fixture-digest
+                :offset 0
+                :length response-source-fixture-length}))]
+         (source-response opened))))))
+
+(defn ^:async read-response-source
+  [request]
+  (let [opened
+        (std.foundation.coroutine/await
+         (foundation-host/call
+          "hara.blob"
+          "object/open-source"
+          {:protocol "hara.blob-request/1"
+           :operation "object/open-source"
+           :digest response-source-fixture-digest
+           :offset 0
+           :length response-source-fixture-length}))]
+    (source-response opened)))
+
+(defn ^:async invalid-response-source
+  [request]
+  (std.foundation.coroutine/await
+   (std.native.Host/call "nginx" "sleep" [1]))
+  {:status 200
+   :body {:protocol "hara.response-source/1"
+          :source-handle 1
+          :offset 0
+          :length 1
+          :extra true}})
+
+(defn ^:async stale-response-source
+  [request]
+  (std.foundation.coroutine/await
+   (std.native.Host/call "nginx" "sleep" [1]))
+  {:status 200
+   :body (response-source/response-source
+          9007199254740991
+          0
+          1)})
+
 (def app
   (h/app
     {:name "example"
-     :request/body {:max-bytes 32
-                    :max-chunk-bytes 8}
+     :request/body {:max-bytes 1048576
+                    :max-chunk-bytes 65536}
      :resources
      [["/hello"
        {:get {:name "hello"
@@ -84,4 +193,22 @@
       ["/body-handle"
        {:post {:name "body-handle"
                :summary "Projects an opaque native body handle"
-               :handler #'body-handle}}]]}))
+               :handler #'body-handle}}]
+      ["/response-source"
+       {:post {:name "response-source-upload"
+               :summary "Uploads and streams one immutable source"
+               :handler #'upload-response-source}
+        :get {:name "response-source-read"
+              :summary "Streams the installed immutable source"
+              :handler #'read-response-source}
+        :head {:name "response-source-head"
+               :summary "Closes a source without reading its body"
+               :handler #'read-response-source}}]
+      ["/response-source/invalid"
+       {:get {:name "response-source-invalid"
+              :summary "Rejects a descriptor with additional authority"
+              :handler #'invalid-response-source}}]
+      ["/response-source/stale"
+       {:get {:name "response-source-stale"
+              :summary "Rejects an unowned opaque source handle"
+              :handler #'stale-response-source}}]]}))
