@@ -143,8 +143,10 @@ hoplite_value_store_host_provider_register_sqlite_v1(
     hoplite_value_store_provider_t *provider = NULL;
     int32_t status;
 
-    if (hoplite_value_store_state != HOPLITE_VALUE_STORE_HOST_NEW
-        || path == NULL || path_len == 0
+    if (hoplite_value_store_state != HOPLITE_VALUE_STORE_HOST_NEW) {
+        return HOPLITE_VALUE_STORE_HOST_PROVIDER_ERROR;
+    }
+    if (path == NULL || path_len == 0
         || max_value_bytes == 0 || max_receipt_bytes == 0
         || hoplite_value_store_provider_abi_version()
             != HOPLITE_VALUE_STORE_PROVIDER_ABI_VERSION)
