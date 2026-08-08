@@ -1,4 +1,4 @@
-name: Materialize blob-store formatting
+name: Materialize blob-store source
 
 on:
   pull_request:
@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: blob-store-format-${{ github.event.pull_request.number || github.ref }}
+  group: blob-store-materialize-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -25,10 +25,48 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.78.0
-          components: rustfmt
-      - name: Format and test blob-store source
+          components: rustfmt,clippy
+      - name: Apply exact blob-store corrections
         run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("core/abi/blob-store/src/lib.rs")
+          source = path.read_text()
+          old = '''        if let Some(object) = state.objects.get(&request.expected_digest) {
+            if object.descriptor.size == request.expected_size {
+                state.staging.remove(&request.staging_key);
+                return Ok(object.descriptor.clone());
+            }
+            return Err(Error::ObjectConflict {
+                digest: request.expected_digest,
+            });
+        }
+'''
+          new = '''        if let Some(descriptor) = state
+            .objects
+            .get(&request.expected_digest)
+            .map(|object| object.descriptor.clone())
+        {
+            if descriptor.size == request.expected_size {
+                state.staging.remove(&request.staging_key);
+                return Ok(descriptor);
+            }
+            return Err(Error::ObjectConflict {
+                digest: request.expected_digest,
+            });
+        }
+'''
+          if old in source:
+              source = source.replace(old, new, 1)
+          source = source.replace(
+              '        let store = store();\n        let wrong = digest(b"wxyz");\n',
+              '        let store = self::store();\n        let wrong = digest(b"wxyz");\n',
+              1,
+          )
+          path.write_text(source)
+          PY
           cargo fmt --manifest-path core/abi/blob-store/Cargo.toml --all
+          cargo clippy --manifest-path core/abi/blob-store/Cargo.toml --all-targets --locked -- -D warnings
           cargo test --manifest-path core/abi/blob-store/Cargo.toml --all-targets --locked
       - name: Commit materialized source
         run: |
@@ -39,5 +77,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add core/abi/blob-store
-          git commit -m "Format the generic blob-store foundation"
+          git commit -m "Materialize the generic blob-store foundation"
           git push
