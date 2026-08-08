@@ -13,6 +13,7 @@ use hoplite_value_store::{
 };
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use sha2::{Digest as ShaDigest, Sha256};
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
@@ -73,12 +74,22 @@ pub struct SqliteValueStore {
     limits: StoreLimits,
 }
 
+impl fmt::Debug for SqliteValueStore {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SqliteValueStore")
+            .field("path", &self.path)
+            .field("limits", &self.limits)
+            .finish_non_exhaustive()
+    }
+}
+
 impl SqliteValueStore {
     pub fn open(path: impl AsRef<Path>, limits: StoreLimits) -> Result<Self, StoreError> {
         let limits = limits.validate()?;
         let path = path.as_ref().to_path_buf();
-        let connection = Connection::open(&path)
-            .map_err(|error| driver_error("sqlite-open", error))?;
+        let connection =
+            Connection::open(&path).map_err(|error| driver_error("sqlite-open", error))?;
         configure_connection(&connection)?;
 
         let store = Self {
@@ -133,9 +144,7 @@ impl SqliteValueStore {
             SCHEMA_VERSION => Ok(()),
             unsupported => Err(StoreError::driver(
                 "sqlite-schema-version",
-                format!(
-                    "schema version {unsupported} is unsupported; expected {SCHEMA_VERSION}"
-                ),
+                format!("schema version {unsupported} is unsupported; expected {SCHEMA_VERSION}"),
             )),
         }
     }
@@ -206,11 +215,9 @@ impl OpaqueValueStore for SqliteValueStore {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|error| driver_error("sqlite-transaction-begin", error))?;
 
-        if let Some(existing) = load_commit_by_key(
-            &transaction,
-            request.receipt_key(),
-            self.limits,
-        )? {
+        if let Some(existing) =
+            load_commit_by_key(&transaction, request.receipt_key(), self.limits)?
+        {
             if existing.matches(&request) {
                 return existing.into_receipt(ApplyStatus::Replayed);
             }
@@ -219,10 +226,8 @@ impl OpaqueValueStore for SqliteValueStore {
             });
         }
 
-        if let Some(existing_key) = load_receipt_key_by_revision(
-            &transaction,
-            request.revision(),
-        )? {
+        if let Some(existing_key) = load_receipt_key_by_revision(&transaction, request.revision())?
+        {
             return Err(StoreError::driver(
                 "sqlite-revision-receipt-collision",
                 format!(
@@ -232,8 +237,7 @@ impl OpaqueValueStore for SqliteValueStore {
             ));
         }
 
-        let current = load_snapshot(&transaction, self.limits)?
-            .ok_or(StoreError::Uninitialized)?;
+        let current = load_snapshot(&transaction, self.limits)?.ok_or(StoreError::Uninitialized)?;
         if current.revision() != request.expected_revision() {
             return Err(StoreError::StaleRevision {
                 expected: request.expected_revision(),
@@ -359,7 +363,7 @@ fn verify_connection(connection: &Connection, limits: StoreLimits) -> Result<(),
                         ),
                     ));
                 }
-                if commit.revision == snapshot.revision() && commit.value != *snapshot.value() {
+                if commit.revision == snapshot.revision() && &commit.value != snapshot.value() {
                     return Err(StoreError::driver(
                         "sqlite-corrupt-current-receipt",
                         "current receipt value does not match the current snapshot",
@@ -472,9 +476,11 @@ fn load_all_commits(
         .next()
         .map_err(|error| driver_error("sqlite-receipts-next", error))?
     {
-        commits.push(raw_commit_from_row(row)
-            .map_err(|error| driver_error("sqlite-receipts-decode", error))?
-            .decode(limits)?);
+        commits.push(
+            raw_commit_from_row(row)
+                .map_err(|error| driver_error("sqlite-receipts-decode", error))?
+                .decode(limits)?,
+        );
     }
     Ok(commits)
 }
@@ -536,9 +542,7 @@ impl RawCommit {
         let receipt_key = Digest::parse(&self.receipt_key)?;
         let expected_revision = from_sql_revision(self.expected_revision)?;
         let revision = from_sql_revision(self.revision)?;
-        if expected_revision == MAX_REVISION
-            || revision != expected_revision.saturating_add(1)
-        {
+        if expected_revision == MAX_REVISION || revision != expected_revision.saturating_add(1) {
             return Err(StoreError::driver(
                 "sqlite-corrupt-revision-step",
                 format!(
@@ -547,12 +551,7 @@ impl RawCommit {
             ));
         }
         let value_digest = Digest::parse(&self.value_digest)?;
-        let value = CanonicalValue::verify(
-            self.value,
-            value_digest,
-            &Sha256Verifier,
-            limits,
-        )?;
+        let value = CanonicalValue::verify(self.value, value_digest, &Sha256Verifier, limits)?;
         let receipt = OpaqueReceipt::new(self.receipt, limits)?;
         Ok(StoredCommit {
             receipt_key,
@@ -576,18 +575,13 @@ impl StoredCommit {
     fn matches(&self, request: &CompareAndSwap) -> bool {
         self.expected_revision == request.expected_revision()
             && self.revision == request.revision()
-            && self.value == *request.value()
+            && &self.value == request.value()
             && self.receipt_key == request.receipt_key()
-            && self.receipt == *request.receipt()
+            && &self.receipt == request.receipt()
     }
 
     fn into_receipt(self, status: ApplyStatus) -> Result<CommitReceipt, StoreError> {
-        CommitReceipt::new(
-            status,
-            self.revision,
-            self.receipt_key,
-            self.receipt,
-        )
+        CommitReceipt::new(status, self.revision, self.receipt_key, self.receipt)
     }
 }
 

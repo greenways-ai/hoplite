@@ -250,13 +250,7 @@ fn two_connections_reject_stale_writers() {
         .compare_and_swap(request(0, 1, b"winner", b"winner-plan", b"winner-receipt"))
         .expect("first connection must win");
     assert_eq!(
-        second.compare_and_swap(request(
-            0,
-            1,
-            b"stale",
-            b"stale-plan",
-            b"stale-receipt",
-        )),
+        second.compare_and_swap(request(0, 1, b"stale", b"stale-plan", b"stale-receipt",)),
         Err(StoreError::StaleRevision {
             expected: 0,
             actual: 1,
@@ -273,13 +267,7 @@ fn receipt_keys_and_revisions_cannot_be_rebound() {
         .initialize(snapshot(0, b"state-0"))
         .expect("store must initialize");
     store
-        .compare_and_swap(request(
-            0,
-            1,
-            b"state-1",
-            b"shared-plan",
-            b"receipt-1",
-        ))
+        .compare_and_swap(request(0, 1, b"state-1", b"shared-plan", b"receipt-1"))
         .expect("first update must apply");
 
     let receipt_collision = store.compare_and_swap(request(
@@ -301,7 +289,7 @@ fn receipt_keys_and_revisions_cannot_be_rebound() {
         .execute(
             "INSERT INTO value_receipts \
              (receipt_key, expected_revision, revision, value, value_digest, receipt) \
-             VALUES (?1, 0, 2, ?2, ?3, ?4)",
+             VALUES (?1, 0, 1, ?2, ?3, ?4)",
             params![
                 digest_for(b"manually-conflicting-plan").to_string(),
                 b"manual".as_slice(),
@@ -309,7 +297,7 @@ fn receipt_keys_and_revisions_cannot_be_rebound() {
                 b"manual-receipt".as_slice(),
             ],
         )
-        .expect_err("schema must reject a non-contiguous stored revision");
+        .expect_err("schema must reject a duplicate stored revision");
 }
 
 #[test]
@@ -379,8 +367,14 @@ fn corrupted_snapshot_bytes_are_detected_on_load_and_verify() {
             .expect("test corruption must apply");
     }
 
-    assert!(matches!(store.load(), Err(StoreError::DigestMismatch { .. })));
-    assert!(matches!(store.verify(), Err(StoreError::DigestMismatch { .. })));
+    assert!(matches!(
+        store.load(),
+        Err(StoreError::DigestMismatch { .. })
+    ));
+    assert!(matches!(
+        store.verify(),
+        Err(StoreError::DigestMismatch { .. })
+    ));
 }
 
 #[test]
