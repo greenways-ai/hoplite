@@ -35,47 +35,27 @@ jobs:
 
           path = Path("core/abi/value-store-sqlite/src/lib.rs")
           source = path.read_text()
-          old = '''        if let Some(existing_key) = load_receipt_key_by_revision(&transaction, request.revision())?
-          {
-              return Err(StoreError::driver(
-                  "sqlite-revision-receipt-collision",
-                  format!(
-                      "revision {} is already bound to receipt key {existing_key}",
-                      request.revision()
-                  ),
-              ));
-          }
+          collision_marker = "        if let Some(existing_key) = load_receipt_key_by_revision"
+          current_marker = "        let current = load_snapshot"
+          changed_marker = "        let changed = transaction"
 
-          let current = load_snapshot(&transaction, self.limits)?.ok_or(StoreError::Uninitialized)?;
-          if current.revision() != request.expected_revision() {
-              return Err(StoreError::StaleRevision {
-                  expected: request.expected_revision(),
-                  actual: current.revision(),
-              });
-          }
-          '''
-          new = '''        let current = load_snapshot(&transaction, self.limits)?.ok_or(StoreError::Uninitialized)?;
-          if current.revision() != request.expected_revision() {
-              return Err(StoreError::StaleRevision {
-                  expected: request.expected_revision(),
-                  actual: current.revision(),
-              });
-          }
+          collision_start = source.index(collision_marker)
+          current_start = source.index(current_marker, collision_start)
+          changed_start = source.index(changed_marker, current_start)
 
-          if let Some(existing_key) = load_receipt_key_by_revision(&transaction, request.revision())?
-          {
-              return Err(StoreError::driver(
-                  "sqlite-revision-receipt-collision",
-                  format!(
-                      "revision {} is already bound to receipt key {existing_key}",
-                      request.revision()
-                  ),
-              ));
-          }
-          '''
-          if source.count(old) != 1:
-              raise SystemExit("expected one SQLite stale-writer ordering block")
-          path.write_text(source.replace(old, new))
+          collision_block = source[collision_start:current_start]
+          current_block = source[current_start:changed_start]
+          if "sqlite-revision-receipt-collision" not in collision_block:
+              raise SystemExit("collision marker did not select the expected block")
+          if "StoreError::StaleRevision" not in current_block:
+              raise SystemExit("current marker did not select the stale-writer block")
+
+          path.write_text(
+              source[:collision_start]
+              + current_block
+              + collision_block
+              + source[changed_start:]
+          )
           PY
           cargo fmt --manifest-path core/abi/value-store-sqlite/Cargo.toml --all
           git config user.name "github-actions[bot]"
