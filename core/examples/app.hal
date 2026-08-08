@@ -2,7 +2,13 @@
   (:require [hoplite.core :as h]))
 
 ;; This example is also the production-image conformance surface for the
-;; request-body V3 adapter and its bounded native body-handle route.
+;; request-body V3 adapter, the generic hara.blob provider, and bounded
+;; source-backed HTTP responses.
+
+(def blob-size 524288)
+(def blob-digest
+  "sha256:afc2d0f78b79cea2f147edb19e71a881ef17a184d102e52cf6a7fe1c2733ab12")
+(def blob-staging-key "hoplite-response-source-smoke")
 
 (defn hello
   [request]
@@ -52,11 +58,112 @@
            "native-body-handle\n"
            "missing-body-handle\n")})
 
+(defn ^:async blob-upload
+  [request]
+  (let [source (:body-handle request)]
+    (std.foundation.coroutine/await
+      (std.native.Host/call
+        "hara.blob"
+        "staging/open"
+        [{:protocol "hara.blob-request/1"
+          :operation "staging/open"
+          :staging-key blob-staging-key
+          :expected-digest blob-digest
+          :expected-size blob-size
+          :media-type "text/plain; charset=utf-8"}]))
+    (std.foundation.coroutine/await
+      (std.native.Host/call
+        "hara.blob"
+        "staging/append-from-source"
+        [{:protocol "hara.blob-request/1"
+          :operation "staging/append-from-source"
+          :staging-key blob-staging-key
+          :source-handle source
+          :offset 0
+          :length blob-size}]))
+    (std.foundation.coroutine/await
+      (std.native.Host/call
+        "hara.blob"
+        "staging/verify-commit"
+        [{:protocol "hara.blob-request/1"
+          :operation "staging/verify-commit"
+          :staging-key blob-staging-key
+          :expected-digest blob-digest
+          :expected-size blob-size}]))
+    {:status 201
+     :headers {"content-type" "text/plain; charset=utf-8"}
+     :body "Stored response source fixture\n"}))
+
+(defn source-response
+  [status opened headers]
+  {:status status
+   :headers headers
+   :body {:protocol "hoplite.response-source/1"
+          :source (:source-handle opened)
+          :offset (:offset opened)
+          :length (:length opened)}})
+
+(defn ^:async blob-source
+  [request]
+  (let [opened
+        (std.foundation.coroutine/await
+          (std.native.Host/call
+            "hara.blob"
+            "object/open-source"
+            [{:protocol "hara.blob-request/1"
+              :operation "object/open-source"
+              :digest blob-digest
+              :offset 0
+              :length blob-size}]))]
+    (source-response
+      200
+      opened
+      {"content-type" "text/plain; charset=utf-8"
+       "etag" blob-digest
+       "accept-ranges" "bytes"})))
+
+(defn ^:async blob-source-range
+  [request]
+  (let [opened
+        (std.foundation.coroutine/await
+          (std.native.Host/call
+            "hara.blob"
+            "object/open-source"
+            [{:protocol "hara.blob-request/1"
+              :operation "object/open-source"
+              :digest blob-digest
+              :offset 17
+              :length 4096}]))]
+    (source-response
+      206
+      opened
+      {"content-type" "text/plain; charset=utf-8"
+       "etag" blob-digest
+       "content-range" "bytes 17-4112/524288"
+       "accept-ranges" "bytes"})))
+
+(defn invalid-source-plan
+  [request]
+  {:status 200
+   :body {:protocol "hoplite.response-source/1"
+          :source 1
+          :offset 0
+          :length 1
+          :unexpected true}})
+
+(defn stale-source-plan
+  [request]
+  {:status 200
+   :body {:protocol "hoplite.response-source/1"
+          :source 900719925474099
+          :offset 0
+          :length 1}})
+
 (def app
   (h/app
     {:name "example"
-     :request/body {:max-bytes 32
-                    :max-chunk-bytes 8}
+     :request/body {:max-bytes 524288
+                    :max-chunk-bytes 8192}
      :resources
      [["/hello"
        {:get {:name "hello"
@@ -84,4 +191,25 @@
       ["/body-handle"
        {:post {:name "body-handle"
                :summary "Projects an opaque native body handle"
-               :handler #'body-handle}}]]}))
+               :handler #'body-handle}}]
+      ["/blob/upload"
+       {:post {:name "blob-upload"
+               :summary "Stores the deterministic response-source fixture"
+               :handler #'blob-upload}}]
+      ["/blob/source"
+       {:get {:name "blob-source"
+              :summary "Streams a complete immutable source"
+              :handler #'blob-source}
+        :head {:name "blob-source-head"
+               :summary "Sends source headers without reading body bytes"
+               :handler #'blob-source}}]
+      ["/blob/source-range"
+       {:get {:name "blob-source-range"
+              :summary "Streams one exact immutable range"
+              :handler #'blob-source-range}}]
+      ["/blob/invalid-plan"
+       {:get {:name "invalid-source-plan"
+              :handler #'invalid-source-plan}}]
+      ["/blob/stale-source"
+       {:get {:name "stale-source-plan"
+              :handler #'stale-source-plan}}]]}))

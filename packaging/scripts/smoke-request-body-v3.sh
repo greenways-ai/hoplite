@@ -6,10 +6,11 @@ container="hoplite-body-v3-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$"
 container="${container//[^A-Za-z0-9_.-]/-}"
 body_file="$(mktemp)"
 headers_file="$(mktemp)"
+large_file="$(mktemp)"
 
 cleanup() {
   docker rm -f "$container" >/dev/null 2>&1 || true
-  rm -f "$body_file" "$headers_file"
+  rm -f "$body_file" "$headers_file" "$large_file"
 }
 trap cleanup EXIT INT TERM
 
@@ -94,8 +95,12 @@ if [[ "$status" != 200 ]] \
   exit 1
 fi
 
-large="$(printf '%040d' 0)"
-status="$(request POST "$base/body-handle" --data-binary "$large")"
+python3 - "$large_file" <<'PY'
+from pathlib import Path
+import sys
+Path(sys.argv[1]).write_bytes(b"x" * 524289)
+PY
+status="$(request POST "$base/body-handle" --data-binary @"$large_file")"
 if [[ "$status" != 413 ]]; then
   echo "Oversized body was not rejected: status=$status body=$(cat "$body_file")" >&2
   diagnose
