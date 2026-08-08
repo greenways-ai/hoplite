@@ -426,6 +426,14 @@ pub extern "C" fn hoplite_blob_store_provider_abi_version() -> u32 {
     ABI_VERSION
 }
 
+/// Open one worker-owned in-memory provider.
+///
+/// # Safety
+///
+/// `limits` must point to a readable limits value and `output` must point to a
+/// writable provider pointer for the duration of this call. On success, the
+/// caller owns the returned provider and must close it exactly once with
+/// [`hoplite_blob_store_provider_close_v1`].
 #[no_mangle]
 pub unsafe extern "C" fn hoplite_blob_store_provider_open_memory_v1(
     limits: *const HopliteBlobStoreLimitsV1,
@@ -470,6 +478,16 @@ pub unsafe extern "C" fn hoplite_blob_store_provider_open_memory_v1(
     .unwrap_or(STATUS_FAILURE)
 }
 
+/// Execute one synchronous canonical `hara.blob` operation.
+///
+/// # Safety
+///
+/// `provider` must be a live provider returned by the open function. `call` and
+/// `result` must be valid for this call; the operation and argument pointers
+/// must be readable for their declared lengths. The request callbacks and their
+/// context must remain valid until this function returns. Any allocated result
+/// must be released exactly once with
+/// [`hoplite_blob_store_provider_result_free_v1`].
 #[no_mangle]
 pub unsafe extern "C" fn hoplite_blob_store_provider_execute_v1(
     provider: *mut HopliteBlobStoreProvider,
@@ -485,7 +503,7 @@ pub unsafe extern "C" fn hoplite_blob_store_provider_execute_v1(
     }
     // SAFETY: result was checked non-null and is writable for this call.
     unsafe { reset_result(&mut *result) };
-    catch_unwind(AssertUnwindSafe(|| {
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: pointers are checked or validated by input_bytes below.
         let provider = unsafe { provider_ref(provider) }.map_err(|_| STATUS_INVALID)?;
         let call = unsafe { *call };
@@ -522,17 +540,30 @@ pub unsafe extern "C" fn hoplite_blob_store_provider_execute_v1(
         // SAFETY: result remains valid for this synchronous call.
         unsafe { store_result(&mut *result, kind, bytes) };
         Ok::<(), i32>(())
-    }))
-    .ok()
-    .and_then(Result::ok)
-    .map(|_| STATUS_OK)
-    .unwrap_or_else(|| {
-        // Preserve a clean output on panic or internal failure.
-        unsafe { reset_result(&mut *result) };
-        STATUS_FAILURE
-    })
+    }));
+    match outcome {
+        Ok(Ok(())) => STATUS_OK,
+        Ok(Err(status)) => {
+            // SAFETY: result remains valid for this synchronous call.
+            unsafe { reset_result(&mut *result) };
+            status
+        }
+        Err(_) => {
+            // SAFETY: result remains valid for this synchronous call.
+            unsafe { reset_result(&mut *result) };
+            STATUS_FAILURE
+        }
+    }
 }
 
+/// Read from one immutable work-scoped response source.
+///
+/// # Safety
+///
+/// `provider` must remain live. `returned` must be writable, and when
+/// `capacity` is non-zero `output` must be writable for that many bytes. The
+/// supplied work and handle must originate from this provider; ownership is
+/// still checked before any bytes are returned.
 #[no_mangle]
 pub unsafe extern "C" fn hoplite_blob_store_provider_response_read_v1(
     provider: *mut HopliteBlobStoreProvider,
@@ -570,6 +601,13 @@ pub unsafe extern "C" fn hoplite_blob_store_provider_response_read_v1(
     .unwrap_or(STATUS_RESOURCE_ERROR)
 }
 
+/// Close one immutable work-scoped response source.
+///
+/// # Safety
+///
+/// `provider` must be live and owned by the caller. The work and handle must be
+/// values previously returned by this provider; exact ownership is checked and
+/// a source must not be closed twice.
 #[no_mangle]
 pub unsafe extern "C" fn hoplite_blob_store_provider_response_close_v1(
     provider: *mut HopliteBlobStoreProvider,
@@ -593,6 +631,12 @@ pub unsafe extern "C" fn hoplite_blob_store_provider_response_close_v1(
     .unwrap_or(STATUS_RESOURCE_ERROR)
 }
 
+/// Close every response source retained by one work.
+///
+/// # Safety
+///
+/// `provider` must be a live provider returned by the open function. The caller
+/// must serialize this lifecycle call with provider destruction.
 #[no_mangle]
 pub unsafe extern "C" fn hoplite_blob_store_provider_release_work_v1(
     provider: *mut HopliteBlobStoreProvider,
@@ -615,6 +659,12 @@ pub unsafe extern "C" fn hoplite_blob_store_provider_release_work_v1(
     .unwrap_or(0)
 }
 
+/// Release an owned result frame returned by the execute function.
+///
+/// # Safety
+///
+/// `result` must be null, zeroed, or a valid result value produced by this
+/// library. A non-null frame must be released at most once.
 #[no_mangle]
 pub unsafe extern "C" fn hoplite_blob_store_provider_result_free_v1(
     result: *mut HopliteBlobStoreResultV1,
@@ -633,6 +683,13 @@ pub unsafe extern "C" fn hoplite_blob_store_provider_result_free_v1(
     reset_result(result);
 }
 
+/// Destroy one provider and every response source it still owns.
+///
+/// # Safety
+///
+/// `provider` must be null or the unique live pointer returned by the open
+/// function. A non-null provider must be closed exactly once and no concurrent
+/// calls may still reference it.
 #[no_mangle]
 pub unsafe extern "C" fn hoplite_blob_store_provider_close_v1(
     provider: *mut HopliteBlobStoreProvider,
@@ -1108,7 +1165,7 @@ mod tests {
                     &mut result,
                 )
             },
-            STATUS_FAILURE
+            STATUS_INVALID
         );
         assert_eq!(result.kind, 0);
         assert!(result.data.is_null());
