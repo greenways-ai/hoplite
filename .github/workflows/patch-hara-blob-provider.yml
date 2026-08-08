@@ -1,0 +1,195 @@
+name: Patch hara.blob provider branch
+
+on:
+  push:
+    branches:
+      - agent/register-hara-blob-provider
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: patch-hara-blob-provider
+  cancel-in-progress: true
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/register-hara-blob-provider
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@1.78.0
+        with:
+          components: rustfmt
+
+      - name: Apply the narrow worker, build and link edits
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}: {old[:80]!r}")
+              file.write_text(text.replace(old, new, 1))
+
+          module = "core/nginx/ngx_http_hoplite_module.c"
+          replace_once(
+              module,
+              '#include "hoplite_hta.h"\n',
+              '#include "hoplite_blob_host_provider.h"\n#include "hoplite_hta.h"\n',
+          )
+          replace_once(
+              module,
+              '    if (ngx_http_hoplite_runtime != NULL && ctx->work != 0) {\n'
+              '        (void) hoplite_work_close(ngx_http_hoplite_runtime, ctx->work);\n'
+              '    }\n',
+              '    if (ctx->work != 0) {\n'
+              '        (void) hoplite_blob_host_provider_release_work_v1(ctx->work);\n'
+              '    }\n'
+              '    if (ngx_http_hoplite_runtime != NULL && ctx->work != 0) {\n'
+              '        (void) hoplite_work_close(ngx_http_hoplite_runtime, ctx->work);\n'
+              '    }\n',
+          )
+          replace_once(
+              module,
+              '    if (!ctx->done && ngx_http_hoplite_runtime != NULL && ctx->work != 0) {\n'
+              '        (void) hoplite_work_cancel(ngx_http_hoplite_runtime, ctx->work);\n'
+              '        (void) hoplite_work_close(ngx_http_hoplite_runtime, ctx->work);\n'
+              '    }\n',
+              '    if (ctx->work != 0) {\n'
+              '        (void) hoplite_blob_host_provider_release_work_v1(ctx->work);\n'
+              '    }\n'
+              '    if (!ctx->done && ngx_http_hoplite_runtime != NULL && ctx->work != 0) {\n'
+              '        (void) hoplite_work_cancel(ngx_http_hoplite_runtime, ctx->work);\n'
+              '        (void) hoplite_work_close(ngx_http_hoplite_runtime, ctx->work);\n'
+              '    }\n',
+          )
+          replace_once(
+              module,
+              '    int32_t value_store_status;\n',
+              '    int32_t value_store_status;\n    int32_t blob_status;\n',
+          )
+          replace_once(
+              module,
+              '    value_store_status = hoplite_value_store_host_provider_init_process_v1();\n'
+              '    if (value_store_status == HOPLITE_VALUE_STORE_HOST_PROVIDER_ERROR) {\n'
+              '        ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,\n'
+              '                      "hoplite hara.store provider could not be initialized");\n'
+              '        return NGX_ERROR;\n'
+              '    }\n'
+              '    ngx_http_hoplite_runtime = hoplite_runtime_new();\n',
+              '    value_store_status = hoplite_value_store_host_provider_init_process_v1();\n'
+              '    if (value_store_status == HOPLITE_VALUE_STORE_HOST_PROVIDER_ERROR) {\n'
+              '        ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,\n'
+              '                      "hoplite hara.store provider could not be initialized");\n'
+              '        return NGX_ERROR;\n'
+              '    }\n'
+              '    blob_status = hoplite_blob_host_provider_init_process_v1();\n'
+              '    if (blob_status == HOPLITE_BLOB_HOST_PROVIDER_ERROR) {\n'
+              '        ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,\n'
+              '                      "hoplite hara.blob provider could not be initialized");\n'
+              '        return NGX_ERROR;\n'
+              '    }\n'
+              '    ngx_http_hoplite_runtime = hoplite_runtime_new();\n',
+          )
+          replace_once(
+              module,
+              '    hoplite_value_store_host_provider_exit_process_v1();\n',
+              '    hoplite_blob_host_provider_exit_process_v1();\n'
+              '    hoplite_value_store_host_provider_exit_process_v1();\n',
+          )
+
+          config = "core/nginx/config"
+          replace_once(
+              config,
+              'HOPLITE_VALUE_STORE_PROVIDER_DIR=${HOPLITE_VALUE_STORE_PROVIDER_DIR:-$ngx_addon_dir/../abi/value-store-provider-ffi/target/release}\n',
+              'HOPLITE_VALUE_STORE_PROVIDER_DIR=${HOPLITE_VALUE_STORE_PROVIDER_DIR:-$ngx_addon_dir/../abi/value-store-provider-ffi/target/release}\n'
+              'HOPLITE_BLOB_STORE_PROVIDER_DIR=${HOPLITE_BLOB_STORE_PROVIDER_DIR:-$ngx_addon_dir/../abi/blob-store-provider-ffi/target/release}\n',
+          )
+          replace_once(
+              config,
+              '                 $ngx_addon_dir/hoplite_value_store_host_provider.c"\n',
+              '                 $ngx_addon_dir/hoplite_value_store_host_provider.c \\\n'
+              '                 $ngx_addon_dir/hoplite_blob_host_provider.c"\n',
+          )
+          replace_once(
+              config,
+              '                 $ngx_addon_dir/../abi/value-store-provider-ffi/include"\n',
+              '                 $ngx_addon_dir/../abi/value-store-provider-ffi/include \\\n'
+              '                 $ngx_addon_dir/../abi/blob-store-provider-ffi/include"\n',
+          )
+          replace_once(
+              config,
+              '                 $HOPLITE_VALUE_STORE_PROVIDER_DIR/libhoplite_value_store_provider_ffi.a \\\n'
+              '                 -ldl -lpthread -lm"\n',
+              '                 $HOPLITE_VALUE_STORE_PROVIDER_DIR/libhoplite_value_store_provider_ffi.a \\\n'
+              '                 $HOPLITE_BLOB_STORE_PROVIDER_DIR/libhoplite_blob_store_provider_ffi.a \\\n'
+              '                 -ldl -lpthread -lm"\n',
+          )
+
+          makefile = "core/Makefile"
+          replace_once(
+              makefile,
+              'VALUE_STORE_PROVIDER_DIR := $(CURDIR)/abi/value-store-provider-ffi/target/release\n',
+              'VALUE_STORE_PROVIDER_DIR := $(CURDIR)/abi/value-store-provider-ffi/target/release\n'
+              'BLOB_STORE_PROVIDER_MANIFEST := $(CURDIR)/abi/blob-store-provider-ffi/Cargo.toml\n'
+              'BLOB_STORE_PROVIDER_DIR := $(CURDIR)/abi/blob-store-provider-ffi/target/release\n',
+          )
+          replace_once(
+              makefile,
+              '.PHONY: help setup check runtime value-store-provider cli embedded-cli server-cli test nginx nginx-source docker \\\n',
+              '.PHONY: help setup check runtime value-store-provider blob-store-provider cli embedded-cli server-cli test nginx nginx-source docker \\\n',
+          )
+          replace_once(
+              makefile,
+              '\tcargo fetch --manifest-path $(VALUE_STORE_PROVIDER_MANIFEST)\n',
+              '\tcargo fetch --manifest-path $(VALUE_STORE_PROVIDER_MANIFEST)\n'
+              '\tcargo fetch --manifest-path $(BLOB_STORE_PROVIDER_MANIFEST) --locked\n',
+          )
+          replace_once(
+              makefile,
+              'value-store-provider:\n\tcargo build --manifest-path $(VALUE_STORE_PROVIDER_MANIFEST) --release\n\n',
+              'value-store-provider:\n\tcargo build --manifest-path $(VALUE_STORE_PROVIDER_MANIFEST) --release\n\n'
+              'blob-store-provider:\n\tcargo build --manifest-path $(BLOB_STORE_PROVIDER_MANIFEST) --release --locked\n\n',
+          )
+          replace_once(
+              makefile,
+              'nginx: runtime value-store-provider nginx-source\n',
+              'nginx: runtime value-store-provider blob-store-provider nginx-source\n',
+          )
+          replace_once(
+              makefile,
+              '\t\tHOPLITE_VALUE_STORE_PROVIDER_DIR=$(VALUE_STORE_PROVIDER_DIR) \\\n'
+              '\t\t./configure --prefix=$(CURDIR)/target/nginx \\\n',
+              '\t\tHOPLITE_VALUE_STORE_PROVIDER_DIR=$(VALUE_STORE_PROVIDER_DIR) \\\n'
+              '\t\tHOPLITE_BLOB_STORE_PROVIDER_DIR=$(BLOB_STORE_PROVIDER_DIR) \\\n'
+              '\t\t./configure --prefix=$(CURDIR)/target/nginx \\\n',
+          )
+          PY
+
+      - name: Format and lock the standalone FFI crate
+        run: |
+          cargo fmt --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml
+          cargo generate-lockfile --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml
+
+      - name: Commit the generated integration patch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            core/nginx/ngx_http_hoplite_module.c \
+            core/nginx/config \
+            core/Makefile \
+            core/abi/blob-store-provider-ffi/src/lib.rs \
+            core/abi/blob-store-provider-ffi/Cargo.lock
+          git diff --cached --check
+          git commit -m "Wire the native hara.blob provider into Nginx"
+          git push origin HEAD:agent/register-hara-blob-provider
