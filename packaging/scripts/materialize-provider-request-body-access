@@ -6,6 +6,17 @@ from pathlib import Path
 path = Path("core/nginx/ngx_http_hoplite_module.c")
 source = path.read_text()
 
+if "hoplite_host_request_body_read_v1(" in source:
+    required = [
+        "hoplite_host_request_body_finish_v1(",
+        "ctx->native_provider = native_provider;\n    native_rc = native_provider->invoke(&native_call);",
+        "ctx->native_completion = NULL;\n    ctx->native_provider = NULL;",
+    ]
+    missing = [marker for marker in required if marker not in source]
+    if missing:
+        raise SystemExit(f"partially materialized provider body access: {missing}")
+    raise SystemExit(0)
+
 provider_find = '''static const ngx_http_hoplite_provider_t *
 ngx_http_hoplite_provider_find(ngx_str_t service)
 {
