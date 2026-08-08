@@ -86,10 +86,7 @@
   [request]
   (let [source-handle (get request :body-handle)]
     (if
-     (nil? source-handle)
-     {:status 400
-      :headers {"content-type" "text/plain; charset=utf-8"}
-      :body "response-source fixture requires a request body\n"}
+     source-handle
      (do
        (std.foundation.coroutine/await
         (foundation-host/call
@@ -130,7 +127,10 @@
                 :digest response-source-fixture-digest
                 :offset 0
                 :length response-source-fixture-length}))]
-         (source-response opened))))))
+         (source-response opened)))
+     {:status 400
+      :headers {"content-type" "text/plain; charset=utf-8"}
+      :body "response-source fixture requires a request body\n"})))
 
 (defn ^:async read-response-source
   [request]
