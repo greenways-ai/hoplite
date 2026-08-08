@@ -1,0 +1,57 @@
+name: Materialize hara.store SQLite conformance
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/materialize-value-store-provider-sqlite.yml"
+      - "core/abi/provider-hta/**"
+      - "core/abi/value-store/**"
+      - "core/abi/value-store-provider/**"
+      - "core/abi/value-store-sqlite/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: value-store-provider-sqlite-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.78.0
+          components: rustfmt,clippy
+      - name: Materialize lockfile and formatting
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("core/abi/value-store-provider/src/lib.rs")
+          source = path.read_text().replace(
+              "#[cfg(test)]\n#[cfg(test)]\nconst VECTOR: u8 = 9;",
+              "#[cfg(test)]\nconst VECTOR: u8 = 9;",
+          )
+          path.write_text(source)
+          PY
+          cargo generate-lockfile --manifest-path core/abi/value-store-provider/Cargo.toml
+          cargo fmt --manifest-path core/abi/value-store-provider/Cargo.toml --all
+          cargo clippy --manifest-path core/abi/value-store-provider/Cargo.toml --all-targets --locked -- -D warnings
+          cargo test --manifest-path core/abi/value-store-provider/Cargo.toml --all-targets --locked
+      - name: Commit materialized conformance source
+        run: |
+          if git diff --quiet -- core/abi/value-store-provider; then
+            echo "SQLite adapter conformance is already materialized."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add core/abi/value-store-provider
+          git commit -m "Exercise the hara.store adapter over SQLite"
+          git push
