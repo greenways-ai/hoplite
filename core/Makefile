@@ -52,7 +52,7 @@ setup: check-macos
 	brew install rust openssl@3 pcre2
 	cargo fetch --manifest-path Cargo.toml
 	cargo fetch --manifest-path runtime/Cargo.toml
-	cargo fetch --manifest-path $(VALUE_STORE_PROVIDER_MANIFEST) --locked
+	cargo fetch --manifest-path $(VALUE_STORE_PROVIDER_MANIFEST)
 
 check:
 	cargo test --workspace
@@ -60,8 +60,11 @@ check:
 runtime:
 	cargo build --manifest-path runtime/Cargo.toml --release
 
+# This crate is an intentionally standalone FFI workspace and does not commit
+# a Cargo.lock. Its path and git dependency revisions remain pinned by the
+# reviewed manifests; Cargo resolves its transient build lock here.
 value-store-provider:
-	cargo build --manifest-path $(VALUE_STORE_PROVIDER_MANIFEST) --release --locked
+	cargo build --manifest-path $(VALUE_STORE_PROVIDER_MANIFEST) --release
 
 cli:
 	cargo build --manifest-path Cargo.toml --release --bin hoplite
