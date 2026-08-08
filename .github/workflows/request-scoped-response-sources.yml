@@ -2,8 +2,7 @@ name: Request-scoped hara.blob response sources
 
 on:
   push:
-    branches:
-      - agent/request-scoped-response-sources
+    branches: [main]
     paths:
       - core/abi/blob-store-provider-ffi/**
       - core/nginx/hoplite_blob_host_provider.c
@@ -11,7 +10,6 @@ on:
       - core/nginx/hoplite_host_provider.c
       - core/nginx/hoplite_host_provider.h
       - core/nginx/tests/blob_host_provider.c
-      - scripts/materialize-request-scoped-response-sources.py
       - .github/workflows/request-scoped-response-sources.yml
   pull_request:
     paths:
@@ -24,7 +22,7 @@ on:
       - .github/workflows/request-scoped-response-sources.yml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   scoped-sources:
@@ -32,31 +30,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: agent/request-scoped-response-sources
-          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@1.78.0
         with:
           components: rustfmt,clippy
-      - name: Materialize exact request ownership
-        if: hashFiles('scripts/materialize-request-scoped-response-sources.py') != ''
-        run: |
-          python3 scripts/materialize-request-scoped-response-sources.py
-          cargo fmt \
-            --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml \
-            --all
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A -- \
-            core/abi/blob-store-provider-ffi \
-            core/nginx/hoplite_blob_host_provider.c \
-            core/nginx/hoplite_blob_host_provider.h \
-            core/nginx/tests/blob_host_provider.c \
-            scripts/materialize-request-scoped-response-sources.py
-          git commit -m "Scope blob response sources to the owning request"
-          git fetch origin agent/request-scoped-response-sources
-          git rebase origin/agent/request-scoped-response-sources
-          git push origin HEAD:agent/request-scoped-response-sources
       - name: Check formatting
         run: |
           cargo fmt \
@@ -82,12 +58,16 @@ jobs:
             core/nginx/tests/blob_host_provider.c \
             -o /tmp/hoplite-blob-host-provider-test
           /tmp/hoplite-blob-host-provider-test
-      - name: Audit scoped exports
+      - name: Audit scoped exports and closed legacy paths
         run: |
           grep -F 'hoplite_blob_store_provider_response_read_scoped_v1' \
             core/abi/blob-store-provider-ffi/include/hoplite_blob_store_provider.h
           grep -F 'hoplite_blob_store_provider_response_close_scoped_v1' \
             core/abi/blob-store-provider-ffi/include/hoplite_blob_store_provider.h
+          grep -F 'Legacy work-only response read retained for ABI compatibility.' \
+            core/abi/blob-store-provider-ffi/src/lib.rs
+          grep -F 'Legacy work-only response close retained for ABI compatibility.' \
+            core/abi/blob-store-provider-ffi/src/lib.rs
           grep -F 'hoplite_blob_host_provider_response_read_v1' \
             core/nginx/hoplite_blob_host_provider.h
           grep -F 'hoplite_blob_host_provider_response_close_v1' \
