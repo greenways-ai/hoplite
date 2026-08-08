@@ -534,18 +534,14 @@ impl Parser<'_> {
                 let bytes = self.take(8)?;
                 (
                     Kind::Integer,
-                    Payload::Integer(i64::from_be_bytes(
-                        bytes.try_into().expect("8 bytes"),
-                    )),
+                    Payload::Integer(i64::from_be_bytes(bytes.try_into().expect("8 bytes"))),
                 )
             }
             F64 => {
                 let bytes = self.take(8)?;
                 (
                     Kind::Float,
-                    Payload::Float(u64::from_be_bytes(
-                        bytes.try_into().expect("8 bytes"),
-                    )),
+                    Payload::Float(u64::from_be_bytes(bytes.try_into().expect("8 bytes"))),
                 )
             }
             CHARACTER => {
@@ -575,19 +571,13 @@ impl Parser<'_> {
                 let value = self.value(depth + 1)?;
                 let begin = self.children.len();
                 self.children.extend([symbol, value]);
-                (
-                    Kind::Var,
-                    Payload::Sequence(begin..self.children.len()),
-                )
+                (Kind::Var, Payload::Sequence(begin..self.children.len()))
             }
             ATOM => {
                 let value = self.value(depth + 1)?;
                 let begin = self.children.len();
                 self.children.push(value);
-                (
-                    Kind::Atom,
-                    Payload::Sequence(begin..self.children.len()),
-                )
+                (Kind::Atom, Payload::Sequence(begin..self.children.len()))
             }
             HANDLE => {
                 if !self.limits.allow_native_handles {
@@ -657,9 +647,9 @@ impl Parser<'_> {
             let key = self.value(depth + 1)?;
             let key_span = self.nodes[key].span.clone();
             if canonical
-                && previous.as_ref().is_some_and(|prior| {
-                    self.frame[prior.clone()] >= self.frame[key_span.clone()]
-                })
+                && previous
+                    .as_ref()
+                    .is_some_and(|prior| self.frame[prior.clone()] >= self.frame[key_span.clone()])
             {
                 return Err(Error::NonCanonicalOrder {
                     offset: key_span.start,
@@ -831,10 +821,7 @@ mod tests {
                 text(KEYWORD, "protocol"),
                 text(STRING, "hara.store-request/1"),
             ),
-            (
-                text(KEYWORD, "operation"),
-                text(STRING, "compare-and-swap"),
-            ),
+            (text(KEYWORD, "operation"), text(STRING, "compare-and-swap")),
             (text(KEYWORD, "value"), opaque_value.clone()),
             (text(KEYWORD, "receipt"), opaque_receipt.clone()),
         ]);
