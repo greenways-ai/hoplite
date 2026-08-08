@@ -32,35 +32,36 @@ jobs:
           from pathlib import Path
           path = Path("core/abi/blob-store/src/lib.rs")
           source = path.read_text()
-          old = '''        if let Some(object) = state.objects.get(&request.expected_digest) {
-            if object.descriptor.size == request.expected_size {
-                state.staging.remove(&request.staging_key);
-                return Ok(object.descriptor.clone());
-            }
-            return Err(Error::ObjectConflict {
-                digest: request.expected_digest,
-            });
-        }
-'''
-          new = '''        if let Some(descriptor) = state
-            .objects
-            .get(&request.expected_digest)
-            .map(|object| object.descriptor.clone())
-        {
-            if descriptor.size == request.expected_size {
-                state.staging.remove(&request.staging_key);
-                return Ok(descriptor);
-            }
-            return Err(Error::ObjectConflict {
-                digest: request.expected_digest,
-            });
-        }
-'''
-          if old in source:
-              source = source.replace(old, new, 1)
+          old = (
+              "        if let Some(object) = state.objects.get(&request.expected_digest) {\n"
+              "            if object.descriptor.size == request.expected_size {\n"
+              "                state.staging.remove(&request.staging_key);\n"
+              "                return Ok(object.descriptor.clone());\n"
+              "            }\n"
+              "            return Err(Error::ObjectConflict {\n"
+              "                digest: request.expected_digest,\n"
+              "            });\n"
+              "        }\n"
+          )
+          new = (
+              "        if let Some(descriptor) = state\n"
+              "            .objects\n"
+              "            .get(&request.expected_digest)\n"
+              "            .map(|object| object.descriptor.clone())\n"
+              "        {\n"
+              "            if descriptor.size == request.expected_size {\n"
+              "                state.staging.remove(&request.staging_key);\n"
+              "                return Ok(descriptor);\n"
+              "            }\n"
+              "            return Err(Error::ObjectConflict {\n"
+              "                digest: request.expected_digest,\n"
+              "            });\n"
+              "        }\n"
+          )
+          source = source.replace(old, new, 1)
           source = source.replace(
-              '        let store = store();\n        let wrong = digest(b"wxyz");\n',
-              '        let store = self::store();\n        let wrong = digest(b"wxyz");\n',
+              "        let store = store();\n        let wrong = digest(b\"wxyz\");\n",
+              "        let store = self::store();\n        let wrong = digest(b\"wxyz\");\n",
               1,
           )
           path.write_text(source)
