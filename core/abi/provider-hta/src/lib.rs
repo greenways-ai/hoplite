@@ -425,6 +425,10 @@ impl<'d, 'a> Node<'d, 'a> {
         }
     }
 
+    pub fn is_empty(self) -> Result<bool, Error> {
+        Ok(self.len()? == 0)
+    }
+
     pub fn get(self, index: usize) -> Result<Node<'d, 'a>, Error> {
         let Payload::Sequence(range) = &self.data().payload else {
             return Err(self.wrong("sequence"));
@@ -847,7 +851,8 @@ mod tests {
             (text(KEYWORD, "operation"), text(STRING, "load")),
             (text(KEYWORD, "revision"), integer(4)),
         ]);
-        let document = Document::parse(&frame(&vector(&[request]))).unwrap();
+        let arguments = frame(&vector(&[request]));
+        let document = Document::parse(&arguments).unwrap();
         let request = document.root().get(0).unwrap();
         assert_eq!(request.len().unwrap(), 2);
         assert_eq!(
