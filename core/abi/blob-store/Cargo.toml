@@ -1,0 +1,12 @@
+[package]
+name = "hoplite-blob-store"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.78"
+description = "Application-neutral staged blob mechanics for Hoplite"
+
+[workspace]
+
+[lib]
+path = "src/lib.rs"
