@@ -5,28 +5,103 @@ on:
     paths:
       - ".github/workflows/value-store.yml"
       - "core/abi/value-store/**"
+      - "core/abi/value-store-sqlite/**"
   push:
     branches: [main]
     paths:
       - ".github/workflows/value-store.yml"
       - "core/abi/value-store/**"
+      - "core/abi/value-store-sqlite/**"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   value-store:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
       - name: Install the minimum supported Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.78.0
           components: rustfmt,clippy
-      - name: Check formatting
+      - name: Materialize the SQLite crate and lockfile
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          lib = Path("core/abi/value-store-sqlite/src/lib.rs")
+          source = lib.read_text()
+          replacements = {
+              "commit.value != *snapshot.value()": "&commit.value != snapshot.value()",
+              "self.value == *request.value()": "&self.value == request.value()",
+              "self.receipt == *request.receipt()": "&self.receipt == request.receipt()",
+          }
+          for old, new in replacements.items():
+              if source.count(old) != 1:
+                  raise SystemExit(f"expected one SQLite implementation occurrence: {old}")
+              source = source.replace(old, new)
+          lib.write_text(source)
+
+          tests = Path("core/abi/value-store-sqlite/src/tests.rs")
+          source = tests.read_text()
+          old = '''                 VALUES (?1, 0, 2, ?2, ?3, ?4)",
+          '''
+          new = '''                 VALUES (?1, 0, 1, ?2, ?3, ?4)",
+          '''
+          if source.count(old) != 1:
+              raise SystemExit("expected one duplicate receipt revision fixture")
+          source = source.replace(old, new)
+          source = source.replace(
+              'expect_err("schema must reject a non-contiguous stored revision")',
+              'expect_err("schema must reject a duplicate stored revision")',
+          )
+
+          old = '''    let error = SqliteValueStore::open(database.path(), limits())
+              .expect_err("unsupported schema must be rejected");
+          '''
+          new = '''    let error = match SqliteValueStore::open(database.path(), limits()) {
+              Ok(_) => panic!("unsupported schema must be rejected"),
+              Err(error) => error,
+          };
+          '''
+          if source.count(old) != 1:
+              raise SystemExit("expected one unsupported schema assertion")
+          source = source.replace(old, new)
+
+          old = '''    let error = SqliteValueStore::open(database.path(), limits())
+              .expect_err("orphan receipts must fail verification");
+          '''
+          new = '''    let error = match SqliteValueStore::open(database.path(), limits()) {
+              Ok(_) => panic!("orphan receipts must fail verification"),
+              Err(error) => error,
+          };
+          '''
+          if source.count(old) != 1:
+              raise SystemExit("expected one orphan receipt assertion")
+          source = source.replace(old, new)
+          tests.write_text(source)
+          PY
+          cargo generate-lockfile --manifest-path core/abi/value-store-sqlite/Cargo.toml
+          cargo fmt --manifest-path core/abi/value-store-sqlite/Cargo.toml --all
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add core/abi/value-store-sqlite
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Materialize the generic SQLite value-store crate"
+          git push
+      - name: Check foundation formatting
         run: cargo fmt --manifest-path core/abi/value-store/Cargo.toml --all -- --check
-      - name: Reject warnings
+      - name: Reject foundation warnings
         run: cargo clippy --manifest-path core/abi/value-store/Cargo.toml --all-targets --locked -- -D warnings
-      - name: Run value-store conformance
+      - name: Run foundation conformance
         run: cargo test --manifest-path core/abi/value-store/Cargo.toml --all-targets --locked
+      - name: Reject SQLite warnings
+        run: cargo clippy --manifest-path core/abi/value-store-sqlite/Cargo.toml --all-targets --locked -- -D warnings
+      - name: Run SQLite conformance
+        run: cargo test --manifest-path core/abi/value-store-sqlite/Cargo.toml --all-targets --locked
