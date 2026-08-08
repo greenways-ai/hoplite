@@ -1,0 +1,77 @@
+name: Native hara.blob provider
+
+on:
+  push:
+    paths:
+      - core/abi/blob-store/**
+      - core/abi/blob-store-provider/**
+      - core/abi/blob-store-provider-ffi/**
+      - core/nginx/hoplite_blob_host_provider.c
+      - core/nginx/hoplite_blob_host_provider.h
+      - core/nginx/hoplite_host_provider.c
+      - core/nginx/hoplite_host_provider.h
+      - core/nginx/ngx_http_hoplite_module.c
+      - core/nginx/config
+      - core/nginx/tests/blob_host_provider.c
+      - core/Makefile
+      - .github/workflows/blob-store-native-provider.yml
+  pull_request:
+    paths:
+      - core/abi/blob-store/**
+      - core/abi/blob-store-provider/**
+      - core/abi/blob-store-provider-ffi/**
+      - core/nginx/hoplite_blob_host_provider.c
+      - core/nginx/hoplite_blob_host_provider.h
+      - core/nginx/hoplite_host_provider.c
+      - core/nginx/hoplite_host_provider.h
+      - core/nginx/ngx_http_hoplite_module.c
+      - core/nginx/config
+      - core/nginx/tests/blob_host_provider.c
+      - core/Makefile
+      - .github/workflows/blob-store-native-provider.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-hara-blob-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.78.0
+        with:
+          components: rustfmt, clippy
+      - name: Check the standalone provider FFI
+        run: |
+          cargo fmt --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml -- --check
+          cargo clippy --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml \
+            --all-targets --locked -- -D warnings
+          cargo test --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml --locked
+      - name: Test exact native service registration and ownership
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror \
+            -I core/nginx \
+            -I core/abi/blob-store-provider-ffi/include \
+            core/nginx/hoplite_host_provider.c \
+            core/nginx/hoplite_blob_host_provider.c \
+            core/nginx/tests/blob_host_provider.c \
+            -o /tmp/hoplite-blob-host-provider-test
+          /tmp/hoplite-blob-host-provider-test
+      - name: Audit worker lifecycle and production linkage
+        run: |
+          grep -F '#include "hoplite_blob_host_provider.h"' \
+            core/nginx/ngx_http_hoplite_module.c
+          grep -F 'hoplite_blob_host_provider_init_process_v1();' \
+            core/nginx/ngx_http_hoplite_module.c
+          test "$(grep -Fc 'hoplite_blob_host_provider_release_work_v1(ctx->work);' \
+            core/nginx/ngx_http_hoplite_module.c)" -eq 2
+          grep -F 'hoplite_blob_host_provider_exit_process_v1();' \
+            core/nginx/ngx_http_hoplite_module.c
+          grep -F 'hoplite_blob_host_provider.c' core/nginx/config
+          grep -F 'libhoplite_blob_store_provider_ffi.a' core/nginx/config
+          grep -F 'nginx: runtime value-store-provider blob-store-provider nginx-source' \
+            core/Makefile
