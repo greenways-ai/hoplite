@@ -28,7 +28,24 @@ before a native callback can run. The generic adapter never receives the Hoplite
 
 `object/open-source` asks the installed blob driver for one immutable bounded source. A trusted `ResponseSourceRegistrar` owns that source and returns a positive opaque handle. The HAL-visible result contains only the handle and the request's validated digest, offset, and length.
 
+A handle remains scoped to its exact work. Cross-work reads and closes fail even when the numeric handle is known. Completing or cancelling a work closes every response source retained by that work; worker shutdown closes any remaining sources.
+
 Nginx backpressure, cancellation, `HEAD`, and range response integration remain the separate response-source transport layer.
+
+## Native Hoplite provider
+
+`hoplite-blob-store-provider-ffi` owns one application-neutral in-memory store per Nginx worker. The worker registers its immutable descriptor under the exact service name `hara.blob` before bootstrap evaluation begins.
+
+The C boundary:
+
+- receives only the copied operation and one standalone canonical `HTA1` argument frame;
+- resolves request sources through the existing work-scoped request-body callbacks;
+- registers immutable response sources in a provider-owned work-scoped registry;
+- returns either a canonical `hara.blob-result/1` frame or one closed stable error-code string;
+- declares request-body and response-body transport capability, but no path, bucket, credential, metadata, network, process, or driver-selection authority; and
+- releases result frames immediately after the Hoplite completer accepts or rejects them.
+
+The in-memory provider is deliberately the first native implementation. Durable object drivers can implement the same generic `BlobStore` boundary later without changing Tahto's HAL requests or widening the host call.
 
 ## Domain boundary
 
