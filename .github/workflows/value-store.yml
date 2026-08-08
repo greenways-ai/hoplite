@@ -12,31 +12,20 @@ on:
       - "core/abi/value-store/**"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   value-store:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
       - name: Install the minimum supported Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.78.0
           components: rustfmt,clippy
-      - name: Materialize formatting on the review branch
-        run: |
-          cargo fmt --manifest-path core/abi/value-store/Cargo.toml --all
-          if git diff --quiet -- core/abi/value-store/src/lib.rs; then
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add core/abi/value-store/src/lib.rs
-          git commit -m "Format generic value-store foundation"
-          git push
+      - name: Check formatting
+        run: cargo fmt --manifest-path core/abi/value-store/Cargo.toml --all -- --check
       - name: Reject warnings
         run: cargo clippy --manifest-path core/abi/value-store/Cargo.toml --all-targets --locked -- -D warnings
       - name: Run value-store conformance
