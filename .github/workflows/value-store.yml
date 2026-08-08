@@ -1,0 +1,32 @@
+name: Generic value store
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/value-store.yml"
+      - "core/abi/value-store/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/value-store.yml"
+      - "core/abi/value-store/**"
+
+permissions:
+  contents: read
+
+jobs:
+  value-store:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the minimum supported Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.78.0
+          components: rustfmt,clippy
+      - name: Check formatting
+        run: cargo fmt --manifest-path core/abi/value-store/Cargo.toml --all -- --check
+      - name: Reject warnings
+        run: cargo clippy --manifest-path core/abi/value-store/Cargo.toml --all-targets --locked -- -D warnings
+      - name: Run value-store conformance
+        run: cargo test --manifest-path core/abi/value-store/Cargo.toml --all-targets --locked
