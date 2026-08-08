@@ -1,0 +1,39 @@
+name: hara.store provider conformance
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/value-store-provider.yml"
+      - "core/abi/provider-hta/**"
+      - "core/abi/value-store/**"
+      - "core/abi/value-store-provider/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/value-store-provider.yml"
+      - "core/abi/provider-hta/**"
+      - "core/abi/value-store/**"
+      - "core/abi/value-store-provider/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: value-store-provider-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  conformance:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.78.0
+          components: rustfmt,clippy
+      - name: Check formatting
+        run: cargo fmt --manifest-path core/abi/value-store-provider/Cargo.toml --all -- --check
+      - name: Reject warnings
+        run: cargo clippy --manifest-path core/abi/value-store-provider/Cargo.toml --all-targets --locked -- -D warnings
+      - name: Run protocol adapter conformance
+        run: cargo test --manifest-path core/abi/value-store-provider/Cargo.toml --all-targets --locked

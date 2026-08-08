@@ -1,0 +1,12 @@
+[package]
+name = "hoplite-provider-hta"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.78"
+description = "Exact-span canonical HTA reader for Hoplite native providers"
+
+[workspace]
+
+[lib]
+path = "src/lib.rs"
