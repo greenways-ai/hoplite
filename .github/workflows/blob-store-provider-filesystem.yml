@@ -1,17 +1,24 @@
 name: Filesystem hara.blob provider FFI
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - core/abi/blob-store/**
+      - core/abi/blob-store-filesystem/**
+      - core/abi/blob-store-provider/**
+      - core/abi/blob-store-provider-ffi/**
+      - .github/workflows/blob-store-provider-filesystem.yml
   pull_request:
     paths:
       - core/abi/blob-store/**
       - core/abi/blob-store-filesystem/**
       - core/abi/blob-store-provider/**
       - core/abi/blob-store-provider-ffi/**
-      - scripts/materialize-blob-provider-filesystem.py
       - .github/workflows/blob-store-provider-filesystem.yml
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: filesystem-hara-blob-provider-${{ github.ref }}
@@ -23,39 +30,14 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@1.78.0
         with:
           components: rustfmt,clippy
-      - name: Materialize the installed-store provider source
+      - name: Check formatting
         run: |
-          if ! grep -q '^enum InstalledBlobStore' \
-            core/abi/blob-store-provider-ffi/src/lib.rs; then
-            python3 - <<'PY'
-          from pathlib import Path
-
-          source = Path("scripts/materialize-blob-provider-filesystem.py").read_text()
-          cutoff = source.index("WORKFLOW.write_text")
-          Path("/tmp/materialize-blob-provider-filesystem.py").write_text(source[:cutoff])
-          PY
-            python3 /tmp/materialize-blob-provider-filesystem.py
-          fi
-          cargo generate-lockfile \
-            --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml
           cargo fmt \
             --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml \
-            --all
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add core/abi/blob-store-provider-ffi
-          if ! git diff --cached --quiet; then
-            git commit -m "Bind filesystem storage to the hara.blob provider FFI"
-            git fetch origin agent/filesystem-blob-provider-ffi
-            git rebase origin/agent/filesystem-blob-provider-ffi
-            git push origin HEAD:agent/filesystem-blob-provider-ffi
-          fi
+            --all -- --check
       - name: Reject warnings
         run: |
           cargo clippy \
