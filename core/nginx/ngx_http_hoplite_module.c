@@ -728,16 +728,16 @@ ngx_http_hoplite_source_pump(ngx_http_hoplite_ctx_t *ctx)
                 "hoplite response source output failed");
             return;
         }
-        if (source->final_read) {
-            ngx_http_hoplite_source_complete(ctx, rc);
-            return;
-        }
         if (rc == NGX_AGAIN || ngx_http_hoplite_source_pending(ctx)) {
             if (ngx_http_hoplite_source_wait(ctx) == NGX_ERROR) {
                 ngx_http_hoplite_source_fail(
                     ctx, NGX_ERROR,
                     "hoplite response source could not wait for output");
             }
+            return;
+        }
+        if (source->final_read) {
+            ngx_http_hoplite_source_complete(ctx, rc);
             return;
         }
     }
@@ -795,6 +795,10 @@ ngx_http_hoplite_source_write_handler(ngx_http_request_t *request)
     }
     if (write->timer_set) {
         ngx_del_timer(write);
+    }
+    if (source->final_read) {
+        ngx_http_hoplite_source_complete(ctx, rc);
+        return;
     }
     ngx_http_hoplite_source_pump(ctx);
 }
