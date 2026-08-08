@@ -98,8 +98,7 @@ fn key(value: &str) -> StagingKey {
 }
 
 fn media_type() -> MediaType {
-    MediaType::new("application/octet-stream", limits())
-        .expect("test media type must be valid")
+    MediaType::new("application/octet-stream", limits()).expect("test media type must be valid")
 }
 
 fn open_request(name: &str, bytes: &[u8]) -> StagingOpen {
@@ -322,9 +321,7 @@ fn commit_recovers_an_orphaned_digest_derived_object_link() {
     let root = TestRoot::new("commit-recovery");
     let bytes = b"recoverable";
     let store = store(&root);
-    store
-        .staging_open(open_request("upload-a", bytes))
-        .unwrap();
+    store.staging_open(open_request("upload-a", bytes)).unwrap();
     append(&store, "upload-a", 0, bytes);
 
     let (_, staging_data) = store.staging_paths(&key("upload-a"));
@@ -352,9 +349,7 @@ fn tampered_object_bytes_fail_before_a_source_is_returned() {
     let root = TestRoot::new("tamper");
     let bytes = b"original";
     let store = store(&root);
-    store
-        .staging_open(open_request("upload-a", bytes))
-        .unwrap();
+    store.staging_open(open_request("upload-a", bytes)).unwrap();
     append(&store, "upload-a", 0, bytes);
     store
         .staging_verify_commit(commit_request("upload-a", bytes))
@@ -379,9 +374,7 @@ fn abort_is_idempotent_and_commit_replay_needs_no_staging_state() {
     let root = TestRoot::new("idempotency");
     let bytes = b"committed";
     let store = store(&root);
-    store
-        .staging_open(open_request("upload-a", bytes))
-        .unwrap();
+    store.staging_open(open_request("upload-a", bytes)).unwrap();
     append(&store, "upload-a", 0, bytes);
     let first = store
         .staging_verify_commit(commit_request("upload-a", bytes))

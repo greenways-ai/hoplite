@@ -137,7 +137,8 @@ impl FilesystemBlobStore {
                 }
                 let metadata = self.read_object_metadata(&path)?;
                 match self.inspect_object_locked(metadata.digest)? {
-                    ObjectPresence::Complete(descriptor) if descriptor == metadata.descriptor() => {}
+                    ObjectPresence::Complete(descriptor) if descriptor == metadata.descriptor() => {
+                    }
                     ObjectPresence::Complete(_) => {
                         return Err(corrupt(
                             "blob-filesystem-object-metadata",
@@ -157,10 +158,7 @@ impl FilesystemBlobStore {
     }
 
     fn exclusive(&self) -> Result<OperationGuard<'_>, Error> {
-        let process = self
-            .process_lock
-            .lock()
-            .map_err(|_| Error::Poisoned)?;
+        let process = self.process_lock.lock().map_err(|_| Error::Poisoned)?;
         ensure_regular_or_missing(&self.lock_path, "blob-filesystem-lock-invalid")?;
         let file = OpenOptions::new()
             .create(true)
@@ -228,10 +226,8 @@ impl FilesystemBlobStore {
 
     fn load_staging_locked(&self, key: &StagingKey) -> Result<Option<StagingMetadata>, Error> {
         let (metadata_path, data_path) = self.staging_paths(key);
-        let metadata_exists = regular_file_exists(
-            &metadata_path,
-            "blob-filesystem-staging-metadata-invalid",
-        )?;
+        let metadata_exists =
+            regular_file_exists(&metadata_path, "blob-filesystem-staging-metadata-invalid")?;
         let data_exists = regular_file_exists(&data_path, "blob-filesystem-staging-data-invalid")?;
 
         if !metadata_exists {
@@ -280,20 +276,15 @@ impl FilesystemBlobStore {
 
     fn remove_staging_locked(&self, key: &StagingKey) -> Result<(), Error> {
         let (metadata_path, data_path) = self.staging_paths(key);
-        remove_regular_if_exists(
-            &metadata_path,
-            "blob-filesystem-staging-metadata-remove",
-        )?;
+        remove_regular_if_exists(&metadata_path, "blob-filesystem-staging-metadata-remove")?;
         remove_regular_if_exists(&data_path, "blob-filesystem-staging-data-remove")?;
         sync_directory(&self.staging_dir)
     }
 
     fn inspect_object_locked(&self, digest: Digest) -> Result<ObjectPresence, Error> {
         let (metadata_path, data_path) = self.object_paths(digest);
-        let metadata_exists = regular_file_exists(
-            &metadata_path,
-            "blob-filesystem-object-metadata-invalid",
-        )?;
+        let metadata_exists =
+            regular_file_exists(&metadata_path, "blob-filesystem-object-metadata-invalid")?;
         let data_exists = regular_file_exists(&data_path, "blob-filesystem-object-data-invalid")?;
         match (metadata_exists, data_exists) {
             (false, false) => Ok(ObjectPresence::Missing),
@@ -534,13 +525,12 @@ impl BlobStore for FilesystemBlobStore {
                 actual: request.offset,
             });
         }
-        let next = request
-            .offset
-            .checked_add(request.length as u64)
-            .ok_or(Error::ObjectLimitExceeded {
+        let next = request.offset.checked_add(request.length as u64).ok_or(
+            Error::ObjectLimitExceeded {
                 limit: metadata.expected_size,
                 actual: u64::MAX,
-            })?;
+            },
+        )?;
         if next > metadata.expected_size {
             return Err(Error::ObjectLimitExceeded {
                 limit: metadata.expected_size,
@@ -727,10 +717,11 @@ impl ResponseSource for FilesystemResponseSource {
         if output.is_empty() || self.remaining == 0 {
             return Ok(0);
         }
-        let capacity = usize::try_from(self.remaining.min(output.len() as u64))
-            .map_err(|_| Error::SourceProtocol {
+        let capacity = usize::try_from(self.remaining.min(output.len() as u64)).map_err(|_| {
+            Error::SourceProtocol {
                 detail: "response source length does not fit usize",
-            })?;
+            }
+        })?;
         let read = self
             .file
             .read(&mut output[..capacity])
@@ -1179,8 +1170,8 @@ fn hex(bytes: &[u8]) -> String {
 
 fn hash_file(path: &Path, limits: Limits) -> Result<(Digest, u64), Error> {
     ensure_regular_or_missing(path, "blob-filesystem-data-invalid")?;
-    let metadata = fs::metadata(path)
-        .map_err(|error| io_error("blob-filesystem-data-stat", error))?;
+    let metadata =
+        fs::metadata(path).map_err(|error| io_error("blob-filesystem-data-stat", error))?;
     let size = metadata.len();
     if size > limits.max_object_bytes {
         return Err(Error::ObjectLimitExceeded {
@@ -1188,8 +1179,8 @@ fn hash_file(path: &Path, limits: Limits) -> Result<(Digest, u64), Error> {
             actual: size,
         });
     }
-    let mut file = File::open(path)
-        .map_err(|error| io_error("blob-filesystem-data-open", error))?;
+    let mut file =
+        File::open(path).map_err(|error| io_error("blob-filesystem-data-open", error))?;
     let mut hasher = Sha256::new();
     let mut total = 0_u64;
     let mut buffer = vec![0_u8; IO_CHUNK_BYTES.min(limits.max_source_chunk_bytes.max(1))];
@@ -1309,15 +1300,12 @@ fn write_temporary(path: &Path, bytes: &[u8]) -> Result<(), Error> {
 
 fn temporary_path(parent: &Path) -> PathBuf {
     let id = NEXT_TEMP_FILE.fetch_add(1, Ordering::Relaxed);
-    parent.join(format!(
-        "{TEMP_PREFIX}{}-{id}.tmp",
-        std::process::id()
-    ))
+    parent.join(format!("{TEMP_PREFIX}{}-{id}.tmp", std::process::id()))
 }
 
 fn sync_directory(path: &Path) -> Result<(), Error> {
-    let directory = File::open(path)
-        .map_err(|error| io_error("blob-filesystem-directory-sync-open", error))?;
+    let directory =
+        File::open(path).map_err(|error| io_error("blob-filesystem-directory-sync-open", error))?;
     directory
         .sync_all()
         .map_err(|error| io_error("blob-filesystem-directory-sync", error))
