@@ -253,9 +253,7 @@ impl CompareAndSwap {
     ) -> Result<Self, StoreError> {
         validate_revision(expected_revision)?;
         validate_revision(revision)?;
-        if expected_revision == MAX_REVISION
-            || revision != expected_revision.saturating_add(1)
-        {
+        if expected_revision == MAX_REVISION || revision != expected_revision.saturating_add(1) {
             return Err(StoreError::InvalidRevisionStep {
                 expected: expected_revision,
                 revision,
@@ -411,9 +409,9 @@ impl fmt::Display for StoreError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidLimits(message) => write!(formatter, "invalid store limits: {message}"),
-            Self::InvalidDigest => formatter.write_str(
-                "digest must use canonical lowercase sha256:<64 hex digits>",
-            ),
+            Self::InvalidDigest => {
+                formatter.write_str("digest must use canonical lowercase sha256:<64 hex digits>")
+            }
             Self::EmptySpan(kind) => write!(formatter, "canonical {kind} span must not be empty"),
             Self::SpanLimitExceeded {
                 kind,
@@ -549,10 +547,7 @@ impl OpaqueValueStore for InMemoryStore {
 
         if let Some(commit) = state.commits.get(&request.receipt_key) {
             if commit.matches(&request) {
-                return Ok(CommitReceipt::from_commit(
-                    ApplyStatus::Replayed,
-                    commit,
-                ));
+                return Ok(CommitReceipt::from_commit(ApplyStatus::Replayed, commit));
             }
             return Err(StoreError::ReceiptCollision {
                 receipt_key: request.receipt_key,
@@ -616,9 +611,7 @@ mod tests {
             let mut digest = [0_u8; 32];
             for (index, byte) in canonical_bytes.iter().copied().enumerate() {
                 let slot = index % digest.len();
-                digest[slot] = digest[slot]
-                    .wrapping_add(byte)
-                    .wrapping_add(index as u8);
+                digest[slot] = digest[slot].wrapping_add(byte).wrapping_add(index as u8);
             }
             digest[31] ^= canonical_bytes.len() as u8;
             digest
@@ -683,12 +676,11 @@ mod tests {
             Digest::parse(&encoded.to_ascii_uppercase()),
             Err(StoreError::InvalidDigest)
         );
+        assert_eq!(Digest::parse("sha256:abc"), Err(StoreError::InvalidDigest));
         assert_eq!(
-            Digest::parse("sha256:abc"),
-            Err(StoreError::InvalidDigest)
-        );
-        assert_eq!(
-            Digest::parse("blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            Digest::parse(
+                "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            ),
             Err(StoreError::InvalidDigest)
         );
     }
@@ -856,13 +848,7 @@ mod tests {
                 actual: 1,
             })
         );
-        let collision = request(
-            0,
-            1,
-            b"substituted-state",
-            b"shared-key",
-            b"receipt-1",
-        );
+        let collision = request(0, 1, b"substituted-state", b"shared-key", b"receipt-1");
         assert_eq!(
             store.compare_and_swap(collision),
             Err(StoreError::ReceiptCollision {
@@ -945,19 +931,10 @@ mod tests {
             .expect("fault must be installed");
 
         assert!(matches!(
-            store.compare_and_swap(request(
-                0,
-                1,
-                b"stale",
-                b"stale-plan",
-                b"stale-receipt",
-            )),
+            store.compare_and_swap(request(0, 1, b"stale", b"stale-plan", b"stale-receipt",)),
             Err(StoreError::StaleRevision { .. })
         ));
-        assert_eq!(
-            store.pending_fault(),
-            Ok(Some(FaultPoint::BeforeCommit))
-        );
+        assert_eq!(store.pending_fault(), Ok(Some(FaultPoint::BeforeCommit)));
     }
 
     #[test]
@@ -972,9 +949,7 @@ mod tests {
             .expect("store must initialize");
         let update = request(0, 1, next_bytes, b"nested-plan", receipt_bytes);
         let key = update.receipt_key();
-        store
-            .compare_and_swap(update)
-            .expect("update must apply");
+        store.compare_and_swap(update).expect("update must apply");
 
         assert_eq!(
             store
@@ -1006,13 +981,7 @@ mod tests {
         let first = Arc::clone(&store);
         let second = Arc::clone(&store);
         let left = std::thread::spawn(move || {
-            first.compare_and_swap(request(
-                0,
-                1,
-                b"left-state",
-                b"left-plan",
-                b"left-receipt",
-            ))
+            first.compare_and_swap(request(0, 1, b"left-state", b"left-plan", b"left-receipt"))
         });
         let right = std::thread::spawn(move || {
             second.compare_and_swap(request(
