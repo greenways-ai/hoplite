@@ -11,6 +11,7 @@ crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 hoplite-blob-store = { path = "../blob-store" }
+hoplite-blob-store-filesystem = { path = "../blob-store-filesystem" }
 hoplite-blob-store-provider = { path = "../blob-store-provider" }
 sha2 = "0.10"
 
