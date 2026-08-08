@@ -33,21 +33,16 @@ jobs:
 
           path = Path("core/abi/blob-store-filesystem/src/lib.rs")
           source = path.read_text()
-          old = '''        let data = OpenOptions::new()
-              .create_new(true)
-              .read(true)
-              .write(true)
-              .open(data_path)
-          '''
-          new = '''        let data = OpenOptions::new()
-              .create_new(true)
-              .read(true)
-              .write(true)
-              .open(&data_path)
-          '''
-          if source.count(old) != 1:
-              raise SystemExit("expected one staging-create path ownership site")
-          path.write_text(source.replace(old, new))
+          marker = 'io_error("blob-filesystem-staging-create", error)'
+          marker_at = source.index(marker)
+          open_at = source.rfind(".open(data_path)", 0, marker_at)
+          if open_at < 0:
+              raise SystemExit("expected the staging-create owned path open")
+          prior = source.rfind(".open(data_path)", 0, open_at)
+          if prior >= 0 and prior > marker_at - 500:
+              raise SystemExit("staging-create ownership selection is ambiguous")
+          source = source[:open_at] + ".open(&data_path)" + source[open_at + len(".open(data_path)"):]
+          path.write_text(source)
           PY
           cargo fmt \
             --manifest-path core/abi/blob-store-filesystem/Cargo.toml \
