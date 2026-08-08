@@ -5,6 +5,7 @@
 #include "hoplite_hta.h"
 #include "hoplite_host_provider.h"
 #include "hoplite_runtime.h"
+#include "hoplite_value_store_host_provider.h"
 
 typedef struct {
     ngx_str_t bootstrap;
@@ -1446,6 +1447,7 @@ static ngx_int_t
 ngx_http_hoplite_init_process(ngx_cycle_t *cycle)
 {
     ngx_http_hoplite_main_conf_t *conf;
+    int32_t value_store_status;
 
     ngx_queue_init(&ngx_http_hoplite_requests);
     ngx_http_hoplite_queue_ready = 1;
@@ -1455,6 +1457,12 @@ ngx_http_hoplite_init_process(ngx_cycle_t *cycle)
     {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
                       "hoplite native host providers could not be registered");
+        return NGX_ERROR;
+    }
+    value_store_status = hoplite_value_store_host_provider_init_process_v1();
+    if (value_store_status == HOPLITE_VALUE_STORE_HOST_PROVIDER_ERROR) {
+        ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
+                      "hoplite hara.store provider could not be initialized");
         return NGX_ERROR;
     }
     ngx_http_hoplite_runtime = hoplite_runtime_new();
@@ -1495,6 +1503,7 @@ ngx_http_hoplite_exit_process(ngx_cycle_t *cycle)
         hoplite_runtime_free(ngx_http_hoplite_runtime);
         ngx_http_hoplite_runtime = NULL;
     }
+    hoplite_value_store_host_provider_exit_process_v1();
     ngx_http_hoplite_queue_ready = 0;
 }
 
@@ -1597,7 +1606,6 @@ ngx_http_hoplite_content(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             return "adapter must be raw, request, or request+hta";
         }
     }
-
     core = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
     core->handler = ngx_http_hoplite_handler;
     return NGX_CONF_OK;

@@ -23,6 +23,9 @@ COPY --from=builder /src/hoplite/core/target/release/hoplite-server /usr/local/b
 COPY --from=builder --chown=hoplite:hoplite /app /app
 USER hoplite
 ENV HOPLITE_SERVER_CACHE=/var/lib/hoplite/cache \
+    HOPLITE_HARA_STORE_PATH=/var/lib/hoplite/hara-store.sqlite \
+    HOPLITE_HARA_STORE_MAX_VALUE_BYTES=8388608 \
+    HOPLITE_HARA_STORE_MAX_RECEIPT_BYTES=1048576 \
     HOPLITE_WORKERS=auto
 VOLUME ["/var/lib/hoplite"]
 EXPOSE 8080
