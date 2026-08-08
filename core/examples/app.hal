@@ -1,6 +1,5 @@
 (ns hoplite.app
-  (:require [hoplite.core :as h]
-            [std.foundation.host :as foundation-host]))
+  (:require [hoplite.core :as h]))
 
 ;; This example is also the production-image conformance surface for request
 ;; bodies, registered host providers, and bounded response-source streaming.
@@ -89,44 +88,44 @@
      source-handle
      (do
        (std.foundation.coroutine/await
-        (foundation-host/call
+        (std.native.Host/call
          "hara.blob"
          "staging/open"
-         {:protocol "hara.blob-request/1"
-          :operation "staging/open"
-          :staging-key response-source-fixture-staging-key
-          :expected-digest response-source-fixture-digest
-          :expected-size response-source-fixture-length
-          :media-type "application/octet-stream"}))
+         [{:protocol "hara.blob-request/1"
+           :operation "staging/open"
+           :staging-key response-source-fixture-staging-key
+           :expected-digest response-source-fixture-digest
+           :expected-size response-source-fixture-length
+           :media-type "application/octet-stream"}]))
        (std.foundation.coroutine/await
-        (foundation-host/call
+        (std.native.Host/call
          "hara.blob"
          "staging/append-from-source"
-         {:protocol "hara.blob-request/1"
-          :operation "staging/append-from-source"
-          :staging-key response-source-fixture-staging-key
-          :offset 0
-          :length response-source-fixture-length
-          :source-handle source-handle}))
+         [{:protocol "hara.blob-request/1"
+           :operation "staging/append-from-source"
+           :staging-key response-source-fixture-staging-key
+           :offset 0
+           :length response-source-fixture-length
+           :source-handle source-handle}]))
        (std.foundation.coroutine/await
-        (foundation-host/call
+        (std.native.Host/call
          "hara.blob"
          "staging/verify-commit"
-         {:protocol "hara.blob-request/1"
-          :operation "staging/verify-commit"
-          :staging-key response-source-fixture-staging-key
-          :expected-digest response-source-fixture-digest
-          :expected-size response-source-fixture-length}))
+         [{:protocol "hara.blob-request/1"
+           :operation "staging/verify-commit"
+           :staging-key response-source-fixture-staging-key
+           :expected-digest response-source-fixture-digest
+           :expected-size response-source-fixture-length}]))
        (let [opened
              (std.foundation.coroutine/await
-              (foundation-host/call
+              (std.native.Host/call
                "hara.blob"
                "object/open-source"
-               {:protocol "hara.blob-request/1"
-                :operation "object/open-source"
-                :digest response-source-fixture-digest
-                :offset 0
-                :length response-source-fixture-length}))]
+               [{:protocol "hara.blob-request/1"
+                 :operation "object/open-source"
+                 :digest response-source-fixture-digest
+                 :offset 0
+                 :length response-source-fixture-length}]))]
          (source-response opened)))
      {:status 400
       :headers {"content-type" "text/plain; charset=utf-8"}
@@ -136,14 +135,14 @@
   [request]
   (let [opened
         (std.foundation.coroutine/await
-         (foundation-host/call
+         (std.native.Host/call
           "hara.blob"
           "object/open-source"
-          {:protocol "hara.blob-request/1"
-           :operation "object/open-source"
-           :digest response-source-fixture-digest
-           :offset 0
-           :length response-source-fixture-length}))]
+          [{:protocol "hara.blob-request/1"
+            :operation "object/open-source"
+            :digest response-source-fixture-digest
+            :offset 0
+            :length response-source-fixture-length}]))]
     (source-response opened)))
 
 (defn ^:async invalid-response-source
