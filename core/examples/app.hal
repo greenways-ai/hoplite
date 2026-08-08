@@ -1,7 +1,6 @@
 (ns hoplite.app
   (:require [hoplite.core :as h]
-            [std.foundation.host :as foundation-host]
-            [std.foundation.response-source :as response-source]))
+            [std.foundation.host :as foundation-host]))
 
 ;; This example is also the production-image conformance surface for request
 ;; bodies, registered host providers, and bounded response-source streaming.
@@ -14,6 +13,13 @@
 
 (def response-source-fixture-staging-key
   "hoplite-response-source-fixture")
+
+(defn response-source-descriptor
+  [source-handle offset length]
+  {:protocol "hara.response-source/1"
+   :source-handle source-handle
+   :offset offset
+   :length length})
 
 (defn hello
   [request]
@@ -71,7 +77,7 @@
              "content-length" "1"
              "x-hoplite-source" "true"}
    :body
-   (response-source/response-source
+   (response-source-descriptor
     (get opened :source-handle)
     (get opened :offset)
     (get opened :length))})
@@ -156,7 +162,7 @@
   (std.foundation.coroutine/await
    (std.native.Host/call "nginx" "sleep" [1]))
   {:status 200
-   :body (response-source/response-source
+   :body (response-source-descriptor
           9007199254740991
           0
           1)})
