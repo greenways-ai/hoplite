@@ -28,77 +28,60 @@ jobs:
         with:
           toolchain: 1.78.0
           components: rustfmt,clippy
-      - name: Materialize the SQLite crate and lockfile
+      - name: Materialize stale-writer ordering
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          lib = Path("core/abi/value-store-sqlite/src/lib.rs")
-          source = lib.read_text()
-          replacements = {
-              "commit.value != *snapshot.value()": "&commit.value != snapshot.value()",
-              "self.value == *request.value()": "&self.value == request.value()",
-              "self.receipt == *request.receipt()": "&self.receipt == request.receipt()",
-              "use std::path::{Path, PathBuf};": "use std::fmt;\nuse std::path::{Path, PathBuf};",
-          }
-          for old, new in replacements.items():
-              if source.count(old) != 1:
-                  raise SystemExit(f"expected one SQLite implementation occurrence: {old}")
-              source = source.replace(old, new)
-
-          marker = '''pub struct SqliteValueStore {
-              path: PathBuf,
-              connection: Mutex<Connection>,
-              limits: StoreLimits,
+          path = Path("core/abi/value-store-sqlite/src/lib.rs")
+          source = path.read_text()
+          old = '''        if let Some(existing_key) = load_receipt_key_by_revision(&transaction, request.revision())?
+          {
+              return Err(StoreError::driver(
+                  "sqlite-revision-receipt-collision",
+                  format!(
+                      "revision {} is already bound to receipt key {existing_key}",
+                      request.revision()
+                  ),
+              ));
           }
 
-          impl SqliteValueStore {
+          let current = load_snapshot(&transaction, self.limits)?.ok_or(StoreError::Uninitialized)?;
+          if current.revision() != request.expected_revision() {
+              return Err(StoreError::StaleRevision {
+                  expected: request.expected_revision(),
+                  actual: current.revision(),
+              });
+          }
           '''
-          replacement = '''pub struct SqliteValueStore {
-              path: PathBuf,
-              connection: Mutex<Connection>,
-              limits: StoreLimits,
+          new = '''        let current = load_snapshot(&transaction, self.limits)?.ok_or(StoreError::Uninitialized)?;
+          if current.revision() != request.expected_revision() {
+              return Err(StoreError::StaleRevision {
+                  expected: request.expected_revision(),
+                  actual: current.revision(),
+              });
           }
 
-          impl fmt::Debug for SqliteValueStore {
-              fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                  formatter
-                      .debug_struct("SqliteValueStore")
-                      .field("path", &self.path)
-                      .field("limits", &self.limits)
-                      .finish_non_exhaustive()
-              }
+          if let Some(existing_key) = load_receipt_key_by_revision(&transaction, request.revision())?
+          {
+              return Err(StoreError::driver(
+                  "sqlite-revision-receipt-collision",
+                  format!(
+                      "revision {} is already bound to receipt key {existing_key}",
+                      request.revision()
+                  ),
+              ));
           }
-
-          impl SqliteValueStore {
           '''
-          if source.count(marker) != 1:
-              raise SystemExit("expected one SQLite store Debug insertion point")
-          source = source.replace(marker, replacement)
-          lib.write_text(source)
-
-          tests = Path("core/abi/value-store-sqlite/src/tests.rs")
-          source = tests.read_text()
-          old = "VALUES (?1, 0, 2, ?2, ?3, ?4)"
-          new = "VALUES (?1, 0, 1, ?2, ?3, ?4)"
           if source.count(old) != 1:
-              raise SystemExit("expected one duplicate receipt revision fixture")
-          source = source.replace(old, new)
-          source = source.replace(
-              'expect_err("schema must reject a non-contiguous stored revision")',
-              'expect_err("schema must reject a duplicate stored revision")',
-          )
-          tests.write_text(source)
+              raise SystemExit("expected one SQLite stale-writer ordering block")
+          path.write_text(source.replace(old, new))
           PY
-          cargo generate-lockfile --manifest-path core/abi/value-store-sqlite/Cargo.toml
           cargo fmt --manifest-path core/abi/value-store-sqlite/Cargo.toml --all
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add core/abi/value-store-sqlite
-          if git diff --cached --quiet; then
-            exit 0
-          fi
-          git commit -m "Materialize the generic SQLite value-store crate"
+          git add core/abi/value-store-sqlite/src/lib.rs
+          git commit -m "Report stale SQLite writers before revision collisions"
           git push
       - name: Check foundation formatting
         run: cargo fmt --manifest-path core/abi/value-store/Cargo.toml --all -- --check
