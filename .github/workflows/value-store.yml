@@ -39,16 +39,46 @@ jobs:
               "commit.value != *snapshot.value()": "&commit.value != snapshot.value()",
               "self.value == *request.value()": "&self.value == request.value()",
               "self.receipt == *request.receipt()": "&self.receipt == request.receipt()",
+              "use std::path::{Path, PathBuf};": "use std::fmt;\nuse std::path::{Path, PathBuf};",
           }
           for old, new in replacements.items():
               if source.count(old) != 1:
                   raise SystemExit(f"expected one SQLite implementation occurrence: {old}")
               source = source.replace(old, new)
+
+          marker = '''pub struct SqliteValueStore {
+              path: PathBuf,
+              connection: Mutex<Connection>,
+              limits: StoreLimits,
+          }
+
+          impl SqliteValueStore {
+          '''
+          replacement = '''pub struct SqliteValueStore {
+              path: PathBuf,
+              connection: Mutex<Connection>,
+              limits: StoreLimits,
+          }
+
+          impl fmt::Debug for SqliteValueStore {
+              fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                  formatter
+                      .debug_struct("SqliteValueStore")
+                      .field("path", &self.path)
+                      .field("limits", &self.limits)
+                      .finish_non_exhaustive()
+              }
+          }
+
+          impl SqliteValueStore {
+          '''
+          if source.count(marker) != 1:
+              raise SystemExit("expected one SQLite store Debug insertion point")
+          source = source.replace(marker, replacement)
           lib.write_text(source)
 
           tests = Path("core/abi/value-store-sqlite/src/tests.rs")
           source = tests.read_text()
-
           old = "VALUES (?1, 0, 2, ?2, ?3, ?4)"
           new = "VALUES (?1, 0, 1, ?2, ?3, ?4)"
           if source.count(old) != 1:
@@ -58,26 +88,6 @@ jobs:
               'expect_err("schema must reject a non-contiguous stored revision")',
               'expect_err("schema must reject a duplicate stored revision")',
           )
-
-          old = '''let error = SqliteValueStore::open(database.path(), limits())
-              .expect_err("unsupported schema must be rejected");'''
-          new = '''let error = match SqliteValueStore::open(database.path(), limits()) {
-              Ok(_) => panic!("unsupported schema must be rejected"),
-              Err(error) => error,
-          };'''
-          if source.count(old) != 1:
-              raise SystemExit("expected one unsupported schema assertion")
-          source = source.replace(old, new)
-
-          old = '''let error = SqliteValueStore::open(database.path(), limits())
-              .expect_err("orphan receipts must fail verification");'''
-          new = '''let error = match SqliteValueStore::open(database.path(), limits()) {
-              Ok(_) => panic!("orphan receipts must fail verification"),
-              Err(error) => error,
-          };'''
-          if source.count(old) != 1:
-              raise SystemExit("expected one orphan receipt assertion")
-          source = source.replace(old, new)
           tests.write_text(source)
           PY
           cargo generate-lockfile --manifest-path core/abi/value-store-sqlite/Cargo.toml
