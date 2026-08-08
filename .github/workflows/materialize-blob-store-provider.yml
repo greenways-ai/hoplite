@@ -1,0 +1,46 @@
+name: Materialize hara.blob provider adapter
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/materialize-blob-store-provider.yml"
+      - "core/abi/blob-store/**"
+      - "core/abi/blob-store-provider/**"
+      - "core/abi/provider-hta/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: blob-store-provider-materialize-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.78.0
+          components: rustfmt,clippy
+      - name: Format and verify adapter source
+        run: |
+          cargo fmt --manifest-path core/abi/blob-store-provider/Cargo.toml --all
+          cargo clippy --manifest-path core/abi/blob-store-provider/Cargo.toml --all-targets --locked -- -D warnings
+          cargo test --manifest-path core/abi/blob-store-provider/Cargo.toml --all-targets --locked
+      - name: Commit materialized source
+        run: |
+          if git diff --quiet -- core/abi/blob-store-provider; then
+            echo "hara.blob adapter source is already materialized."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add core/abi/blob-store-provider
+          git commit -m "Materialize the hara.blob protocol adapter"
+          git push
