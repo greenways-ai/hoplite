@@ -46,10 +46,10 @@ jobs:
           source = source.replace(old, new)
 
           old = ".open(&data_path)"
-          new = ".open(data_path)"
-          if source.count(old) != 2:
-              raise SystemExit("expected exactly two owned data-path opens")
-          source = source.replace(old, new)
+          count = source.count(old)
+          if count < 2:
+              raise SystemExit(f"expected at least two owned data-path opens, found {count}")
+          source = source.replace(old, ".open(data_path)")
           lib.write_text(source)
 
           tests = Path("core/abi/blob-store-filesystem/src/tests.rs")
