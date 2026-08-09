@@ -194,15 +194,15 @@ fn malformed_unknown_and_wrong_signatures_have_stable_failures() {
 fn freshness_and_key_lifecycle_are_host_enforced() {
     let key = signing_key(7);
     let mut signature = String::new();
-    let mut provider = provider(&key, "application", KeyWindow::default());
+    let mut freshness_provider = provider(&key, "application", KeyWindow::default());
     assert_eq!(
-        provider
+        freshness_provider
             .authenticate(&sign(&key, NOW - 301, "key.device-a", &mut signature))
             .unwrap_err(),
         SignedDeviceError::StaleTimestamp
     );
     assert_eq!(
-        provider
+        freshness_provider
             .authenticate(&sign(&key, NOW + 31, "key.device-a", &mut signature))
             .unwrap_err(),
         SignedDeviceError::FutureTimestamp
