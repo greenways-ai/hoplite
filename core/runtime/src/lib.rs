@@ -4,6 +4,7 @@ use hara_wasm::{core, hta, kernel, vm};
 use hoplite_data_plane_abi::{BodyLimits, ResourceHandle};
 use hoplite_data_plane_ffi::HopliteRequestBodyV1;
 use hoplite_data_plane_registry::ResourceRegistry;
+use hoplite_signed_device_worker::{IngressError, ProjectedIdentity, RoutePolicy, WorkerIngress};
 
 use core::{Promise, PromiseRejection, PromiseState, Value};
 use std::cell::RefCell;
@@ -51,11 +52,13 @@ impl RouteAdapter {
     }
 }
 
+#[derive(Clone)]
 struct AppRoute {
     method: String,
     path: String,
     handler: HandlerId,
     adapter: RouteAdapter,
+    authentication: Option<RoutePolicy>,
 }
 
 struct AppRouter {
@@ -127,10 +130,11 @@ pub struct HopliteOutcomeV2 {
     pub id: u64,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct RequestRecord {
     request: HopliteRequestV2,
     body: Option<ResourceHandle>,
+    identity: Option<Value>,
 }
 
 struct NativeResponse {
@@ -174,6 +178,7 @@ pub struct HopliteRuntime {
     resources: Rc<RefCell<ResourceRegistry>>,
     raw_builders: Rc<RefCell<HashMap<RequestId, RawBuilder>>>,
     responses: HashMap<ResponseId, NativeResponse>,
+    signed_ingress: Option<WorkerIngress>,
     host: Rc<dyn Fn(String, String, Vec<Value>) -> Result<Value, String>>,
     host_pending: Rc<RefCell<Vec<HostCall>>>,
     host_next: Rc<RefCell<u64>>,
@@ -211,7 +216,7 @@ fn request_record(
     requests
         .borrow()
         .get(&request)
-        .copied()
+        .cloned()
         .ok_or_else(|| "hoplite/request-closed: request scope has ended".into())
 }
 
@@ -259,7 +264,7 @@ fn request_entries(
     request: RequestId,
 ) -> Result<Vec<(Value, Value)>, String> {
     let record = request_record(requests, request)?;
-    let headers = request_headers(record)?
+    let headers = request_headers(record.clone())?
         .into_iter()
         .map(|(name, value)| (Value::String(name), Value::String(value)))
         .collect();
@@ -286,8 +291,11 @@ fn request_entries(
         ),
         (Value::Keyword("headers".into()), Value::Map(headers)),
     ];
-    if let Some(body) = request_body_value(record)? {
+    if let Some(body) = request_body_value(record.clone())? {
         entries.push((Value::Keyword("body-handle".into()), body));
+    }
+    if let Some(identity) = record.identity {
+        entries.push((Value::Keyword("identity".into()), identity));
     }
     Ok(entries)
 }
@@ -334,7 +342,8 @@ fn request_lookup(
         "query-string" => Some(Value::String(slice_string(record.request.query_string)?)),
         "remote-address" => Some(Value::String(slice_string(record.request.remote_address)?)),
         "headers" => Some(request_value(requests, receiver.handle, "headers")?),
-        "body-handle" => request_body_value(record)?,
+        "body-handle" => request_body_value(record.clone())?,
+        "identity" => record.identity,
         _ => None,
     })
 }
@@ -395,6 +404,111 @@ fn response_headers_owned(value: Option<Value>) -> Result<Vec<(String, String)>,
             Ok((key, value))
         })
         .collect()
+}
+
+fn projected_identity_value(identity: ProjectedIdentity) -> Value {
+    let claims = identity
+        .claims()
+        .iter()
+        .map(|(name, value)| (Value::String(name.clone()), Value::String(value.clone())))
+        .collect();
+    Value::Map(
+        vec![
+            (
+                Value::Keyword("profile".into()),
+                Value::String(identity.profile().into()),
+            ),
+            (
+                Value::Keyword("subject".into()),
+                Value::String(identity.subject().into()),
+            ),
+            (
+                Value::Keyword("realm".into()),
+                Value::String(identity.realm().into()),
+            ),
+            (
+                Value::Keyword("device-id".into()),
+                Value::String(identity.device_id().into()),
+            ),
+            (
+                Value::Keyword("key-id".into()),
+                Value::String(identity.key_id().into()),
+            ),
+            (
+                Value::Keyword("application".into()),
+                Value::String(identity.application_id().into()),
+            ),
+            (
+                Value::Keyword("application-version".into()),
+                Value::String(identity.application_version().into()),
+            ),
+            (
+                Value::Keyword("publisher".into()),
+                Value::String(identity.publisher().into()),
+            ),
+            (
+                Value::Keyword("lock-digest".into()),
+                Value::String(identity.lock_digest().into()),
+            ),
+            (
+                Value::Keyword("namespace".into()),
+                Value::String(identity.namespace().into()),
+            ),
+            (
+                Value::Keyword("collection".into()),
+                Value::String(identity.collection().into()),
+            ),
+            (
+                Value::Keyword("operation".into()),
+                Value::String(identity.operation().into()),
+            ),
+            (
+                Value::Keyword("content-digest".into()),
+                Value::String(identity.content_digest().into()),
+            ),
+            (
+                Value::Keyword("timestamp".into()),
+                Value::Number(identity.timestamp()),
+            ),
+            (
+                Value::Keyword("replay-status".into()),
+                Value::String(identity.replay_status().into()),
+            ),
+            (
+                Value::Keyword("request-fingerprint".into()),
+                Value::String(identity.request_fingerprint().into()),
+            ),
+            (
+                Value::Keyword("admitted-at".into()),
+                Value::Number(identity.admitted_at()),
+            ),
+            (Value::Keyword("claims".into()), Value::Map(claims)),
+        ]
+        .into_iter()
+        .collect(),
+    )
+}
+
+fn signed_error_response(error: Option<&IngressError>) -> NativeResponse {
+    let (status, code, body) = match error {
+        Some(error) if error.status() == 409 => (409, error.code(), "Conflict\n"),
+        Some(error) if error.status() == 503 => (503, error.code(), "Service Unavailable\n"),
+        Some(error) => (401, error.code(), "Unauthorized\n"),
+        None => (
+            503,
+            "signed-device-worker/unavailable",
+            "Service Unavailable\n",
+        ),
+    };
+    NativeResponse {
+        status,
+        headers: vec![
+            ("content-type".into(), "text/plain; charset=utf-8".into()),
+            ("cache-control".into(), "no-store".into()),
+            ("x-hoplite-error".into(), code.into()),
+        ],
+        body: body.as_bytes().to_vec(),
+    }
 }
 
 fn native_response(value: Value) -> Result<NativeResponse, String> {
@@ -718,6 +832,7 @@ impl HopliteRuntime {
             resources,
             raw_builders,
             responses: HashMap::new(),
+            signed_ingress: None,
             host,
             host_pending,
             host_next,
@@ -797,9 +912,14 @@ impl HopliteRuntime {
     ) -> RequestId {
         let id = self.next_request;
         self.next_request = self.next_request.saturating_add(1);
-        self.requests
-            .borrow_mut()
-            .insert(id, RequestRecord { request, body });
+        self.requests.borrow_mut().insert(
+            id,
+            RequestRecord {
+                request,
+                body,
+                identity: None,
+            },
+        );
         id
     }
 
@@ -907,13 +1027,42 @@ impl HopliteRuntime {
                 .filter(|route| route.method == "ANY" || route.method == method)
                 .filter_map(|route| route_score(&route.path, &path).map(|score| (score, route)))
                 .max_by_key(|(score, _)| *score)
-                .map(|(_, route)| (route.handler, route.adapter));
-            let Some((handler, adapter)) = route else {
+                .map(|(_, route)| (route.handler, route.adapter, route.authentication.clone()));
+            let Some((handler, adapter, authentication)) = route else {
                 self.close_request(request_id);
                 return Ok(InvokeState::Complete(self.store_response(native_response(
                     response_value(404, "Not Found\n"),
                 )?)));
             };
+
+            if let Some(authentication) = authentication {
+                let target = slice_string(request.uri)?;
+                let headers = request_headers(request_record(&self.requests, request_id)?)?;
+                let identity_result = self.signed_ingress.as_mut().map(|ingress| {
+                    ingress.authenticate(&method, &target, &headers, &authentication)
+                });
+                let identity = match identity_result {
+                    Some(Ok(identity)) => identity,
+                    Some(Err(error)) => {
+                        self.close_request(request_id);
+                        return Ok(InvokeState::Complete(
+                            self.store_response(signed_error_response(Some(&error))),
+                        ));
+                    }
+                    None => {
+                        self.close_request(request_id);
+                        return Ok(InvokeState::Complete(
+                            self.store_response(signed_error_response(None)),
+                        ));
+                    }
+                };
+                let mut requests = self.requests.borrow_mut();
+                let Some(record) = requests.get_mut(&request_id) else {
+                    return Err("hoplite/request-closed: request scope has ended".into());
+                };
+                record.identity = Some(projected_identity_value(identity));
+                drop(requests);
+            }
 
             match adapter {
                 RouteAdapter::Raw => {
@@ -1130,10 +1279,12 @@ impl HopliteRuntime {
     }
 
     fn apps_prepare(&mut self, manifest: Value) -> Result<(), String> {
-        let legacy = map_optional_number(&manifest, "format").is_none();
-        if !legacy && map_optional_number(&manifest, "format") != Some(2) {
+        let format = map_optional_number(&manifest, "format").unwrap_or(1);
+        if !matches!(format, 1 | 2 | 3) {
             return Err("unsupported Hoplite app manifest format".into());
         }
+        let legacy = format == 1;
+        let mut requires_signed_ingress = false;
         let mut apps = HashMap::new();
         for app in map_sequence(&manifest, "apps")? {
             let id = map_number(&app, "id")? as u64;
@@ -1143,18 +1294,53 @@ impl HopliteRuntime {
                 let path = map_string(&route, "path")?;
                 let function = map_string(&route, "handler")?;
                 let adapter = RouteAdapter::parse(map_optional_string(&route, "adapter"), legacy)?;
+                let authentication = match map_value(&route, "auth") {
+                    None => None,
+                    Some(auth) if format == 3 => {
+                        if map_string(&auth, "profile")?
+                            != hoplite_data_plane_abi::SIGNED_DEVICE_PROFILE
+                        {
+                            return Err("unsupported signed route profile".into());
+                        }
+                        let policy = RoutePolicy::new(
+                            map_string(&auth, "operation")?,
+                            map_string(&auth, "application")?,
+                            map_string(&auth, "namespace")?,
+                            map_string(&auth, "collection")?,
+                        )
+                        .map_err(|error| {
+                            format!("invalid signed route policy: {}", error.code())
+                        })?;
+                        requires_signed_ingress = true;
+                        Some(policy)
+                    }
+                    Some(_) => {
+                        return Err("signed route authentication requires manifest format 3".into())
+                    }
+                };
                 let handler = self.handler_prepare(&function)?;
                 routes.push(AppRoute {
                     method,
                     path,
                     handler,
                     adapter,
+                    authentication,
                 });
             }
             if apps.insert(id, AppRouter { routes }).is_some() {
                 return Err(format!("duplicate app id {id}"));
             }
         }
+        self.signed_ingress = if requires_signed_ingress {
+            Some(WorkerIngress::from_environment().map_err(|error| {
+                format!(
+                    "signed-device worker initialization failed: {}",
+                    error.code()
+                )
+            })?)
+        } else {
+            None
+        };
         self.apps = apps;
         Ok(())
     }
@@ -1172,9 +1358,9 @@ impl HopliteRuntime {
             .routes
             .iter()
             .filter(|route| route.method == "ANY" || route.method == method)
-            .filter_map(|route| route_score(&route.path, &path).map(|score| (score, route.handler)))
+            .filter_map(|route| route_score(&route.path, &path).map(|score| (score, route)))
             .max_by_key(|(score, _)| *score)
-            .map(|(_, handler)| handler);
+            .and_then(|(_, route)| route.authentication.is_none().then_some(route.handler));
         match handler {
             Some(handler) => self.work_call(handler, request),
             None => Ok(self.start_value(response_value(404, "Not Found\n"))),

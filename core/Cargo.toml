@@ -16,6 +16,7 @@ members = [
   "abi/data-plane-registry",
   "abi/signed-device-ed25519",
   "abi/signed-device-replay",
+  "abi/signed-device-worker",
   "runtime",
 ]
 default-members = ["."]
@@ -30,6 +31,7 @@ embedded-nginx = []
 base64 = "0.22"
 hara-wasm = { path = "../../hara/core/rust", features = ["bytecode-vm"] }
 hoplite-auth-store-abi = { path = "abi/auth-store" }
+hoplite-signed-device-worker = { path = "abi/signed-device-worker" }
 hoplite-store-sqlite = { git = "https://github.com/greenways-ai/hoplite-store-sqlite", rev = "6ef90070e0fa7ffbc2f2dbcb9832d4f2b14ac29b" }
 rustyline = "14.0.0"
 home = "=0.5.9"
