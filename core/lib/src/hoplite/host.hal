@@ -6,6 +6,18 @@
 (defn hash [algorithm value]
   (std.native.Host/call "hoplite.host" "hash" [algorithm value]))
 
+(defn base64url-decode [value]
+  (std.native.Host/call "hoplite.host" "base64url-decode" [value]))
+
+(defn hex-decode [value]
+  (std.native.Host/call "hoplite.host" "hex-decode" [value]))
+
+(defn hex-encode [value]
+  (std.native.Host/call "hoplite.host" "hex-encode" [value]))
+
+(defn p256-jwk-sec1 [value]
+  (std.native.Host/call "hoplite.host" "p256-jwk-sec1" [value]))
+
 (defn verify-signature [algorithm public-key message signature]
   (std.native.Host/call "hoplite.host"
                         "verify-signature"
