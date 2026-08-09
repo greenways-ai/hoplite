@@ -95,7 +95,10 @@ fn response_streams_a_range_without_materializing_the_full_body() {
     let mut response = StreamResponse::new(source, Some("bytes=3-7")).unwrap();
     assert_eq!(response.plan().status, 206);
     assert_eq!(response.plan().content_length, 5);
-    assert_eq!(response.plan().content_range.as_deref(), Some("bytes 3-7/10"));
+    assert_eq!(
+        response.plan().content_range.as_deref(),
+        Some("bytes 3-7/10")
+    );
     let mut output = [0_u8; 2];
     let mut collected = Vec::new();
     loop {
@@ -114,8 +117,7 @@ fn request<'a>(target: &'a str, signature: &'a str) -> SignedDeviceRequest<'a> {
         method: "PUT",
         target,
         authority: "tahto.local",
-        content_digest:
-            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        content_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         operation: "object.upload",
         application: "app.example",
         namespace: "profile.primary",
@@ -133,8 +135,7 @@ fn expectation<'a>(target: &'a str) -> ApplicationRequestExpectation<'a> {
         method: "PUT",
         target,
         authority: "tahto.local",
-        content_digest:
-            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        content_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         operation: "object.upload",
         application: "app.example",
         namespace: "profile.primary",
@@ -226,8 +227,7 @@ fn application_principal(realm: &str) -> SignedDevicePrincipal {
             ("application/publisher".into(), "greenways.example".into()),
             (
                 "application/lock-digest".into(),
-                "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-                    .into(),
+                "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
             ),
             ("application/namespace".into(), "profile.primary".into()),
             ("application/collection".into(), "objects".into()),
@@ -318,9 +318,7 @@ fn trusted_request_mismatch_fails_before_signature_provider_access() {
     assert_eq!(provider.calls, 0);
     assert_eq!(
         error,
-        ApplicationAuthenticationError::RequestMismatch(
-            ApplicationRequestField::ContentDigest
-        )
+        ApplicationAuthenticationError::RequestMismatch(ApplicationRequestField::ContentDigest)
     );
     assert_eq!(error.code(), "hoplite.application-auth/request-mismatch");
 }
@@ -343,10 +341,9 @@ fn management_identity_and_unlisted_operations_fail_closed() {
     );
 
     let mut principal = application_principal("application");
-    principal.claims.insert(
-        "application/operations".into(),
-        "object.read".into(),
-    );
+    principal
+        .claims
+        .insert("application/operations".into(), "object.read".into());
     let mut provider = FixtureProvider {
         principal,
         calls: 0,
@@ -381,10 +378,7 @@ fn provider_details_are_collapsed_to_stable_rejection_codes() {
         &expectation("/tahto/v1/objects"),
     )
     .unwrap_err();
-    assert_eq!(
-        error.code(),
-        "hoplite.signed-device/provider-failed"
-    );
+    assert_eq!(error.code(), "hoplite.signed-device/provider-failed");
     assert!(!error.to_string().contains("/private"));
 }
 

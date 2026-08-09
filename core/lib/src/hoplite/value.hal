@@ -1,0 +1,226 @@
+;; ==========================================================================
+;; hoplite.value — bounded canonical HTA value boundary.
+;;
+;; The portable request selects one immutable object by exact digest and a
+;; mandatory maximum byte count. It cannot select a path, provider, driver,
+;; credential, source handle or decoder. Installed hosts verify actual bytes,
+;; SHA-256 identity and canonical HTA encoding before returning a value.
+;; ==========================================================================
+(ns hoplite.value
+  (:require [std.foundation.string :as string]))
+
+(def service
+  "hoplite.value")
+
+(def operation
+  "object/verify-hta")
+
+(def request-protocol
+  "hoplite.value-request/1")
+
+(def result-protocol
+  "hoplite.value-result/1")
+
+(def profile
+  "hara.hta/1")
+
+(def max-frame-bytes
+  67108864)
+
+(def failure-codes
+  #{"hoplite.value/object-missing"
+    "hoplite.value/maximum-exceeded"
+    "hoplite.value/digest-mismatch"
+    "hoplite.value/hta-invalid"
+    "hoplite.value/hta-noncanonical"
+    "hoplite.value/value-unsupported"
+    "hoplite.value/provider-failure"})
+
+(def hex-digits
+  #{"0" "1" "2" "3" "4" "5" "6" "7" "8" "9"
+    "a" "b" "c" "d" "e" "f"})
+
+(defn canonical-digest?
+  [value]
+  (and
+   (string? value)
+   (= 71 (count value))
+   (= "sha256:" (string/slice value 0 7))
+   (loop [index 7]
+     (if
+      (= index 71)
+      true
+      (if
+       (has? hex-digits (string/slice value index (inc index)))
+       (recur (inc index))
+       false)))))
+
+(defn bounded-byte-count?
+  [value]
+  (and
+   (= :hara.type/integer (type value))
+   (> value 0)
+   (<= value max-frame-bytes)))
+
+(defn exact-request-fields?
+  [value]
+  (and
+   (map? value)
+   (= 4 (count value))
+   (has? value :protocol)
+   (has? value :operation)
+   (has? value :digest)
+   (has? value :max-bytes)))
+
+(defn request?
+  [value]
+  (and
+   (exact-request-fields? value)
+   (= request-protocol (get value :protocol))
+   (= operation (get value :operation))
+   (canonical-digest? (get value :digest))
+   (bounded-byte-count? (get value :max-bytes))))
+
+(defn portable-value?
+  "Checks the ordinary Hara shape returned by the typed hara-abi value codec.
+
+   The native hara-hta decoder is the authoritative type boundary and rejects
+   runtime-only values before this predicate runs. This recursive check prevents
+   functions, lists, sets, symbols and host objects from entering forged result
+   maps in ordinary Hara code."
+  [value]
+  (cond
+    (nil? value)
+    true
+
+    (boolean? value)
+    true
+
+    (number? value)
+    true
+
+    (string? value)
+    true
+
+    (keyword? value)
+    true
+
+    (bytes? value)
+    true
+
+    (vector? value)
+    (every? portable-value? value)
+
+    (map? value)
+    (every?
+     (fn [entry]
+       (and
+        (keyword? (key entry))
+        (portable-value? (val entry))))
+     value)
+
+    :else false))
+
+(defn exact-success-fields?
+  [value]
+  (and
+   (map? value)
+   (= 7 (count value))
+   (has? value :protocol)
+   (has? value :operation)
+   (has? value :verified)
+   (has? value :digest)
+   (has? value :byte-length)
+   (has? value :profile)
+   (has? value :value)))
+
+(defn success-result?
+  [value]
+  (and
+   (exact-success-fields? value)
+   (= result-protocol (get value :protocol))
+   (= operation (get value :operation))
+   (= true (get value :verified))
+   (canonical-digest? (get value :digest))
+   (bounded-byte-count? (get value :byte-length))
+   (= profile (get value :profile))
+   (portable-value? (get value :value))))
+
+(defn exact-failure-fields?
+  [value]
+  (and
+   (map? value)
+   (= 5 (count value))
+   (has? value :protocol)
+   (has? value :operation)
+   (has? value :verified)
+   (has? value :digest)
+   (has? value :code)))
+
+(defn failure-result?
+  [value]
+  (and
+   (exact-failure-fields? value)
+   (= result-protocol (get value :protocol))
+   (= operation (get value :operation))
+   (= false (get value :verified))
+   (canonical-digest? (get value :digest))
+   (has? failure-codes (get value :code))))
+
+(defn result?
+  [value]
+  (or
+   (success-result? value)
+   (failure-result? value)))
+
+(defn result-matches-request?
+  [request result]
+  (boolean
+   (and
+    (request? request)
+    (result? result)
+    (= (get request :digest)
+       (get result :digest))
+    (or
+     (failure-result? result)
+     (<= (get result :byte-length)
+         (get request :max-bytes))))))
+
+(defn invalid
+  [reason]
+  (throw
+   (ex-info
+    "invalid hoplite.value canonical verification"
+    {:phase :canonical-value/invalid
+     :reason reason})))
+
+(defn verification-request
+  [digest max-bytes]
+  (let [value
+        {:protocol request-protocol
+         :operation operation
+         :digest digest
+         :max-bytes max-bytes}]
+    (if (request? value) value (invalid :request))))
+
+(defn verified-result
+  [digest byte-length value]
+  (let [result
+        {:protocol result-protocol
+         :operation operation
+         :verified true
+         :digest digest
+         :byte-length byte-length
+         :profile profile
+         :value value}]
+    (if (success-result? result) result (invalid :success-result))))
+
+(defn failed-result
+  [digest code]
+  (let [result
+        {:protocol result-protocol
+         :operation operation
+         :verified false
+         :digest digest
+         :code code}]
+    (if (failure-result? result) result (invalid :failure-result))))

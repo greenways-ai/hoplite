@@ -32,7 +32,10 @@ impl fmt::Display for RangeError {
             Self::MultipleRanges => write!(formatter, "multiple ranges are not supported"),
             Self::Malformed => write!(formatter, "malformed byte range"),
             Self::Unsatisfiable { total_len } => {
-                write!(formatter, "byte range is unsatisfiable for length {total_len}")
+                write!(
+                    formatter,
+                    "byte range is unsatisfiable for length {total_len}"
+                )
             }
         }
     }

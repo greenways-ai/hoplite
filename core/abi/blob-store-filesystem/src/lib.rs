@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 //! Restart-safe trusted-root filesystem implementation of Hoplite's generic
-//! `hara.blob` mechanics.
+//! `hoplite.blob` mechanics.
 //!
 //! The driver owns byte movement, incremental SHA-256 verification, fsync,
 //! restart recovery and digest-derived object paths. It does not understand

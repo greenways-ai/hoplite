@@ -1,4 +1,4 @@
-name: hara.blob provider conformance
+name: hoplite.blob provider conformance
 
 on:
   pull_request:

@@ -174,11 +174,11 @@ static void
 check_disabled_configuration(void)
 {
     hoplite_host_service_t service = {
-        (const uint8_t *) "hara.store",
-        sizeof("hara.store") - 1
+        (const uint8_t *) "hoplite.store",
+        sizeof("hoplite.store") - 1
     };
 
-    unsetenv("HOPLITE_HARA_STORE_PATH");
+    unsetenv("HOPLITE_STORE_PATH");
     assert(hoplite_value_store_host_provider_init_process_v1()
            == HOPLITE_VALUE_STORE_HOST_PROVIDER_DISABLED);
     assert(hoplite_value_store_host_provider_init_process_v1()
@@ -191,8 +191,8 @@ check_disabled_configuration(void)
 static void
 check_invalid_environment(void)
 {
-    assert(setenv("HOPLITE_HARA_STORE_PATH", "fixture.db", 1) == 0);
-    assert(setenv("HOPLITE_HARA_STORE_MAX_VALUE_BYTES", "0", 1) == 0);
+    assert(setenv("HOPLITE_STORE_PATH", "fixture.db", 1) == 0);
+    assert(setenv("HOPLITE_STORE_MAX_VALUE_BYTES", "0", 1) == 0);
     assert(hoplite_value_store_host_provider_init_process_v1()
            == HOPLITE_VALUE_STORE_HOST_PROVIDER_ERROR);
     assert(open_count == 0);
@@ -204,8 +204,8 @@ static void
 check_registered_provider(void)
 {
     hoplite_host_service_t service = {
-        (const uint8_t *) "hara.store",
-        sizeof("hara.store") - 1
+        (const uint8_t *) "hoplite.store",
+        sizeof("hoplite.store") - 1
     };
     const hoplite_host_provider_v1_t *provider;
     hoplite_host_call_v1_t call;
@@ -226,8 +226,8 @@ check_registered_provider(void)
     assert(provider->abi_version == HOPLITE_HOST_PROVIDER_ABI_VERSION);
     assert(provider->cancel == NULL);
     assert(provider->capabilities == 0);
-    assert(provider->service.len == sizeof("hara.store") - 1);
-    assert(memcmp(provider->service.data, "hara.store",
+    assert(provider->service.len == sizeof("hoplite.store") - 1);
+    assert(memcmp(provider->service.data, "hoplite.store",
                   provider->service.len) == 0);
 
     call = call_for("load");

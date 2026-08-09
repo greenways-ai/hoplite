@@ -1,6 +1,6 @@
 #![allow(clippy::missing_safety_doc)]
 
-//! Portable synchronous C boundary for the generic `hara.store` provider.
+//! Portable synchronous C boundary for the generic `hoplite.store` provider.
 //!
 //! Trusted startup code selects the SQLite path and fixed span limits. Hara
 //! supplies only an operation and one canonical standalone HTA1 argument frame.

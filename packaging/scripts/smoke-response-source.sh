@@ -34,7 +34,7 @@ diagnose() {
   docker inspect "$container" --format '{{json .State}}' >&2 || true
   echo '--- container environment ---' >&2
   docker exec "$container" sh -c \
-    'env | grep -E "^(HOPLITE_HARA_BLOB|HOPLITE_HARA_STORE|HOPLITE_SERVER_CACHE|HOPLITE_WORKERS)=" | sort' \
+    'env | grep -E "^(HOPLITE_BLOB|HOPLITE_STORE|HOPLITE_SERVER_CACHE|HOPLITE_WORKERS)=" | sort' \
     >&2 || true
   echo '--- container logs ---' >&2
   docker logs "$container" >&2 || true
@@ -316,5 +316,5 @@ assert_full_response 'Post-recreation full response-source retrieval'
 assert_range_response 'Post-recreation non-zero response-source range'
 assert_head_response "$base/response-source" 200 "$expected_size"
 
-printf 'Validated persistent bounded hara.response-source/1 streaming through %s on port %s.\n' \
+printf 'Validated persistent bounded hoplite.response-source/1 streaming through %s on port %s.\n' \
   "$image" "$port"

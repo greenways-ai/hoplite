@@ -1,4 +1,4 @@
-name: Installed hara.value provider
+name: Installed hoplite.value provider
 
 env:
   HARA_REF: d2a2e376917131cfb8954ac156db3a5e174f2c1a
@@ -91,12 +91,12 @@ jobs:
             -Ihoplite/core/abi/value-store-provider-ffi/include \
             -c hoplite/core/nginx/hoplite_value_store_host_provider.c \
             -o /tmp/hoplite_value_store_host_provider.o
-      - name: Guard static installation and production configuration
+      - name: Guard standalone source and core exclusion
         run: |
-          grep -F '"hara.value"' hoplite/core/nginx/hoplite_value_host_provider.c
+          grep -F '"hoplite.value"' hoplite/core/nginx/hoplite_value_host_provider.c
           grep -F 'HOPLITE_VALUE_PROVIDER' hoplite/core/nginx/hoplite_value_host_provider.c
-          grep -F 'libhoplite_value_provider_filesystem_ffi.a' hoplite/core/nginx/config
+          ! grep -F 'libhoplite_value_provider_filesystem_ffi.a' hoplite/core/nginx/config
           grep -F 'value-provider-filesystem-ffi/Cargo.toml' hoplite/core/Makefile
-          grep -F 'HOPLITE_VALUE_PROVIDER=filesystem' hoplite/packaging/docker/Dockerfile
-          grep -F 'HOPLITE_VALUE_ROOT=/var/lib/hoplite/blob' hoplite/packaging/docker/Dockerfile
+          ! grep -F 'HOPLITE_VALUE_PROVIDER=filesystem' hoplite/packaging/docker/Dockerfile
+          ! grep -F 'HOPLITE_VALUE_ROOT=/var/lib/hoplite/blob' hoplite/packaging/docker/Dockerfile
           ! grep -F 'HOPLITE_VALUE_ROOT' hoplite/core/abi/value-provider-filesystem/src/provider.rs

@@ -1,4 +1,4 @@
-name: Filesystem hara.value provider core
+name: Filesystem hoplite.value provider core
 
 env:
   # Merge revision of hara-lang/hara#464. The installed-host registration slice

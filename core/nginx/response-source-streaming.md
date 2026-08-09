@@ -1,9 +1,10 @@
-# Nginx `hara.response-source/1` transport
+# Nginx `hoplite.response-source/1` transport
 
 Hoplite recognizes one closed portable response body:
 
 ```clojure
-{:protocol "hara.response-source/1"
+{:protocol "hoplite.response-source/1"
+ :service "hoplite.blob"
  :source-handle 17
  :offset 4
  :length 9}
@@ -32,5 +33,5 @@ the exact opaque request identity and work that created the source handle.
 - Ordinary string and byte responses retain the existing small-body fast path.
 
 The portable offset is evidence for the selected immutable range. The
-`hara.blob` provider has already opened that range, so the Nginx pump reads the
+`hoplite.blob` provider has already opened that range, so the Nginx pump reads the
 registered source sequentially and does not seek or skip the offset again.

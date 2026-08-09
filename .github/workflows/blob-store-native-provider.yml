@@ -1,4 +1,4 @@
-name: Native hara.blob provider
+name: Native hoplite.blob provider
 
 on:
   push:
@@ -66,39 +66,38 @@ jobs:
 
           /tmp/hoplite-blob-host-provider-test
 
-          HOPLITE_HARA_BLOB_ROOT=/tmp/hoplite-blob-test-root \
-          HOPLITE_HARA_BLOB_MAX_OBJECT_BYTES=33554432 \
-          HOPLITE_HARA_BLOB_MAX_APPEND_BYTES=2097152 \
-          HOPLITE_HARA_BLOB_MAX_SOURCE_CHUNK_BYTES=32768 \
-          HOPLITE_HARA_BLOB_MAX_STAGING_KEY_BYTES=192 \
-          HOPLITE_HARA_BLOB_MAX_MEDIA_TYPE_BYTES=160 \
-          HOPLITE_HARA_BLOB_MAX_STAGING_ENTRIES=64 \
-          HOPLITE_HARA_BLOB_MAX_OBJECTS=4096 \
+          HOPLITE_BLOB_ROOT=/tmp/hoplite-blob-test-root \
+          HOPLITE_BLOB_MAX_OBJECT_BYTES=33554432 \
+          HOPLITE_BLOB_MAX_APPEND_BYTES=2097152 \
+          HOPLITE_BLOB_MAX_SOURCE_CHUNK_BYTES=32768 \
+          HOPLITE_BLOB_MAX_STAGING_KEY_BYTES=192 \
+          HOPLITE_BLOB_MAX_MEDIA_TYPE_BYTES=160 \
+          HOPLITE_BLOB_MAX_STAGING_ENTRIES=64 \
+          HOPLITE_BLOB_MAX_OBJECTS=4096 \
             /tmp/hoplite-blob-host-provider-test
 
-          HOPLITE_HARA_BLOB_MAX_OBJECT_BYTES=not-a-number \
+          HOPLITE_BLOB_MAX_OBJECT_BYTES=not-a-number \
           HOPLITE_BLOB_TEST_EXPECT_INIT_FAILURE=1 \
             /tmp/hoplite-blob-host-provider-test
 
-          HOPLITE_HARA_BLOB_MAX_APPEND_BYTES=1024 \
-          HOPLITE_HARA_BLOB_MAX_SOURCE_CHUNK_BYTES=2048 \
+          HOPLITE_BLOB_MAX_APPEND_BYTES=1024 \
+          HOPLITE_BLOB_MAX_SOURCE_CHUNK_BYTES=2048 \
           HOPLITE_BLOB_TEST_EXPECT_INIT_FAILURE=1 \
             /tmp/hoplite-blob-host-provider-test
-      - name: Audit worker lifecycle and production linkage
+      - name: Audit standalone provider lifecycle and core exclusion
         run: |
-          grep -F '#include "hoplite_blob_host_provider.h"' \
-            core/nginx/ngx_http_hoplite_module.c
           grep -F 'hoplite_blob_host_provider_init_process_v1();' \
-            core/nginx/ngx_http_hoplite_module.c
-          test "$(grep -Fc 'hoplite_blob_host_provider_release_work_v1(ctx->work);' \
-            core/nginx/ngx_http_hoplite_module.c)" -eq 2
+            core/nginx/tests/blob_host_provider.c
           grep -F 'hoplite_blob_host_provider_exit_process_v1();' \
+            core/nginx/tests/blob_host_provider.c
+          ! grep -F 'hoplite_blob_host_provider' core/nginx/config
+          ! grep -F 'hoplite_blob_host_provider' \
             core/nginx/ngx_http_hoplite_module.c
-          grep -F 'HOPLITE_HARA_BLOB_ROOT' \
+          grep -F 'HOPLITE_BLOB_ROOT' \
             core/nginx/hoplite_blob_host_provider.c
           grep -F 'hoplite_blob_store_provider_open_filesystem_v1' \
             core/nginx/hoplite_blob_host_provider.c
-          grep -F 'hoplite_blob_host_provider.c' core/nginx/config
-          grep -F 'libhoplite_blob_store_provider_ffi.a' core/nginx/config
-          grep -F 'nginx: runtime value-store-provider blob-store-provider nginx-source' \
+          ! grep -F 'hoplite_blob_host_provider.c' core/nginx/config
+          ! grep -F 'libhoplite_blob_store_provider_ffi.a' core/nginx/config
+          grep -F 'nginx: runtime nginx-source' \
             core/Makefile

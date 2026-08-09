@@ -1,4 +1,4 @@
-name: hara.blob foundation conformance
+name: hoplite.blob foundation conformance
 
 on:
   pull_request:

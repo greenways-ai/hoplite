@@ -1,10 +1,10 @@
 #![forbid(unsafe_code)]
 
-//! Bounded filesystem-backed provider core for Hara's generic `hara.value`
+//! Bounded filesystem-backed provider core for Hara's generic `hoplite.value`
 //! canonical-value verification service.
 //!
 //! The provider reuses the immutable digest-derived object layout owned by the
-//! installed `hara.blob` filesystem driver. It accepts only one closed generic
+//! installed `hoplite.blob` filesystem driver. It accepts only one closed generic
 //! request, reads from one trusted installation root, recomputes SHA-256 over
 //! the actual bounded bytes, and delegates portable canonical decoding to
 //! `hara_hta::decode_canonical`.
@@ -22,19 +22,19 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
-pub const SERVICE: &str = "hara.value";
+pub const SERVICE: &str = "hoplite.value";
 pub const OPERATION: &str = "object/verify-hta";
-pub const REQUEST_PROTOCOL: &str = "hara.value-request/1";
-pub const RESULT_PROTOCOL: &str = "hara.value-result/1";
+pub const REQUEST_PROTOCOL: &str = "hoplite.value-request/1";
+pub const RESULT_PROTOCOL: &str = "hoplite.value-result/1";
 pub const PROFILE: &str = "hara.hta/1";
 
-pub const OBJECT_MISSING: &str = "hara.value/object-missing";
-pub const MAXIMUM_EXCEEDED: &str = "hara.value/maximum-exceeded";
-pub const DIGEST_MISMATCH: &str = "hara.value/digest-mismatch";
-pub const HTA_INVALID: &str = "hara.value/hta-invalid";
-pub const HTA_NONCANONICAL: &str = "hara.value/hta-noncanonical";
-pub const VALUE_UNSUPPORTED: &str = "hara.value/value-unsupported";
-pub const PROVIDER_FAILURE: &str = "hara.value/provider-failure";
+pub const OBJECT_MISSING: &str = "hoplite.value/object-missing";
+pub const MAXIMUM_EXCEEDED: &str = "hoplite.value/maximum-exceeded";
+pub const DIGEST_MISMATCH: &str = "hoplite.value/digest-mismatch";
+pub const HTA_INVALID: &str = "hoplite.value/hta-invalid";
+pub const HTA_NONCANONICAL: &str = "hoplite.value/hta-noncanonical";
+pub const VALUE_UNSUPPORTED: &str = "hoplite.value/value-unsupported";
+pub const PROVIDER_FAILURE: &str = "hoplite.value/provider-failure";
 
 const MAGIC: &[u8; 4] = b"HTA1";
 const OBJECT_MAGIC: &[u8; 4] = b"HBO1";
@@ -121,11 +121,11 @@ impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidLimits(message) => {
-                write!(formatter, "invalid hara.value limits: {message}")
+                write!(formatter, "invalid hoplite.value limits: {message}")
             }
             Self::Hta(error) => write!(formatter, "invalid provider HTA: {error}"),
             Self::InvalidRequest(message) => {
-                write!(formatter, "invalid hara.value request: {message}")
+                write!(formatter, "invalid hoplite.value request: {message}")
             }
             Self::OperationMismatch { call, request } => write!(
                 formatter,

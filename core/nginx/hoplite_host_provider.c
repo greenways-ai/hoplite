@@ -28,6 +28,13 @@ hoplite_host_provider_register_v1(
     if (provider->invoke == NULL) {
         return HOPLITE_HOST_PROVIDER_REGISTER_INVALID;
     }
+    if ((provider->capabilities & HOPLITE_HOST_PROVIDER_RESPONSE_BODY) != 0
+        && (provider->response_read == NULL
+            || provider->response_close == NULL
+            || provider->release_work == NULL))
+    {
+        return HOPLITE_HOST_PROVIDER_REGISTER_INVALID;
+    }
 
     hoplite_host_provider_ensure_registry();
     result = hoplite_host_registry_register(

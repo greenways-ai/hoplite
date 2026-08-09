@@ -90,10 +90,13 @@ static hoplite_response_source_descriptor_v1_t
 descriptor(uint64_t handle, uint64_t offset, uint64_t length)
 {
     static const uint8_t protocol[] = HOPLITE_RESPONSE_SOURCE_PROTOCOL;
+    static const uint8_t service[] = "hoplite.blob";
     hoplite_response_source_descriptor_v1_t value;
 
     value.protocol = protocol;
     value.protocol_len = sizeof(protocol) - 1;
+    value.service = service;
+    value.service_len = sizeof(service) - 1;
     value.source_handle = handle;
     value.offset = offset;
     value.length = length;
@@ -117,7 +120,7 @@ static int
 test_descriptor_validation(void)
 {
     hoplite_response_source_descriptor_v1_t value = descriptor(17, 4, 9);
-    static const uint8_t wrong_protocol[] = "hara.response-source/2";
+    static const uint8_t wrong_protocol[] = "hoplite.response-source/2";
 
     CHECK(hoplite_response_source_descriptor_validate_v1(&value)
           == HOPLITE_RESPONSE_SOURCE_OK);

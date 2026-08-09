@@ -7,7 +7,7 @@
 #include "hoplite_blob_store_provider.h"
 #include "hoplite_host_provider.h"
 
-#define HOPLITE_HARA_BLOB_ROOT_ENV "HOPLITE_HARA_BLOB_ROOT"
+#define HOPLITE_BLOB_ROOT_ENV "HOPLITE_BLOB_ROOT"
 #define HOPLITE_BLOB_TEST_EXPECT_INIT_FAILURE \
     "HOPLITE_BLOB_TEST_EXPECT_INIT_FAILURE"
 
@@ -53,25 +53,25 @@ assert_limits(const hoplite_blob_store_limits_v1_t *limits)
 {
     assert(limits != NULL);
     assert(limits->max_object_bytes == expected_limit(
-        "HOPLITE_HARA_BLOB_MAX_OBJECT_BYTES",
+        "HOPLITE_BLOB_MAX_OBJECT_BYTES",
         16u * 1024u * 1024u));
     assert(limits->max_append_bytes == (size_t) expected_limit(
-        "HOPLITE_HARA_BLOB_MAX_APPEND_BYTES",
+        "HOPLITE_BLOB_MAX_APPEND_BYTES",
         1024u * 1024u));
     assert(limits->max_source_chunk_bytes == (size_t) expected_limit(
-        "HOPLITE_HARA_BLOB_MAX_SOURCE_CHUNK_BYTES",
+        "HOPLITE_BLOB_MAX_SOURCE_CHUNK_BYTES",
         64u * 1024u));
     assert(limits->max_staging_key_bytes == (size_t) expected_limit(
-        "HOPLITE_HARA_BLOB_MAX_STAGING_KEY_BYTES",
+        "HOPLITE_BLOB_MAX_STAGING_KEY_BYTES",
         256u));
     assert(limits->max_media_type_bytes == (size_t) expected_limit(
-        "HOPLITE_HARA_BLOB_MAX_MEDIA_TYPE_BYTES",
+        "HOPLITE_BLOB_MAX_MEDIA_TYPE_BYTES",
         256u));
     assert(limits->max_staging_entries == (size_t) expected_limit(
-        "HOPLITE_HARA_BLOB_MAX_STAGING_ENTRIES",
+        "HOPLITE_BLOB_MAX_STAGING_ENTRIES",
         1024u));
     assert(limits->max_objects == (size_t) expected_limit(
-        "HOPLITE_HARA_BLOB_MAX_OBJECTS",
+        "HOPLITE_BLOB_MAX_OBJECTS",
         65536u));
 }
 
@@ -101,7 +101,7 @@ hoplite_blob_store_provider_open_filesystem_v1(
     const hoplite_blob_store_limits_v1_t *limits,
     hoplite_blob_store_provider_t **provider)
 {
-    const char *expected = getenv(HOPLITE_HARA_BLOB_ROOT_ENV);
+    const char *expected = getenv(HOPLITE_BLOB_ROOT_ENV);
 
     assert(filesystem_expected);
     assert(expected != NULL);
@@ -327,12 +327,12 @@ int
 main(void)
 {
     hoplite_host_service_t service = {
-        (const uint8_t *) "hara.blob",
-        sizeof("hara.blob") - 1
+        (const uint8_t *) "hoplite.blob",
+        sizeof("hoplite.blob") - 1
     };
     const hoplite_host_provider_v1_t *provider;
     hoplite_host_call_v1_t call;
-    const char *root = getenv(HOPLITE_HARA_BLOB_ROOT_ENV);
+    const char *root = getenv(HOPLITE_BLOB_ROOT_ENV);
     size_t before;
 
     filesystem_expected = root != NULL && root[0] != '\0';
@@ -360,8 +360,8 @@ main(void)
     assert(provider->capabilities
            == (HOPLITE_HOST_PROVIDER_REQUEST_BODY
                | HOPLITE_HOST_PROVIDER_RESPONSE_BODY));
-    assert(provider->service.len == sizeof("hara.blob") - 1);
-    assert(memcmp(provider->service.data, "hara.blob",
+    assert(provider->service.len == sizeof("hoplite.blob") - 1);
+    assert(memcmp(provider->service.data, "hoplite.blob",
                   provider->service.len) == 0);
 
     call = call_for("staging/open");

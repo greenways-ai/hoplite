@@ -9,14 +9,14 @@
 #include "hoplite_value_host_provider.h"
 #include "hoplite_value_store_provider.h"
 
-#define HOPLITE_HARA_STORE_PATH_ENV "HOPLITE_HARA_STORE_PATH"
-#define HOPLITE_HARA_STORE_MAX_VALUE_ENV \
-    "HOPLITE_HARA_STORE_MAX_VALUE_BYTES"
-#define HOPLITE_HARA_STORE_MAX_RECEIPT_ENV \
-    "HOPLITE_HARA_STORE_MAX_RECEIPT_BYTES"
+#define HOPLITE_STORE_PATH_ENV "HOPLITE_STORE_PATH"
+#define HOPLITE_STORE_MAX_VALUE_ENV \
+    "HOPLITE_STORE_MAX_VALUE_BYTES"
+#define HOPLITE_STORE_MAX_RECEIPT_ENV \
+    "HOPLITE_STORE_MAX_RECEIPT_BYTES"
 
-#define HOPLITE_HARA_STORE_DEFAULT_MAX_VALUE (8u * 1024u * 1024u)
-#define HOPLITE_HARA_STORE_DEFAULT_MAX_RECEIPT (1024u * 1024u)
+#define HOPLITE_STORE_DEFAULT_MAX_VALUE (8u * 1024u * 1024u)
+#define HOPLITE_STORE_DEFAULT_MAX_RECEIPT (1024u * 1024u)
 
 enum {
     HOPLITE_VALUE_STORE_HOST_NEW = 0,
@@ -85,7 +85,7 @@ hoplite_value_store_host_invoke(const hoplite_host_call_v1_t *call)
         : HOPLITE_HOST_PROVIDER_ERROR;
 }
 
-static const uint8_t hoplite_value_store_service_name[] = "hara.store";
+static const uint8_t hoplite_value_store_service_name[] = "hoplite.store";
 
 static const hoplite_host_provider_v1_t hoplite_value_store_host_provider = {
     HOPLITE_HOST_PROVIDER_ABI_VERSION,
@@ -95,7 +95,10 @@ static const hoplite_host_provider_v1_t hoplite_value_store_host_provider = {
     },
     hoplite_value_store_host_invoke,
     NULL,
-    0
+    0,
+    NULL,
+    NULL,
+    NULL
 };
 
 static int
@@ -197,18 +200,18 @@ hoplite_value_store_host_provider_init_store_v1(void)
         return HOPLITE_VALUE_STORE_HOST_PROVIDER_ERROR;
     }
 
-    path = getenv(HOPLITE_HARA_STORE_PATH_ENV);
+    path = getenv(HOPLITE_STORE_PATH_ENV);
     if (path == NULL || path[0] == '\0') {
         hoplite_value_store_state = HOPLITE_VALUE_STORE_HOST_DISABLED;
         return HOPLITE_VALUE_STORE_HOST_PROVIDER_DISABLED;
     }
     if (!hoplite_value_store_parse_limit(
-            HOPLITE_HARA_STORE_MAX_VALUE_ENV,
-            HOPLITE_HARA_STORE_DEFAULT_MAX_VALUE,
+            HOPLITE_STORE_MAX_VALUE_ENV,
+            HOPLITE_STORE_DEFAULT_MAX_VALUE,
             &max_value_bytes)
         || !hoplite_value_store_parse_limit(
-            HOPLITE_HARA_STORE_MAX_RECEIPT_ENV,
-            HOPLITE_HARA_STORE_DEFAULT_MAX_RECEIPT,
+            HOPLITE_STORE_MAX_RECEIPT_ENV,
+            HOPLITE_STORE_DEFAULT_MAX_RECEIPT,
             &max_receipt_bytes))
     {
         hoplite_value_store_state = HOPLITE_VALUE_STORE_HOST_FAILED;

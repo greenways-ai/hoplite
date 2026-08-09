@@ -1,4 +1,4 @@
-name: hara.store provider conformance
+name: hoplite.store provider conformance
 
 on:
   pull_request:

@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-//! Canonical `hara.blob` request/result adapter for generic blob-store drivers.
+//! Canonical `hoplite.blob` request/result adapter for generic blob-store drivers.
 //!
 //! The adapter understands only application-neutral staged blob mechanics. A
 //! request source is resolved through a scope-bound resolver, so a numeric
@@ -90,7 +90,7 @@ impl fmt::Display for Error {
         match self {
             Self::Hta(error) => write!(formatter, "invalid provider HTA: {error}"),
             Self::InvalidRequest(message) => {
-                write!(formatter, "invalid hara.blob request: {message}")
+                write!(formatter, "invalid hoplite.blob request: {message}")
             }
             Self::OperationMismatch { call, request } => write!(
                 formatter,

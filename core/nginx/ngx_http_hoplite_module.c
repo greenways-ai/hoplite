@@ -2,12 +2,10 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
-#include "hoplite_blob_host_provider.h"
 #include "hoplite_hta.h"
 #include "hoplite_response_source.h"
 #include "hoplite_host_provider.h"
 #include "hoplite_runtime.h"
-#include "hoplite_value_store_host_provider.h"
 
 typedef struct {
     ngx_str_t bootstrap;
@@ -95,6 +93,7 @@ struct ngx_http_hoplite_ctx_s {
     ngx_http_hoplite_sleep_t *sleep;
     const ngx_http_hoplite_provider_t *provider;
     const hoplite_host_provider_v1_t *native_provider;
+    const hoplite_host_provider_v1_t *response_provider;
     ngx_http_hoplite_native_completion_t *native_completion;
     ngx_http_hoplite_body_t body;
     ngx_http_hoplite_response_source_t response_source;
@@ -348,9 +347,6 @@ ngx_http_hoplite_finish(ngx_http_hoplite_ctx_t *ctx)
         ngx_queue_remove(&ctx->queue);
         ctx->queued = 0;
     }
-    if (ctx->work != 0) {
-        (void) hoplite_blob_host_provider_release_work_v1(ctx->work);
-    }
     if (ngx_http_hoplite_runtime != NULL && ctx->work != 0) {
         (void) hoplite_work_close(ngx_http_hoplite_runtime, ctx->work);
     }
@@ -497,7 +493,7 @@ ngx_http_hoplite_response_source_parse(
 
     if (value == NULL || descriptor == NULL
         || value->kind != HOPLITE_HTA_MAP
-        || value->as.map.count != 4)
+        || value->as.map.count != 5)
     {
         return NGX_ERROR;
     }
@@ -516,20 +512,20 @@ ngx_http_hoplite_response_source_parse(
             descriptor->protocol_len = pair->value->as.text.len;
             seen |= 1u;
 
-        } else if (ngx_http_hoplite_response_source_name(
-                       pair->key, "source-handle"))
-        {
+        } else if (ngx_http_hoplite_response_source_name(pair->key, "service")) {
             if ((seen & 2u) != 0
-                || hoplite_hta_number(pair->value, &number) != NGX_OK
-                || number < 0)
+                || pair->value == NULL
+                || pair->value->kind != HOPLITE_HTA_STRING
+                || pair->value->as.text.len == 0)
             {
                 return NGX_ERROR;
             }
-            descriptor->source_handle = (uint64_t) number;
+            descriptor->service = pair->value->as.text.data;
+            descriptor->service_len = pair->value->as.text.len;
             seen |= 2u;
 
         } else if (ngx_http_hoplite_response_source_name(
-                       pair->key, "offset"))
+                       pair->key, "source-handle"))
         {
             if ((seen & 4u) != 0
                 || hoplite_hta_number(pair->value, &number) != NGX_OK
@@ -537,11 +533,11 @@ ngx_http_hoplite_response_source_parse(
             {
                 return NGX_ERROR;
             }
-            descriptor->offset = (uint64_t) number;
+            descriptor->source_handle = (uint64_t) number;
             seen |= 4u;
 
         } else if (ngx_http_hoplite_response_source_name(
-                       pair->key, "length"))
+                       pair->key, "offset"))
         {
             if ((seen & 8u) != 0
                 || hoplite_hta_number(pair->value, &number) != NGX_OK
@@ -549,15 +545,27 @@ ngx_http_hoplite_response_source_parse(
             {
                 return NGX_ERROR;
             }
-            descriptor->length = (uint64_t) number;
+            descriptor->offset = (uint64_t) number;
             seen |= 8u;
+
+        } else if (ngx_http_hoplite_response_source_name(
+                       pair->key, "length"))
+        {
+            if ((seen & 16u) != 0
+                || hoplite_hta_number(pair->value, &number) != NGX_OK
+                || number < 0)
+            {
+                return NGX_ERROR;
+            }
+            descriptor->length = (uint64_t) number;
+            seen |= 16u;
 
         } else {
             return NGX_ERROR;
         }
     }
 
-    return seen == 15u
+    return seen == 31u
         && hoplite_response_source_descriptor_validate_v1(descriptor)
                == HOPLITE_RESPONSE_SOURCE_OK
         ? NGX_OK
@@ -572,13 +580,13 @@ ngx_http_hoplite_response_source_read(void *request_context,
                                       size_t capacity,
                                       size_t *returned)
 {
-    return hoplite_blob_host_provider_response_read_v1(
-               request_context,
-               work,
-               source_handle,
-               output,
-               capacity,
-               returned) == HOPLITE_BLOB_HOST_PROVIDER_OK
+    ngx_http_hoplite_ctx_t *ctx = request_context;
+
+    return ctx != NULL && ctx->response_provider != NULL
+        && ctx->response_provider->response_read != NULL
+        && ctx->response_provider->response_read(
+               request_context, work, source_handle,
+               output, capacity, returned) == HOPLITE_HOST_PROVIDER_OK
         ? HOPLITE_RESPONSE_SOURCE_OK
         : HOPLITE_RESPONSE_SOURCE_ERROR;
 }
@@ -588,10 +596,13 @@ ngx_http_hoplite_response_source_close(void *request_context,
                                        uint64_t work,
                                        uint64_t source_handle)
 {
-    return hoplite_blob_host_provider_response_close_v1(
-               request_context,
-               work,
-               source_handle) == HOPLITE_BLOB_HOST_PROVIDER_OK
+    ngx_http_hoplite_ctx_t *ctx = request_context;
+
+    return ctx != NULL && ctx->response_provider != NULL
+        && ctx->response_provider->response_close != NULL
+        && ctx->response_provider->response_close(
+               request_context, work, source_handle)
+               == HOPLITE_HOST_PROVIDER_OK
         ? HOPLITE_RESPONSE_SOURCE_OK
         : HOPLITE_RESPONSE_SOURCE_ERROR;
 }
@@ -604,6 +615,13 @@ ngx_http_hoplite_response_source_release(ngx_http_hoplite_ctx_t *ctx)
     }
     ctx->response_source.active = 0;
     (void) hoplite_response_source_close_v1(&ctx->response_source.source);
+    if (ctx->response_provider != NULL
+        && ctx->response_provider->release_work != NULL
+        && ctx->work != 0)
+    {
+        ctx->response_provider->release_work(ctx->work);
+    }
+    ctx->response_provider = NULL;
 }
 
 static ngx_int_t
@@ -790,11 +808,18 @@ ngx_http_hoplite_response_source_start(
 {
     ngx_http_request_t *request;
     ngx_http_hoplite_response_source_t *stream;
+    hoplite_host_service_t service;
     ngx_int_t rc;
 
     request = ctx->request;
     stream = &ctx->response_source;
+    service.data = descriptor->service;
+    service.len = descriptor->service_len;
+    ctx->response_provider = hoplite_host_provider_find_v1(service);
     if (ctx->work == 0
+        || ctx->response_provider == NULL
+        || (ctx->response_provider->capabilities
+            & HOPLITE_HOST_PROVIDER_RESPONSE_BODY) == 0
         || stream->source.initialized
         || descriptor->length > (uint64_t) NGX_MAX_OFF_T_VALUE
         || hoplite_response_source_init_v1(
@@ -1008,7 +1033,7 @@ ngx_http_hoplite_send_result(ngx_http_hoplite_ctx_t *ctx,
         {
             ngx_str_set(
                 &body,
-                "Hoplite response source must be an exact hara.response-source/1 map\n");
+                "Hoplite response source must be an exact hoplite.response-source/1 map\n");
             ngx_http_hoplite_send(
                 ctx, NGX_HTTP_INTERNAL_SERVER_ERROR, &body, NULL);
             return;
@@ -1519,9 +1544,6 @@ ngx_http_hoplite_cleanup(void *data)
     ctx->provider = NULL;
     ctx->native_provider = NULL;
 
-    if (ctx->work != 0) {
-        (void) hoplite_blob_host_provider_release_work_v1(ctx->work);
-    }
     if (!ctx->done && ngx_http_hoplite_runtime != NULL && ctx->work != 0) {
         (void) hoplite_work_cancel(ngx_http_hoplite_runtime, ctx->work);
         (void) hoplite_work_close(ngx_http_hoplite_runtime, ctx->work);
@@ -1918,8 +1940,6 @@ static ngx_int_t
 ngx_http_hoplite_init_process(ngx_cycle_t *cycle)
 {
     ngx_http_hoplite_main_conf_t *conf;
-    int32_t value_store_status;
-    int32_t blob_status;
 
     ngx_queue_init(&ngx_http_hoplite_requests);
     ngx_http_hoplite_queue_ready = 1;
@@ -1929,18 +1949,6 @@ ngx_http_hoplite_init_process(ngx_cycle_t *cycle)
     {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
                       "hoplite native host providers could not be registered");
-        return NGX_ERROR;
-    }
-    value_store_status = hoplite_value_store_host_provider_init_process_v1();
-    if (value_store_status == HOPLITE_VALUE_STORE_HOST_PROVIDER_ERROR) {
-        ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
-                      "hoplite hara.store provider could not be initialized");
-        return NGX_ERROR;
-    }
-    blob_status = hoplite_blob_host_provider_init_process_v1();
-    if (blob_status == HOPLITE_BLOB_HOST_PROVIDER_ERROR) {
-        ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
-                      "hoplite hara.blob provider could not be initialized");
         return NGX_ERROR;
     }
     ngx_http_hoplite_runtime = hoplite_runtime_new();
@@ -1981,8 +1989,6 @@ ngx_http_hoplite_exit_process(ngx_cycle_t *cycle)
         hoplite_runtime_free(ngx_http_hoplite_runtime);
         ngx_http_hoplite_runtime = NULL;
     }
-    hoplite_blob_host_provider_exit_process_v1();
-    hoplite_value_store_host_provider_exit_process_v1();
     ngx_http_hoplite_queue_ready = 0;
 }
 

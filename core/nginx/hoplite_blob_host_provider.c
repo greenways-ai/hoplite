@@ -8,32 +8,32 @@
 #include "hoplite_blob_store_provider.h"
 #include "hoplite_host_provider.h"
 
-#define HOPLITE_HARA_BLOB_ROOT_ENV "HOPLITE_HARA_BLOB_ROOT"
-#define HOPLITE_HARA_BLOB_MAX_OBJECT_ENV \
-    "HOPLITE_HARA_BLOB_MAX_OBJECT_BYTES"
-#define HOPLITE_HARA_BLOB_MAX_APPEND_ENV \
-    "HOPLITE_HARA_BLOB_MAX_APPEND_BYTES"
-#define HOPLITE_HARA_BLOB_MAX_SOURCE_CHUNK_ENV \
-    "HOPLITE_HARA_BLOB_MAX_SOURCE_CHUNK_BYTES"
-#define HOPLITE_HARA_BLOB_MAX_STAGING_KEY_ENV \
-    "HOPLITE_HARA_BLOB_MAX_STAGING_KEY_BYTES"
-#define HOPLITE_HARA_BLOB_MAX_MEDIA_TYPE_ENV \
-    "HOPLITE_HARA_BLOB_MAX_MEDIA_TYPE_BYTES"
-#define HOPLITE_HARA_BLOB_MAX_STAGING_ENTRIES_ENV \
-    "HOPLITE_HARA_BLOB_MAX_STAGING_ENTRIES"
-#define HOPLITE_HARA_BLOB_MAX_OBJECTS_ENV \
-    "HOPLITE_HARA_BLOB_MAX_OBJECTS"
+#define HOPLITE_BLOB_ROOT_ENV "HOPLITE_BLOB_ROOT"
+#define HOPLITE_BLOB_MAX_OBJECT_ENV \
+    "HOPLITE_BLOB_MAX_OBJECT_BYTES"
+#define HOPLITE_BLOB_MAX_APPEND_ENV \
+    "HOPLITE_BLOB_MAX_APPEND_BYTES"
+#define HOPLITE_BLOB_MAX_SOURCE_CHUNK_ENV \
+    "HOPLITE_BLOB_MAX_SOURCE_CHUNK_BYTES"
+#define HOPLITE_BLOB_MAX_STAGING_KEY_ENV \
+    "HOPLITE_BLOB_MAX_STAGING_KEY_BYTES"
+#define HOPLITE_BLOB_MAX_MEDIA_TYPE_ENV \
+    "HOPLITE_BLOB_MAX_MEDIA_TYPE_BYTES"
+#define HOPLITE_BLOB_MAX_STAGING_ENTRIES_ENV \
+    "HOPLITE_BLOB_MAX_STAGING_ENTRIES"
+#define HOPLITE_BLOB_MAX_OBJECTS_ENV \
+    "HOPLITE_BLOB_MAX_OBJECTS"
 
-#define HOPLITE_HARA_BLOB_DEFAULT_MAX_OBJECT \
+#define HOPLITE_BLOB_DEFAULT_MAX_OBJECT \
     (16u * 1024u * 1024u)
-#define HOPLITE_HARA_BLOB_DEFAULT_MAX_APPEND \
+#define HOPLITE_BLOB_DEFAULT_MAX_APPEND \
     (1024u * 1024u)
-#define HOPLITE_HARA_BLOB_DEFAULT_MAX_SOURCE_CHUNK \
+#define HOPLITE_BLOB_DEFAULT_MAX_SOURCE_CHUNK \
     (64u * 1024u)
-#define HOPLITE_HARA_BLOB_DEFAULT_MAX_STAGING_KEY 256u
-#define HOPLITE_HARA_BLOB_DEFAULT_MAX_MEDIA_TYPE 256u
-#define HOPLITE_HARA_BLOB_DEFAULT_MAX_STAGING_ENTRIES 1024u
-#define HOPLITE_HARA_BLOB_DEFAULT_MAX_OBJECTS 65536u
+#define HOPLITE_BLOB_DEFAULT_MAX_STAGING_KEY 256u
+#define HOPLITE_BLOB_DEFAULT_MAX_MEDIA_TYPE 256u
+#define HOPLITE_BLOB_DEFAULT_MAX_STAGING_ENTRIES 1024u
+#define HOPLITE_BLOB_DEFAULT_MAX_OBJECTS 65536u
 
 enum {
     HOPLITE_BLOB_HOST_NEW = 0,
@@ -110,7 +110,7 @@ hoplite_blob_host_invoke(const hoplite_host_call_v1_t *call)
         : HOPLITE_HOST_PROVIDER_ERROR;
 }
 
-static const uint8_t hoplite_blob_service_name[] = "hara.blob";
+static const uint8_t hoplite_blob_service_name[] = "hoplite.blob";
 
 static const hoplite_host_provider_v1_t hoplite_blob_host_provider = {
     HOPLITE_HOST_PROVIDER_ABI_VERSION,
@@ -120,7 +120,10 @@ static const hoplite_host_provider_v1_t hoplite_blob_host_provider = {
     },
     hoplite_blob_host_invoke,
     NULL,
-    HOPLITE_HOST_PROVIDER_REQUEST_BODY | HOPLITE_HOST_PROVIDER_RESPONSE_BODY
+    HOPLITE_HOST_PROVIDER_REQUEST_BODY | HOPLITE_HOST_PROVIDER_RESPONSE_BODY,
+    hoplite_blob_host_provider_response_read_v1,
+    hoplite_blob_host_provider_response_close_v1,
+    hoplite_blob_host_provider_release_work_v1
 };
 
 static int
@@ -189,33 +192,33 @@ hoplite_blob_load_limits(hoplite_blob_store_limits_v1_t *limits)
 {
     if (limits == NULL
         || !hoplite_blob_parse_u64(
-            HOPLITE_HARA_BLOB_MAX_OBJECT_ENV,
-            HOPLITE_HARA_BLOB_DEFAULT_MAX_OBJECT,
+            HOPLITE_BLOB_MAX_OBJECT_ENV,
+            HOPLITE_BLOB_DEFAULT_MAX_OBJECT,
             UINT64_MAX,
             &limits->max_object_bytes)
         || !hoplite_blob_parse_size(
-            HOPLITE_HARA_BLOB_MAX_APPEND_ENV,
-            HOPLITE_HARA_BLOB_DEFAULT_MAX_APPEND,
+            HOPLITE_BLOB_MAX_APPEND_ENV,
+            HOPLITE_BLOB_DEFAULT_MAX_APPEND,
             &limits->max_append_bytes)
         || !hoplite_blob_parse_size(
-            HOPLITE_HARA_BLOB_MAX_SOURCE_CHUNK_ENV,
-            HOPLITE_HARA_BLOB_DEFAULT_MAX_SOURCE_CHUNK,
+            HOPLITE_BLOB_MAX_SOURCE_CHUNK_ENV,
+            HOPLITE_BLOB_DEFAULT_MAX_SOURCE_CHUNK,
             &limits->max_source_chunk_bytes)
         || !hoplite_blob_parse_size(
-            HOPLITE_HARA_BLOB_MAX_STAGING_KEY_ENV,
-            HOPLITE_HARA_BLOB_DEFAULT_MAX_STAGING_KEY,
+            HOPLITE_BLOB_MAX_STAGING_KEY_ENV,
+            HOPLITE_BLOB_DEFAULT_MAX_STAGING_KEY,
             &limits->max_staging_key_bytes)
         || !hoplite_blob_parse_size(
-            HOPLITE_HARA_BLOB_MAX_MEDIA_TYPE_ENV,
-            HOPLITE_HARA_BLOB_DEFAULT_MAX_MEDIA_TYPE,
+            HOPLITE_BLOB_MAX_MEDIA_TYPE_ENV,
+            HOPLITE_BLOB_DEFAULT_MAX_MEDIA_TYPE,
             &limits->max_media_type_bytes)
         || !hoplite_blob_parse_size(
-            HOPLITE_HARA_BLOB_MAX_STAGING_ENTRIES_ENV,
-            HOPLITE_HARA_BLOB_DEFAULT_MAX_STAGING_ENTRIES,
+            HOPLITE_BLOB_MAX_STAGING_ENTRIES_ENV,
+            HOPLITE_BLOB_DEFAULT_MAX_STAGING_ENTRIES,
             &limits->max_staging_entries)
         || !hoplite_blob_parse_size(
-            HOPLITE_HARA_BLOB_MAX_OBJECTS_ENV,
-            HOPLITE_HARA_BLOB_DEFAULT_MAX_OBJECTS,
+            HOPLITE_BLOB_MAX_OBJECTS_ENV,
+            HOPLITE_BLOB_DEFAULT_MAX_OBJECTS,
             &limits->max_objects))
     {
         return 0;
@@ -286,7 +289,7 @@ hoplite_blob_host_provider_init_process_v1(void)
         return HOPLITE_BLOB_HOST_PROVIDER_ERROR;
     }
 
-    root = getenv(HOPLITE_HARA_BLOB_ROOT_ENV);
+    root = getenv(HOPLITE_BLOB_ROOT_ENV);
     return hoplite_blob_register_provider(root, &limits);
 }
 

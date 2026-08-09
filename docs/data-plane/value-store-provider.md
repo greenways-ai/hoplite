@@ -1,8 +1,8 @@
-# Generic `hara.store` protocol adapter
+# Generic `hoplite.store` protocol adapter
 
 `hoplite-value-store-provider` is the application-neutral boundary between a Hara host call and an `OpaqueValueStore` driver.
 
-It accepts one canonical argument vector containing one closed `hara.store-request/1` map and supports:
+It accepts one canonical argument vector containing one closed `hoplite.store-request/1` map and supports:
 
 ```text
 load
@@ -13,7 +13,7 @@ receipt
 
 The host operation and request operation must match exactly. Every operation has an exact field set. Application values and receipts are never decoded into Tahto or another domain schema; the adapter copies their exact nested `HTA1` spans into the value-store contract.
 
-The adapter returns only canonical `hara.store-result/1` frames. Absent load or receipt lookup is represented by `nil`. Receipt lookup is mechanically reported as `replayed`; application HAL decides what replay means.
+The adapter returns only canonical `hoplite.store-result/1` frames. Absent load or receipt lookup is represented by `nil`. Receipt lookup is mechanically reported as `replayed`; application HAL decides what replay means.
 
 ## Ownership
 

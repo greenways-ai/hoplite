@@ -18,7 +18,7 @@ impl fmt::Debug for FilesystemValueProvider {
 
 impl FilesystemValueProvider {
     /// Opens the immutable object layout already owned by the installed
-    /// filesystem `hara.blob` provider. This constructor does not create a
+    /// filesystem `hoplite.blob` provider. This constructor does not create a
     /// second object store or cache.
     pub fn open(root: impl AsRef<Path>, limits: Limits) -> Result<Self, Error> {
         let limits = limits.validate()?;
@@ -49,8 +49,8 @@ impl FilesystemValueProvider {
 
     /// Executes one canonical host-provider call. Invalid host arguments are
     /// returned as provider errors. Every failure after a valid request has
-    /// selected its digest is normalized into a closed `hara.value-result/1`
-    /// value containing only a stable `hara.value/*` code.
+    /// selected its digest is normalized into a closed `hoplite.value-result/1`
+    /// value containing only a stable `hoplite.value/*` code.
     pub fn execute(&self, operation: &str, arguments_hta: &[u8]) -> Result<Vec<u8>, Error> {
         let document = Document::parse(arguments_hta)?;
         let arguments = document.root();

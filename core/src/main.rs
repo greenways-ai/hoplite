@@ -13,19 +13,23 @@ use std::thread;
 use std::time::Duration;
 
 mod app;
+#[cfg(feature = "legacy-management")]
 mod auth;
+#[cfg(feature = "legacy-management")]
 mod auth_policy;
+#[cfg(feature = "legacy-management")]
 mod auth_store_hta;
 mod dev_console;
 mod host;
+#[cfg(feature = "legacy-management")]
 mod management;
 mod package;
 mod platform;
 mod repl;
+#[cfg(feature = "legacy-management")]
 mod store_adapter;
 
 const NGINX_VERSION: &str = "1.30.4";
-
 #[cfg(feature = "embedded-nginx")]
 const EMBEDDED_NGINX: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -48,6 +52,7 @@ fn run(arguments: Vec<String>) -> Result<(), String> {
             println!("Nginx {} ({})", NGINX_VERSION, nginx_distribution());
         }
         Some("serve") => run_serve_command(&arguments[1..])?,
+        #[cfg(feature = "legacy-management")]
         Some("auth") => run_auth_command(&arguments[1..])?,
         Some("package") => package::run(&arguments[1..])?,
         Some("eval") => {
@@ -76,12 +81,12 @@ fn usage() {
     println!("  hoplite [repl]");
     println!("  hoplite eval EXPRESSION");
     println!("  hoplite run FILE");
-    println!("  hoplite auth [init|enroll|serve|status] [OPTIONS]");
     println!("  hoplite package [check|build|inspect|install|verify] [OPTIONS]");
     println!("  hoplite serve [start|stop|reload|status|build|check] [PROJECT]");
     println!("  hoplite version");
 }
 
+#[cfg(feature = "legacy-management")]
 fn run_auth_command(arguments: &[String]) -> Result<(), String> {
     if matches!(
         arguments.first().map(String::as_str),
@@ -172,6 +177,7 @@ fn run_auth_command(arguments: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(feature = "legacy-management")]
 fn auth_store_path(root: &Path) -> PathBuf {
     env::var_os("HOPLITE_STATE_DIR")
         .map(PathBuf::from)
@@ -179,6 +185,7 @@ fn auth_store_path(root: &Path) -> PathBuf {
         .join("control.db")
 }
 
+#[cfg(feature = "legacy-management")]
 fn open_auth_service(root: &Path) -> Result<auth::Service, String> {
     let project = project::discover(root)?;
     let platform = platform::load(&project, None)?;
@@ -186,6 +193,7 @@ fn open_auth_service(root: &Path) -> Result<auth::Service, String> {
     auth::Service::open_for(auth_store_path(root), &composition)
 }
 
+#[cfg(feature = "legacy-management")]
 fn auth_usage() {
     println!("Hoplite-owned authentication");
     println!();
@@ -288,8 +296,7 @@ fn check(root: &Path, settings: &BuildSettings) -> Result<Project, String> {
     let source = bundle_sources(&sources)?;
     let runtime_source = format!(
         "{}\n\n{}",
-        app::RAW_SOURCE,
-        runtime_application_source(&source)?
+        app::RAW_SOURCE, runtime_application_source(&source)?
     );
     compile_application(&runtime_source)
         .map_err(|error| format!("Hoplite bytecode compilation failed: {error}"))?;
@@ -338,19 +345,22 @@ fn build(root: &Path, settings: &BuildSettings) -> Result<PathBuf, String> {
         platform::manifest(&platform_config)?,
     )
     .map_err(io)?;
-    fs::write(output.join("auth-store.hta"), auth_store_hta::contract()?).map_err(io)?;
-    fs::write(
-        output.join("auth-store.hta.sha256"),
-        format!("{}\n", auth_store_hta::sha256()?),
-    )
-    .map_err(io)?;
-    let native_plan = store_adapter::native_link_plan(&platform_config.auth_composition()?)?;
-    fs::write(output.join("native-adapters.edn"), native_plan.manifest_edn).map_err(io)?;
-    fs::write(
-        output.join("native-adapters.Cargo.toml"),
-        native_plan.cargo_toml,
-    )
-    .map_err(io)?;
+    #[cfg(feature = "legacy-management")]
+    {
+        fs::write(output.join("auth-store.hta"), auth_store_hta::contract()?).map_err(io)?;
+        fs::write(
+            output.join("auth-store.hta.sha256"),
+            format!("{}\n", auth_store_hta::sha256()?),
+        )
+        .map_err(io)?;
+        let native_plan = store_adapter::native_link_plan(&platform_config.auth_composition()?)?;
+        fs::write(output.join("native-adapters.edn"), native_plan.manifest_edn).map_err(io)?;
+        fs::write(
+            output.join("native-adapters.Cargo.toml"),
+            native_plan.cargo_toml,
+        )
+        .map_err(io)?;
+    }
     let openapi_dir = output.join("openapi");
     fs::create_dir_all(&openapi_dir).map_err(io)?;
     for application in &app_config.apps {
@@ -409,6 +419,7 @@ fn run_foreground(root: &Path, settings: &BuildSettings) -> Result<(), String> {
     }
 }
 
+#[cfg(feature = "legacy-management")]
 fn start_embedded_management_gateway(
     project_root: &Path,
     settings: &BuildSettings,
@@ -433,6 +444,14 @@ fn start_embedded_management_gateway(
             }
         })
         .map_err(|error| format!("cannot start Hoplite management gateway: {error}"))?;
+    Ok(())
+}
+
+#[cfg(not(feature = "legacy-management"))]
+fn start_embedded_management_gateway(
+    _project_root: &Path,
+    _settings: &BuildSettings,
+) -> Result<(), String> {
     Ok(())
 }
 

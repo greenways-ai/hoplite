@@ -8,8 +8,7 @@ pub const LEGACY_SIGNED_DEVICE_PROFILE: &str = "hoplite-signed-device/1";
 /// an idempotency key in addition to the original HTTP request fields.
 pub const SIGNED_DEVICE_PROFILE: &str = "hoplite-signed-device/2";
 pub const APPLICATION_IDENTITY_PROFILE: &str = "hoplite-application-identity/1";
-pub const VERIFIED_APPLICATION_REQUEST_PROFILE: &str =
-    "hoplite-verified-application-request/1";
+pub const VERIFIED_APPLICATION_REQUEST_PROFILE: &str = "hoplite-verified-application-request/1";
 
 const MAX_METHOD_BYTES: usize = 32;
 const MAX_TARGET_BYTES: usize = 8 * 1024;
@@ -43,7 +42,10 @@ pub enum ResourceHandleError {
 
 impl fmt::Display for ResourceHandleError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "resource handles are server-assigned non-zero integers")
+        write!(
+            formatter,
+            "resource handles are server-assigned non-zero integers"
+        )
     }
 }
 
@@ -70,7 +72,6 @@ pub struct SignedDeviceRequest<'a> {
     pub key_id: &'a str,
     pub signature: &'a str,
 }
-
 
 impl fmt::Debug for SignedDeviceRequest<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -153,10 +154,7 @@ impl SignedDeviceRequest<'_> {
             || self.authority.contains('/')
             || self.authority.contains('@')
             || self.authority.contains('\\')
-            || self
-                .authority
-                .bytes()
-                .any(|byte| !byte.is_ascii_graphic())
+            || self.authority.bytes().any(|byte| !byte.is_ascii_graphic())
         {
             return Err(SignedDeviceError::InvalidAuthority);
         }
@@ -213,8 +211,7 @@ fn valid_identifier(value: &str) -> bool {
 }
 
 fn valid_opaque_token(value: &str, minimum: usize, maximum: usize) -> bool {
-    (minimum..=maximum).contains(&value.len())
-        && value.bytes().all(|byte| byte.is_ascii_graphic())
+    (minimum..=maximum).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_graphic())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -256,9 +253,7 @@ impl SignedDeviceError {
             Self::InvalidCollection => "hoplite.signed-device/invalid-collection",
             Self::InvalidTimestamp => "hoplite.signed-device/invalid-timestamp",
             Self::InvalidNonce => "hoplite.signed-device/invalid-nonce",
-            Self::InvalidIdempotencyKey => {
-                "hoplite.signed-device/invalid-idempotency-key"
-            }
+            Self::InvalidIdempotencyKey => "hoplite.signed-device/invalid-idempotency-key",
             Self::InvalidKeyId => "hoplite.signed-device/invalid-key-id",
             Self::InvalidSignature => "hoplite.signed-device/invalid-signature",
             Self::UnknownKey => "hoplite.signed-device/unknown-key",
@@ -627,10 +622,16 @@ impl fmt::Display for ApplicationAuthenticationError {
         match self {
             Self::InvalidRequest(_) => write!(formatter, "signed application request is invalid"),
             Self::InvalidExpectation => {
-                write!(formatter, "trusted application request expectation is invalid")
+                write!(
+                    formatter,
+                    "trusted application request expectation is invalid"
+                )
             }
             Self::RequestMismatch(field) => {
-                write!(formatter, "signed application request {field} does not match")
+                write!(
+                    formatter,
+                    "signed application request {field} does not match"
+                )
             }
             Self::AuthenticationRejected(_) => {
                 write!(formatter, "signed application request was rejected")
@@ -664,16 +665,13 @@ pub fn authenticate_application_request<P: SignedDeviceProvider>(
         return Err(ApplicationAuthenticationError::RequestMismatch(field));
     }
 
-    let principal = provider.authenticate(request).map_err(|error| {
-        ApplicationAuthenticationError::AuthenticationRejected(error.code())
-    })?;
+    let principal = provider
+        .authenticate(request)
+        .map_err(|error| ApplicationAuthenticationError::AuthenticationRejected(error.code()))?;
     let identity = ApplicationIdentity::project(&principal).map_err(|error| match error {
         ProjectionError::WrongRealm => ApplicationAuthenticationError::WrongRealm,
-        ProjectionError::MissingClaim(name) => {
-            ApplicationAuthenticationError::MissingClaim(name)
-        }
-        ProjectionError::InvalidClaim(name)
-        | ProjectionError::InvalidPrincipalField(name) => {
+        ProjectionError::MissingClaim(name) => ApplicationAuthenticationError::MissingClaim(name),
+        ProjectionError::InvalidClaim(name) | ProjectionError::InvalidPrincipalField(name) => {
             ApplicationAuthenticationError::InvalidIdentity(name)
         }
     })?;
@@ -683,22 +681,11 @@ pub fn authenticate_application_request<P: SignedDeviceProvider>(
             "application/id",
         ));
     }
-    require_claim_match(
-        &identity,
-        "application/namespace",
-        request.namespace,
+    require_claim_match(&identity, "application/namespace", request.namespace)?;
+    require_claim_match(&identity, "application/collection", request.collection)?;
+    let operations = identity.claims.get("application/operations").ok_or(
+        ApplicationAuthenticationError::MissingClaim("application/operations"),
     )?;
-    require_claim_match(
-        &identity,
-        "application/collection",
-        request.collection,
-    )?;
-    let operations = identity
-        .claims
-        .get("application/operations")
-        .ok_or(ApplicationAuthenticationError::MissingClaim(
-            "application/operations",
-        ))?;
     if !operation_allowed(operations, request.operation) {
         return Err(ApplicationAuthenticationError::OperationNotAllowed);
     }
@@ -722,10 +709,18 @@ fn first_mismatch(
     expectation: &ApplicationRequestExpectation<'_>,
 ) -> Option<ApplicationRequestField> {
     [
-        (request.method == expectation.method, ApplicationRequestField::Method),
-        (request.target == expectation.target, ApplicationRequestField::Target),
         (
-            request.authority.eq_ignore_ascii_case(expectation.authority),
+            request.method == expectation.method,
+            ApplicationRequestField::Method,
+        ),
+        (
+            request.target == expectation.target,
+            ApplicationRequestField::Target,
+        ),
+        (
+            request
+                .authority
+                .eq_ignore_ascii_case(expectation.authority),
             ApplicationRequestField::Authority,
         ),
         (
@@ -773,10 +768,7 @@ fn valid_operation_list(value: &str) -> bool {
     let mut seen = Vec::new();
     for operation in value.split(',').map(str::trim) {
         count += 1;
-        if count > MAX_OPERATIONS
-            || !valid_identifier(operation)
-            || seen.contains(&operation)
-        {
+        if count > MAX_OPERATIONS || !valid_identifier(operation) || seen.contains(&operation) {
             return false;
         }
         seen.push(operation);

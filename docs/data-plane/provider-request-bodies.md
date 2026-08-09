@@ -104,7 +104,7 @@ Hoplite issue #41 will use this boundary for an application-neutral service such
 as:
 
 ```text
-hara.blob / staging-append-request
+hoplite.blob / staging-append-request
 ```
 
 The provider receives a closed staging ID, offset, length and body handle. It

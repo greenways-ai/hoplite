@@ -1,7 +1,7 @@
 # Hoplite trusted-root filesystem blob store
 
 `hoplite-blob-store-filesystem` is a restart-safe implementation of the generic
-`hoplite_blob_store::BlobStore` contract beneath the installed `hara.blob`
+`hoplite_blob_store::BlobStore` contract beneath the installed `hoplite.blob`
 service.
 
 It contains no Tahto application, namespace, quota, graph, manifest,
@@ -123,5 +123,5 @@ The standalone Rust 1.78 suite covers:
 - cleanup of orphan staging bytes.
 
 The next PR binds this trusted-root driver to the already-registered
-`hara.blob` provider through installation configuration while retaining the
+`hoplite.blob` provider through installation configuration while retaining the
 in-memory driver for deterministic provider tests.

@@ -8,10 +8,10 @@
 #define HOPLITE_BLOB_HOST_PROVIDER_ERROR (-1)
 
 /*
- * Construct and register one hara.blob provider for this worker.
+ * Construct and register one hoplite.blob provider for this worker.
  *
  * Trusted startup configuration selects the restart-safe filesystem driver
- * when HOPLITE_HARA_BLOB_ROOT is non-empty. An absent root retains the
+ * when HOPLITE_BLOB_ROOT is non-empty. An absent root retains the
  * in-memory driver for one compatibility cycle and deterministic development.
  * HAL calls cannot select the driver, root or limits.
  */

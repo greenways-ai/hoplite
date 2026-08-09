@@ -51,7 +51,7 @@ fn provider(path: &Path) -> SqliteProvider {
         Sha256Verifier,
         limits,
     )
-    .expect("construct hara.store adapter")
+    .expect("construct hoplite.store adapter")
 }
 
 fn digest(bytes: &[u8]) -> String {

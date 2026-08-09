@@ -8,7 +8,7 @@
  :project/capabilities #{:host/random :host/hash :host/signature :host/clock :host/secret}
  :project/dependencies {}
  :hoplite/exports
- {:hoplite/auth {:export/namespace hoplite.auth
-                 :export/contracts {:hoplite/auth-store "1.0.0"}}
+ {:hoplite/value-contract {:export/namespace hoplite.value}
+  :hoplite/response-source-contract {:export/namespace hoplite.response-source}
   :hoplite/gateway {:export/namespace hoplite.core}
   :hoplite/module-runtime {:export/namespace hoplite.core}}}

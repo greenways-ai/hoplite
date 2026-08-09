@@ -50,6 +50,18 @@ typedef int32_t (*hoplite_host_provider_invoke_v1_pt)(
     const hoplite_host_call_v1_t *call);
 typedef void (*hoplite_host_provider_cancel_v1_pt)(
     void *request_context);
+typedef int32_t (*hoplite_host_provider_response_read_v1_pt)(
+    void *request_context,
+    uint64_t work,
+    uint64_t source_handle,
+    uint8_t *output,
+    size_t capacity,
+    size_t *returned);
+typedef int32_t (*hoplite_host_provider_response_close_v1_pt)(
+    void *request_context,
+    uint64_t work,
+    uint64_t source_handle);
+typedef size_t (*hoplite_host_provider_release_work_v1_pt)(uint64_t work);
 
 typedef struct {
     uint32_t abi_version;
@@ -57,6 +69,9 @@ typedef struct {
     hoplite_host_provider_invoke_v1_pt invoke;
     hoplite_host_provider_cancel_v1_pt cancel;
     uint32_t capabilities;
+    hoplite_host_provider_response_read_v1_pt response_read;
+    hoplite_host_provider_response_close_v1_pt response_close;
+    hoplite_host_provider_release_work_v1_pt release_work;
 } hoplite_host_provider_v1_t;
 
 /*

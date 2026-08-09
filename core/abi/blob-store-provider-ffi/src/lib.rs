@@ -1,6 +1,6 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
-//! Work-scoped native boundary for the canonical `hara.blob` adapter.
+//! Work-scoped native boundary for the canonical `hoplite.blob` adapter.
 //!
 //! The provider owns one application-neutral installed blob store per worker.
 //! Request source callbacks are supplied by a trusted host call already bound
@@ -640,7 +640,7 @@ pub unsafe extern "C" fn hoplite_blob_store_provider_open_filesystem_v1(
     .unwrap_or(STATUS_FAILURE)
 }
 
-/// Execute one synchronous canonical `hara.blob` operation.
+/// Execute one synchronous canonical `hoplite.blob` operation.
 ///
 /// # Safety
 ///
@@ -1063,7 +1063,7 @@ mod tests {
             ("expected-size", bare_i64(bytes.len() as u64)),
             ("media-type", bare_string("application/octet-stream")),
             ("operation", bare_string("staging/open")),
-            ("protocol", bare_string("hara.blob-request/1")),
+            ("protocol", bare_string("hoplite.blob-request/1")),
             ("staging-key", bare_string(key)),
         ]))
     }
@@ -1073,7 +1073,7 @@ mod tests {
             ("length", bare_i64(bytes.len() as u64)),
             ("offset", bare_i64(0)),
             ("operation", bare_string("staging/append-from-source")),
-            ("protocol", bare_string("hara.blob-request/1")),
+            ("protocol", bare_string("hoplite.blob-request/1")),
             ("source-handle", bare_i64(handle)),
             ("staging-key", bare_string(key)),
         ]))
@@ -1084,7 +1084,7 @@ mod tests {
             ("expected-digest", bare_string(&digest(bytes))),
             ("expected-size", bare_i64(bytes.len() as u64)),
             ("operation", bare_string("staging/verify-commit")),
-            ("protocol", bare_string("hara.blob-request/1")),
+            ("protocol", bare_string("hoplite.blob-request/1")),
             ("staging-key", bare_string(key)),
         ]))
     }
@@ -1095,7 +1095,7 @@ mod tests {
             ("length", bare_i64(length)),
             ("offset", bare_i64(offset)),
             ("operation", bare_string("object/open-source")),
-            ("protocol", bare_string("hara.blob-request/1")),
+            ("protocol", bare_string("hoplite.blob-request/1")),
         ]))
     }
 

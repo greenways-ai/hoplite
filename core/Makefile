@@ -125,12 +125,9 @@ $(DEFAULT_NGINX_SRC)/configure: $(NGINX_ARCHIVE)
 
 nginx-source: $(NGINX_SRC)/configure
 
-nginx: runtime value-store-provider value-provider blob-store-provider nginx-source
+nginx: runtime nginx-source
 	cd $(NGINX_SRC) && \
 		HOPLITE_RUNTIME_DIR=$(RUNTIME_DIR) \
-		HOPLITE_VALUE_STORE_PROVIDER_DIR=$(VALUE_STORE_PROVIDER_DIR) \
-		HOPLITE_VALUE_PROVIDER_DIR=$(VALUE_PROVIDER_DIR) \
-		HOPLITE_BLOB_STORE_PROVIDER_DIR=$(BLOB_STORE_PROVIDER_DIR) \
 		./configure --prefix=$(CURDIR)/target/nginx \
 			--with-http_ssl_module --with-threads \
 			$(if $(NGINX_CC_OPT),--with-cc-opt="$(NGINX_CC_OPT)") \

@@ -1,6 +1,6 @@
 #![allow(clippy::missing_safety_doc)]
 
-//! Stable synchronous C boundary for the installed filesystem `hara.value`
+//! Stable synchronous C boundary for the installed filesystem `hoplite.value`
 //! provider. Trusted startup code owns the root and ceilings. Hara supplies
 //! only an operation and one standalone HTA1 argument frame.
 
@@ -241,7 +241,7 @@ mod tests {
                 ("digest", bare_string(&self.digest)),
                 ("max-bytes", bare_i64(self.frame.len() as i64)),
                 ("operation", bare_string("object/verify-hta")),
-                ("protocol", bare_string("hara.value-request/1")),
+                ("protocol", bare_string("hoplite.value-request/1")),
             ]);
             let mut frame = MAGIC.to_vec();
             frame.extend_from_slice(&bare_vector(&[request]));

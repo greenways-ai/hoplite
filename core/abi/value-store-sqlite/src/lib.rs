@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-//! SQLite implementation of Hoplite's application-neutral `hara.store`
+//! SQLite implementation of Hoplite's application-neutral `hoplite.store`
 //! mechanics.
 //!
 //! The driver persists canonical value bytes and opaque receipt bytes. It does

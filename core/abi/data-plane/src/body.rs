@@ -49,13 +49,13 @@ impl BodyAccount {
     }
 
     pub fn account(&mut self, bytes: usize) -> Result<(), BodyError> {
-        let attempted = self
-            .observed
-            .checked_add(bytes as u64)
-            .ok_or(BodyError::LimitExceeded {
-                limit: self.limits.max_body_bytes,
-                attempted: u64::MAX,
-            })?;
+        let attempted =
+            self.observed
+                .checked_add(bytes as u64)
+                .ok_or(BodyError::LimitExceeded {
+                    limit: self.limits.max_body_bytes,
+                    attempted: u64::MAX,
+                })?;
         if attempted > self.limits.max_body_bytes {
             return Err(BodyError::LimitExceeded {
                 limit: self.limits.max_body_bytes,
@@ -120,7 +120,10 @@ impl fmt::Display for BodyError {
                 formatter,
                 "body limit exceeded: attempted {attempted} bytes with limit {limit}"
             ),
-            Self::DeclaredLengthExceeded { declared, attempted } => write!(
+            Self::DeclaredLengthExceeded {
+                declared,
+                attempted,
+            } => write!(
                 formatter,
                 "declared body length exceeded: declared {declared}, attempted {attempted}"
             ),
@@ -132,7 +135,10 @@ impl fmt::Display for BodyError {
                 formatter,
                 "response source ended early: expected {expected}, observed {observed}"
             ),
-            Self::SourceReadPastRequest { requested, returned } => write!(
+            Self::SourceReadPastRequest {
+                requested,
+                returned,
+            } => write!(
                 formatter,
                 "response source returned {returned} bytes after a request for {requested}"
             ),

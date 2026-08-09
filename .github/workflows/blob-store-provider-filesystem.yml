@@ -1,4 +1,4 @@
-name: Filesystem hara.blob provider FFI
+name: Filesystem hoplite.blob provider FFI
 
 on:
   push:

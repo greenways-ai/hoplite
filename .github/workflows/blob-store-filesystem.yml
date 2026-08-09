@@ -1,4 +1,4 @@
-name: Filesystem hara.blob driver
+name: Filesystem hoplite.blob driver
 
 on:
   push:

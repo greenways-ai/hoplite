@@ -1,4 +1,4 @@
-name: Materialize hara.store provider FFI
+name: Materialize hoplite.store provider FFI
 
 on:
   pull_request:
@@ -39,11 +39,11 @@ jobs:
       - name: Commit materialized source
         run: |
           if git diff --quiet -- core/abi/value-store-provider-ffi; then
-            echo "hara.store provider FFI is already materialized."
+            echo "hoplite.store provider FFI is already materialized."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add core/abi/value-store-provider-ffi
-          git commit -m "Materialize the hara.store provider FFI"
+          git commit -m "Materialize the hoplite.store provider FFI"
           git push

@@ -12,9 +12,9 @@ use std::fmt;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-pub const SERVICE: &str = "hara.blob";
-pub const REQUEST_PROTOCOL: &str = "hara.blob-request/1";
-pub const RESULT_PROTOCOL: &str = "hara.blob-result/1";
+pub const SERVICE: &str = "hoplite.blob";
+pub const REQUEST_PROTOCOL: &str = "hoplite.blob-request/1";
+pub const RESULT_PROTOCOL: &str = "hoplite.blob-result/1";
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Digest([u8; 32]);

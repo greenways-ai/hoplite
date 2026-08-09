@@ -1,14 +1,14 @@
-# Installed `hara.value` provider
+# Installed `hoplite.value` provider
 
 Hoplite installs one application-neutral canonical-value verification service:
 
 ```text
-service    hara.value
+service    hoplite.value
 operation  object/verify-hta
 ```
 
 The installed filesystem provider reuses the immutable object root already owned
-by `hara.blob`. It does not create a second copy, decoded-value cache, semantic
+by `hoplite.blob`. It does not create a second copy, decoded-value cache, semantic
 index, schema registry or application store.
 
 ## Trusted worker configuration
@@ -27,7 +27,7 @@ fails closed.
 Portable Hara requests contain only:
 
 ```clojure
-{:protocol "hara.value-request/1"
+{:protocol "hoplite.value-request/1"
  :operation "object/verify-hta"
  :digest "sha256:..."
  :max-bytes 1048576}
@@ -43,7 +43,7 @@ During trusted worker startup Hoplite:
 1. opens the configured immutable object root;
 2. validates the installed maximum and fixed internal read/media-type bounds;
 3. materializes the filesystem provider through its stable C ABI;
-4. registers exactly one immutable `hara.value` service entry;
+4. registers exactly one immutable `hoplite.value` service entry;
 5. rejects duplicate registration or an ABI mismatch;
 6. closes the provider during worker shutdown.
 
@@ -53,7 +53,7 @@ owned bounded HTA result through the ordinary host completion path.
 ## Verification path
 
 ```text
-registered hara.value call
+registered hoplite.value call
   -> exact closed request
   -> digest-derived provider-owned path
   -> shared blob-store lock
@@ -61,7 +61,7 @@ registered hara.value call
   -> bounded actual read with maximum-plus-one sentinel
   -> actual size and SHA-256 verification
   -> Hara canonical HTA decoding
-  -> closed hara.value-result/1
+  -> closed hoplite.value-result/1
 ```
 
 The provider never treats metadata size as proof of the bytes and never exposes
@@ -80,5 +80,5 @@ materialization.
 Hoplite proves canonical byte identity and returns the bounded portable value.
 Tahto remains responsible for prior namespace authorization, expected object
 identity, exact schema-reference binding, local package-root resolution,
-validator-entry invocation and semantic mutation. Installing `hara.value` does
+validator-entry invocation and semantic mutation. Installing `hoplite.value` does
 not install or authorize a specification package.

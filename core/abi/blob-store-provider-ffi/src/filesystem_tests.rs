@@ -243,7 +243,7 @@ fn open_request(key: &str, bytes: &[u8]) -> Vec<u8> {
         ("expected-size", bare_i64(bytes.len() as u64)),
         ("media-type", bare_string("application/octet-stream")),
         ("operation", bare_string("staging/open")),
-        ("protocol", bare_string("hara.blob-request/1")),
+        ("protocol", bare_string("hoplite.blob-request/1")),
         ("staging-key", bare_string(key)),
     ]))
 }
@@ -253,7 +253,7 @@ fn append_request(key: &str, offset: u64, bytes: &[u8], handle: u64) -> Vec<u8> 
         ("length", bare_i64(bytes.len() as u64)),
         ("offset", bare_i64(offset)),
         ("operation", bare_string("staging/append-from-source")),
-        ("protocol", bare_string("hara.blob-request/1")),
+        ("protocol", bare_string("hoplite.blob-request/1")),
         ("source-handle", bare_i64(handle)),
         ("staging-key", bare_string(key)),
     ]))
@@ -264,7 +264,7 @@ fn commit_request(key: &str, bytes: &[u8]) -> Vec<u8> {
         ("expected-digest", bare_string(&digest(bytes))),
         ("expected-size", bare_i64(bytes.len() as u64)),
         ("operation", bare_string("staging/verify-commit")),
-        ("protocol", bare_string("hara.blob-request/1")),
+        ("protocol", bare_string("hoplite.blob-request/1")),
         ("staging-key", bare_string(key)),
     ]))
 }
@@ -275,7 +275,7 @@ fn open_source_request(bytes: &[u8], offset: u64, length: u64) -> Vec<u8> {
         ("length", bare_i64(length)),
         ("offset", bare_i64(offset)),
         ("operation", bare_string("object/open-source")),
-        ("protocol", bare_string("hara.blob-request/1")),
+        ("protocol", bare_string("hoplite.blob-request/1")),
     ]))
 }
 

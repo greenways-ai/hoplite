@@ -52,15 +52,7 @@ cat > "${name}/project.edn" <<'EDN'
  :project/profiles
  {:server {:profile/language :hoplite
            :profile/main app/app
-           :profile/options {:port 8080}
-           :profile/extensions
-           {:extension/hoplite
-            {:hoplite/authentication
-             {:auth/realms
-              {:management {:auth/providers [:auth/key]
-                            :auth/required true}
-               :application {:auth/providers [:auth/key]
-                             :auth/required false}}}}}}}}
+           :profile/options {:port 8080}}}}
 EDN
 
 cat <<EOF

@@ -104,22 +104,14 @@ operation, while referring to it with `#'` is declarative configuration.
  :project/profiles
  {:server {:profile/language :hoplite
            :profile/main example.app/app
-           :profile/options {:port 8080}
-           :profile/extensions
-           {:extension/hoplite
-            {:hoplite/authentication
-             {:auth/realms
-              {:management {:auth/providers [:auth/key]
-                            :auth/required true}
-               :application {:auth/providers [:auth/key]
-                             :auth/required false}}}}}}}}
+           :profile/options {:port 8080}}}}
 ```
 
-Hoplite owns authentication for both its management surface and application
-requests. The built-in `:auth/key` provider is the default user-owned-key
-mechanism. The application realm is permissive until a route policy requires a
-principal; the management realm cannot be made public. Additional identity
-mechanisms are installed as versioned Hoplite modules.
+Account and session management are not part of the default Hoplite build.
+Application HAL validates its own signed request envelope and semantic
+coordinates through generic host cryptography and time calls. Tahto owns that
+policy for Tahto applications. The `legacy-management` Cargo feature exists
+only to validate migration compatibility and is not enabled in release images.
 
 See [`core/examples/app.hal`](core/examples/app.hal) and
 [`core/examples/project.edn`](core/examples/project.edn) for the complete starter.
@@ -154,11 +146,19 @@ stripped embedded Nginx/Hara server when necessary, and replaces itself with
 Nginx. It does not retain the compiler, REPL, package tooling, authentication
 store, or management gateway in the production process tree.
 
-`hoplite serve foreground --mode prod` remains available when an all-in-one
-process with the embedded management gateway is deliberately required.
-Management listens on `127.0.0.1:9090` by default; use
-`HOPLITE_MANAGEMENT_LISTEN` to select another loopback socket or `off` to run
-without the embedded management surface.
+The core server also does not bundle storage, blob, canonical-value, or
+application authorization providers. It owns only the `hoplite.store`,
+`hoplite.blob`, `hoplite.value`, and `hoplite.response-source` host boundaries
+and the provider-neutral request/response transport. Tahto distributions may
+compose implementations of those boundaries as separate packages.
+
+The portable `hoplite.value` and `hoplite.response-source` request, result, and
+descriptor validators live in Hoplite's HAL source tree. Applications compile
+and test them through Hoplite; Hara supplies only the product-neutral value,
+HTA, host-call, and coroutine substrate.
+
+`hoplite serve foreground --mode prod` runs Nginx in the foreground; it does
+not start an account, session, or application-authorization service.
 
 Build output is placed under the application's `.hoplite/` directory:
 
@@ -173,9 +173,9 @@ Build output is placed under the application's `.hoplite/` directory:
   openapi/<app-name>.json
 ```
 
-`platform.edn` is the inspectable compiled module and authentication plan;
-`platform.hta` is the equivalent runtime transport. Both are produced from the
-selected profile in `project.edn`.
+`platform.edn` is the inspectable compiled module plan; `platform.hta` is the
+equivalent runtime transport. Both are produced from the selected profile in
+`project.edn`.
 
 The application bytecode is generated and validated today; Nginx still uses
 the HAL bootstrap while the bytecode bootstrap ABI is being integrated.

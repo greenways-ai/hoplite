@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 rust-version = "1.78"
-description = "Work-scoped C boundary for Hoplite's canonical hara.blob provider"
+description = "Work-scoped C boundary for Hoplite's canonical hoplite.blob provider"
 
 [lib]
 crate-type = ["rlib", "staticlib"]

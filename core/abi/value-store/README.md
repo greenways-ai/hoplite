@@ -4,7 +4,7 @@ This crate defines the dependency-free mechanical contract beneath the Hara
 service:
 
 ```text
-hara.store
+hoplite.store
 ```
 
 It does not define an application state model. In particular, it has no
@@ -80,15 +80,15 @@ The store does not interpret:
 - how an application recovers or merges state.
 
 Tahto's `.hal` client validates those meanings before and after calling
-`hara.store`. Other Hara applications can use the same mechanics with different
+`hoplite.store`. Other Hara applications can use the same mechanics with different
 state and receipt schemas.
 
 ## Next slices
 
-1. Decode the `hara.store-request/1` frame while preserving the nested canonical
+1. Decode the `hoplite.store-request/1` frame while preserving the nested canonical
    value and receipt spans.
 2. Adapt the reviewed SQLite transaction mechanics to `OpaqueValueStore`.
-3. Register the provider as `hara.store` through Hoplite's request-scoped host
+3. Register the provider as `hoplite.store` through Hoplite's request-scoped host
    provider ABI.
 4. Run the same HAL conformance against this in-memory driver and SQLite.
 5. Remove the transitional Tahto-specific native migration source after restart

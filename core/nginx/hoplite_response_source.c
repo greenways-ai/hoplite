@@ -13,6 +13,8 @@ hoplite_response_source_descriptor_validate_v1(
         || descriptor->protocol == NULL
         || descriptor->protocol_len != sizeof(protocol) - 1
         || memcmp(descriptor->protocol, protocol, sizeof(protocol) - 1) != 0
+        || descriptor->service == NULL
+        || descriptor->service_len == 0
         || descriptor->source_handle == 0
         || descriptor->source_handle > maximum
         || descriptor->offset > maximum

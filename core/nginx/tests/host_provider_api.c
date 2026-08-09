@@ -56,7 +56,10 @@ main(void)
         {(const uint8_t *) "tahto.metadata", sizeof("tahto.metadata") - 1},
         invoke,
         cancel,
-        0
+        0,
+        NULL,
+        NULL,
+        NULL
     };
     hoplite_host_provider_v1_t incompatible = provider;
     hoplite_host_call_v1_t call = {

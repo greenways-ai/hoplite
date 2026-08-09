@@ -1,4 +1,4 @@
-name: hara.store provider FFI conformance
+name: hoplite.store provider FFI conformance
 
 on:
   pull_request:

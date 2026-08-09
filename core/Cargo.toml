@@ -10,14 +10,13 @@ default-run = "hoplite"
 [workspace]
 members = [
   ".",
-  "abi/auth-store",
   "abi/data-plane",
   "abi/data-plane-ffi",
   "abi/data-plane-registry",
-  "abi/signed-device-ed25519",
-  "abi/signed-device-replay",
-  "abi/signed-device-worker",
   "runtime",
+]
+exclude = [
+  "abi/auth-store",
 ]
 default-members = ["."]
 resolver = "2"
@@ -26,13 +25,17 @@ resolver = "2"
 default = ["bytecode-vm"]
 bytecode-vm = ["hara-wasm/bytecode-vm"]
 embedded-nginx = []
+legacy-management = [
+  "dep:hoplite-auth-store-abi",
+  "dep:hoplite-store-sqlite",
+  "dep:rusqlite",
+]
 
 [dependencies]
 base64 = "0.22"
 hara-wasm = { path = "../../hara/core/rust", features = ["bytecode-vm"] }
-hoplite-auth-store-abi = { path = "abi/auth-store" }
-hoplite-signed-device-worker = { path = "abi/signed-device-worker" }
-hoplite-store-sqlite = { git = "https://github.com/greenways-ai/hoplite-store-sqlite", rev = "6ef90070e0fa7ffbc2f2dbcb9832d4f2b14ac29b" }
+hoplite-auth-store-abi = { path = "abi/auth-store", optional = true }
+hoplite-store-sqlite = { git = "https://github.com/greenways-ai/hoplite-store-sqlite", rev = "6ef90070e0fa7ffbc2f2dbcb9832d4f2b14ac29b", optional = true }
 rustyline = "14.0.0"
 home = "=0.5.9"
 serde_json = "1.0"
@@ -40,7 +43,7 @@ semver = "1.0"
 ed25519-dalek = "2.2"
 p256 = { version = "0.13", features = ["ecdsa"] }
 getrandom = "0.2"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled"], optional = true }
 sha2 = "0.10"
 
 [patch."https://github.com/greenways-ai/hoplite"]

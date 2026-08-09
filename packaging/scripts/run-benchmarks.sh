@@ -88,7 +88,7 @@ docker build -f "$repository_root/packaging/docker/footprints/lua/Dockerfile" -t
 
 export HOPLITE_REPOSITORY_ROOT="$repository_root"
 export HOPLITE_BENCHMARK_COMMIT="$hoplite_revision"
-export HOPLITE_HARA_REVISION="$expected_hara_revision"
+export HOPLITE_REVISION="$expected_hara_revision"
 export HOPLITE_NGINX_VERSION="$nginx_version"
 
 (

@@ -6,19 +6,27 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 
 pub const PLATFORM_FORMAT: i64 = 2;
+#[cfg(feature = "legacy-management")]
 pub const PRINCIPAL_CONTRACT: &str = "1.0.0";
+#[cfg(feature = "legacy-management")]
 pub const PRINCIPAL_FIELDS: &[&str] = &[
     "principal/id",
     "principal/realm",
     "principal/session-id",
     "principal/claims",
 ];
+#[cfg(feature = "legacy-management")]
 pub const KEY_PROVIDER: &str = "auth/key";
+#[cfg(feature = "legacy-management")]
 pub const CORE_PACKAGE: &str = "gh:greenways-ai:hoplite";
+#[cfg(feature = "legacy-management")]
 pub const CORE_AUTH_EXPORT: &str = "hoplite/auth";
+#[cfg(feature = "legacy-management")]
 pub const SQLITE_STORE_PACKAGE: &str = "gh:greenways-ai:hoplite-store-sqlite";
+#[cfg(feature = "legacy-management")]
 pub const STORE_EXPORT: &str = "hoplite/store";
 
+#[cfg(feature = "legacy-management")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AuthComposition {
     pub policy_package: String,
@@ -35,6 +43,7 @@ pub struct AuthComposition {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Config {
     pub modules: Vec<ModuleActivation>,
+    #[cfg(feature = "legacy-management")]
     pub authentication: Authentication,
 }
 
@@ -48,11 +57,13 @@ pub struct ModuleActivation {
     pub archive_sha256: Option<String>,
 }
 
+#[cfg(feature = "legacy-management")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Authentication {
     pub realms: BTreeMap<String, Realm>,
 }
 
+#[cfg(feature = "legacy-management")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Realm {
     pub providers: Vec<String>,
@@ -60,6 +71,7 @@ pub struct Realm {
     pub session: SessionPolicy,
 }
 
+#[cfg(feature = "legacy-management")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionPolicy {
     pub access_ttl_seconds: u32,
@@ -68,6 +80,7 @@ pub struct SessionPolicy {
     pub reuse_interval_seconds: u32,
 }
 
+#[cfg(feature = "legacy-management")]
 impl Default for SessionPolicy {
     fn default() -> Self {
         Self {
@@ -79,6 +92,7 @@ impl Default for SessionPolicy {
     }
 }
 
+#[cfg(feature = "legacy-management")]
 impl Default for Authentication {
     fn default() -> Self {
         Self {
@@ -108,12 +122,14 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             modules: Vec::new(),
+            #[cfg(feature = "legacy-management")]
             authentication: Authentication::default(),
         }
     }
 }
 
 impl Config {
+    #[cfg(feature = "legacy-management")]
     pub fn auth_composition(&self) -> Result<AuthComposition, String> {
         let Some(policy) = self
             .modules
@@ -264,12 +280,14 @@ fn parse_profile(manifest: &Form, profile_name: &str) -> Result<Config, String> 
         .map(parse_modules)
         .transpose()?
         .unwrap_or_default();
+    #[cfg(feature = "legacy-management")]
     let authentication = lookup(hoplite, "hoplite/authentication")
         .map(parse_authentication)
         .transpose()?
         .unwrap_or_default();
     Ok(Config {
         modules,
+        #[cfg(feature = "legacy-management")]
         authentication,
     })
 }
@@ -279,7 +297,9 @@ fn reject_unknown_hoplite_keys(entries: &[(Form, Form)]) -> Result<(), String> {
         let Some(key) = identifier(key) else {
             return Err(":extension/hoplite keys must be keywords".into());
         };
-        if !matches!(key.as_str(), "hoplite/modules" | "hoplite/authentication") {
+        let supported = key == "hoplite/modules"
+            || cfg!(feature = "legacy-management") && key == "hoplite/authentication";
+        if !supported {
             return Err(format!("unsupported Hoplite profile key :{key}"));
         }
     }
@@ -384,6 +404,7 @@ fn valid_github_name(value: &str) -> bool {
         })
 }
 
+#[cfg(feature = "legacy-management")]
 fn parse_authentication(value: &Form) -> Result<Authentication, String> {
     let authentication = form_map(value, ":hoplite/authentication must be a map")?;
     reject_unknown_keys(authentication, &["auth/realms"], "authentication")?;
@@ -417,6 +438,7 @@ fn parse_authentication(value: &Form) -> Result<Authentication, String> {
     Ok(Authentication { realms: output })
 }
 
+#[cfg(feature = "legacy-management")]
 fn parse_realm(name: &str, value: &Form) -> Result<Realm, String> {
     let realm = form_map(value, "authentication realm must be a map")?;
     reject_unknown_keys(
@@ -475,6 +497,7 @@ fn parse_realm(name: &str, value: &Form) -> Result<Realm, String> {
     })
 }
 
+#[cfg(feature = "legacy-management")]
 fn parse_session(realm: &str, value: &Form) -> Result<SessionPolicy, String> {
     let session = form_map(value, ":auth/session must be a map")?;
     reject_unknown_keys(
@@ -545,7 +568,8 @@ pub fn readable_manifest(config: &Config) -> String {
 }
 
 fn to_form(config: &Config) -> Form {
-    Form::Map(vec![
+    #[allow(unused_mut)]
+    let mut fields = vec![
         (keyword("hoplite/format"), Form::Number(PLATFORM_FORMAT)),
         (
             keyword("hoplite/modules"),
@@ -575,80 +599,82 @@ fn to_form(config: &Config) -> Form {
                     .collect(),
             ),
         ),
-        (
-            keyword("hoplite/authentication"),
-            Form::Map(vec![
-                (
-                    keyword("auth/principal-contract"),
-                    Form::String(PRINCIPAL_CONTRACT.into()),
+    ];
+    #[cfg(feature = "legacy-management")]
+    fields.push((
+        keyword("hoplite/authentication"),
+        Form::Map(vec![
+            (
+                keyword("auth/principal-contract"),
+                Form::String(PRINCIPAL_CONTRACT.into()),
+            ),
+            (
+                keyword("auth/principal-fields"),
+                Form::Vector(
+                    PRINCIPAL_FIELDS
+                        .iter()
+                        .map(|field| keyword(field))
+                        .collect(),
                 ),
-                (
-                    keyword("auth/principal-fields"),
-                    Form::Vector(
-                        PRINCIPAL_FIELDS
-                            .iter()
-                            .map(|field| keyword(field))
-                            .collect(),
-                    ),
-                ),
-                (
-                    keyword("auth/realms"),
-                    Form::Map(
-                        config
-                            .authentication
-                            .realms
-                            .iter()
-                            .map(|(name, realm)| {
-                                (
-                                    keyword(name),
-                                    Form::Map(vec![
-                                        (
-                                            keyword("auth/providers"),
-                                            Form::Vector(
-                                                realm
-                                                    .providers
-                                                    .iter()
-                                                    .map(|provider| keyword(provider))
-                                                    .collect(),
+            ),
+            (
+                keyword("auth/realms"),
+                Form::Map(
+                    config
+                        .authentication
+                        .realms
+                        .iter()
+                        .map(|(name, realm)| {
+                            (
+                                keyword(name),
+                                Form::Map(vec![
+                                    (
+                                        keyword("auth/providers"),
+                                        Form::Vector(
+                                            realm
+                                                .providers
+                                                .iter()
+                                                .map(|provider| keyword(provider))
+                                                .collect(),
+                                        ),
+                                    ),
+                                    (keyword("auth/required"), Form::Bool(realm.required)),
+                                    (
+                                        keyword("auth/session"),
+                                        Form::Map(vec![
+                                            (
+                                                keyword("session/access-ttl-seconds"),
+                                                Form::Number(i64::from(
+                                                    realm.session.access_ttl_seconds,
+                                                )),
                                             ),
-                                        ),
-                                        (keyword("auth/required"), Form::Bool(realm.required)),
-                                        (
-                                            keyword("auth/session"),
-                                            Form::Map(vec![
-                                                (
-                                                    keyword("session/access-ttl-seconds"),
-                                                    Form::Number(i64::from(
-                                                        realm.session.access_ttl_seconds,
-                                                    )),
-                                                ),
-                                                (
-                                                    keyword("session/refresh-ttl-seconds"),
-                                                    Form::Number(i64::from(
-                                                        realm.session.refresh_ttl_seconds,
-                                                    )),
-                                                ),
-                                                (
-                                                    keyword("session/rotate-refresh-tokens"),
-                                                    Form::Bool(realm.session.rotate_refresh_tokens),
-                                                ),
-                                                (
-                                                    keyword("session/reuse-interval-seconds"),
-                                                    Form::Number(i64::from(
-                                                        realm.session.reuse_interval_seconds,
-                                                    )),
-                                                ),
-                                            ]),
-                                        ),
-                                    ]),
-                                )
-                            })
-                            .collect(),
-                    ),
+                                            (
+                                                keyword("session/refresh-ttl-seconds"),
+                                                Form::Number(i64::from(
+                                                    realm.session.refresh_ttl_seconds,
+                                                )),
+                                            ),
+                                            (
+                                                keyword("session/rotate-refresh-tokens"),
+                                                Form::Bool(realm.session.rotate_refresh_tokens),
+                                            ),
+                                            (
+                                                keyword("session/reuse-interval-seconds"),
+                                                Form::Number(i64::from(
+                                                    realm.session.reuse_interval_seconds,
+                                                )),
+                                            ),
+                                        ]),
+                                    ),
+                                ]),
+                            )
+                        })
+                        .collect(),
                 ),
-            ]),
-        ),
-    ])
+            ),
+        ]),
+    ));
+    Form::Map(fields)
 }
 
 fn to_value(config: &Config) -> Result<Value, String> {
@@ -746,6 +772,7 @@ fn reject_unknown_keys(
     Ok(())
 }
 
+#[cfg(feature = "legacy-management")]
 fn unsigned_field(entries: &[(Form, Form)], key: &str, default: u32) -> Result<u32, String> {
     match lookup(entries, key) {
         Some(Form::Number(value)) => u32::try_from(*value)
@@ -755,6 +782,7 @@ fn unsigned_field(entries: &[(Form, Form)], key: &str, default: u32) -> Result<u
     }
 }
 
+#[cfg(feature = "legacy-management")]
 fn bool_field(entries: &[(Form, Form)], key: &str, default: bool) -> Result<bool, String> {
     match lookup(entries, key) {
         Some(Form::Bool(value)) => Ok(*value),
@@ -815,6 +843,23 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "legacy-management"))]
+    fn default_platform_has_no_authentication_or_session_boundary() {
+        let config = parse_profile(&project_manifest("{}"), "server").unwrap();
+        let readable = readable_manifest(&config);
+        assert!(!readable.contains("hoplite/authentication"));
+        assert!(!readable.contains("auth/realms"));
+
+        let error = parse_profile(
+            &project_manifest("{:hoplite/authentication {:auth/realms {}}}"),
+            "server",
+        )
+        .unwrap_err();
+        assert!(error.contains("unsupported Hoplite profile key :hoplite/authentication"));
+    }
+
+    #[test]
+    #[cfg(feature = "legacy-management")]
     fn defaults_to_hoplite_owned_key_authentication() {
         let config = parse_profile(&project_manifest("{}"), "server").unwrap();
         assert!(config.modules.is_empty());
@@ -833,6 +878,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "legacy-management")]
     fn compiles_modules_and_separate_authentication_realms() {
         let source = r#"
         {:hoplite/modules
@@ -869,6 +915,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "legacy-management")]
     fn resolves_auth_policy_and_store_adapter_by_alias() {
         let source = r#"
         {:hoplite/modules
@@ -913,6 +960,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "legacy-management")]
     fn explicit_modules_are_bound_to_locked_archive_digests() {
         let root = std::env::temp_dir().join(format!(
             "hoplite-platform-lock-{}",
@@ -961,6 +1009,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "legacy-management")]
     fn rejects_unsafe_session_and_management_configuration() {
         let no_management = project_manifest(
             "{:hoplite/authentication {:auth/realms {:application {:auth/providers [:auth/key]}}}}",

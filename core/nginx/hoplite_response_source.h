@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define HOPLITE_RESPONSE_SOURCE_PROTOCOL "hara.response-source/1"
+#define HOPLITE_RESPONSE_SOURCE_PROTOCOL "hoplite.response-source/1"
 #define HOPLITE_RESPONSE_SOURCE_SAFE_INTEGER_MAX UINT64_C(9007199254740991)
 
 #define HOPLITE_RESPONSE_SOURCE_OK 0
@@ -27,6 +27,8 @@ typedef int32_t (*hoplite_response_source_close_pt)(
 typedef struct {
     const uint8_t *protocol;
     size_t protocol_len;
+    const uint8_t *service;
+    size_t service_len;
     uint64_t source_handle;
     uint64_t offset;
     uint64_t length;

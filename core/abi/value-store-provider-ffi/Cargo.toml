@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 rust-version = "1.78"
-description = "Portable synchronous C boundary for Hoplite's generic hara.store provider"
+description = "Portable synchronous C boundary for Hoplite's generic hoplite.store provider"
 
 [lib]
 name = "hoplite_value_store_provider_ffi"

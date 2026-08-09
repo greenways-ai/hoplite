@@ -1,6 +1,6 @@
-# Generic `hara.blob` mechanics
+# Generic `hoplite.blob` mechanics
 
-`hoplite-blob-store` defines the application-neutral staged-blob lifecycle beneath the `hara.blob` service:
+`hoplite-blob-store` defines the application-neutral staged-blob lifecycle beneath the `hoplite.blob` service:
 
 ```text
 staging/open

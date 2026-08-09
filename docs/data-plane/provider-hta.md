@@ -12,7 +12,7 @@ Generic native providers receive one standalone `HTA1` frame containing the Hara
 - supports exact string/keyword map lookup and vector indexing; and
 - can copy one nested value into a standalone `HTA1` frame.
 
-This lets `hara.store` persist the exact `:value` and `:receipt` spans and lets `hara.blob` validate closed requests without introducing application-specific decoders.
+This lets `hoplite.store` persist the exact `:value` and `:receipt` spans and lets `hoplite.blob` validate closed requests without introducing application-specific decoders.
 
 The parser does not interpret Tahto records, storage semantics, authorization, paths, drivers or credentials. Provider-specific adapters layer their own exact closed-field validation over this common reader.
 

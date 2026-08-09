@@ -9,7 +9,7 @@
 #define HOPLITE_VALUE_STORE_HOST_PROVIDER_ERROR (-1)
 
 /*
- * Register one worker-owned SQLite hara.store provider from trusted bytes.
+ * Register one worker-owned SQLite hoplite.store provider from trusted bytes.
  * This function is a startup boundary; request and application values must
  * never supply the path, driver choice, or limits.
  */
@@ -22,9 +22,9 @@ int32_t hoplite_value_store_host_provider_register_sqlite_v1(
 /*
  * Read trusted process configuration and register the provider once.
  *
- * HOPLITE_HARA_STORE_PATH enables the provider. Optional positive decimal
- * limits are read from HOPLITE_HARA_STORE_MAX_VALUE_BYTES and
- * HOPLITE_HARA_STORE_MAX_RECEIPT_BYTES. An absent path leaves the service
+ * HOPLITE_STORE_PATH enables the provider. Optional positive decimal
+ * limits are read from HOPLITE_STORE_MAX_VALUE_BYTES and
+ * HOPLITE_STORE_MAX_RECEIPT_BYTES. An absent path leaves the service
  * intentionally disabled; malformed or unusable configuration is an error.
  */
 int32_t hoplite_value_store_host_provider_init_process_v1(void);

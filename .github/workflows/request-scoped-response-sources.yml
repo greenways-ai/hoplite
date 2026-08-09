@@ -1,4 +1,4 @@
-name: Request-scoped hara.blob response sources
+name: Request-scoped hoplite.blob response sources
 
 on:
   push:

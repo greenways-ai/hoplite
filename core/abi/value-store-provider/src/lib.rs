@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-//! Canonical `hara.store` request/result adapter for opaque value-store drivers.
+//! Canonical `hoplite.store` request/result adapter for opaque value-store drivers.
 //!
 //! The adapter understands only the application-neutral storage protocol. It
 //! preserves nested value and receipt frames exactly and delegates mechanical
@@ -79,7 +79,7 @@ impl fmt::Display for Error {
         match self {
             Self::Hta(error) => write!(formatter, "invalid provider HTA: {error}"),
             Self::InvalidRequest(message) => {
-                write!(formatter, "invalid hara.store request: {message}")
+                write!(formatter, "invalid hoplite.store request: {message}")
             }
             Self::OperationMismatch { call, request } => write!(
                 formatter,

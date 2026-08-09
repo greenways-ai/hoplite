@@ -83,7 +83,7 @@ hoplite_value_host_invoke(const hoplite_host_call_v1_t *call)
         : HOPLITE_HOST_PROVIDER_ERROR;
 }
 
-static const uint8_t hoplite_value_service_name[] = "hara.value";
+static const uint8_t hoplite_value_service_name[] = "hoplite.value";
 
 static const hoplite_host_provider_v1_t hoplite_value_host_provider = {
     HOPLITE_HOST_PROVIDER_ABI_VERSION,
@@ -93,7 +93,10 @@ static const hoplite_host_provider_v1_t hoplite_value_host_provider = {
     },
     hoplite_value_host_invoke,
     NULL,
-    0
+    0,
+    NULL,
+    NULL,
+    NULL
 };
 
 static int

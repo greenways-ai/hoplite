@@ -16,9 +16,8 @@ use hoplite_data_plane_abi::{BodyError, BodyLimits, RequestBody, ResponseBody};
 use std::ffi::c_void;
 
 pub use implementation::{
-    checked_resource_handle, BridgeError, DescriptorError, HopliteCloseV1,
-    HopliteReadAtV1, HopliteReadV1, HopliteRequestBodyV1,
-    HopliteResponseBodyV1, HOPLITE_CALLBACK_OK,
+    checked_resource_handle, BridgeError, DescriptorError, HopliteCloseV1, HopliteReadAtV1,
+    HopliteReadV1, HopliteRequestBodyV1, HopliteResponseBodyV1, HOPLITE_CALLBACK_OK,
     HOPLITE_DATA_PLANE_ABI_VERSION,
 };
 
@@ -120,9 +119,7 @@ impl FfiResponseBody {
     /// close, that the descriptor is not used to construct another owner, that
     /// callbacks obey the supplied buffer bounds and do not unwind, and that
     /// close invalidates the context and may be invoked exactly once.
-    pub unsafe fn from_raw(
-        descriptor: HopliteResponseBodyV1,
-    ) -> Result<Self, BridgeError> {
+    pub unsafe fn from_raw(descriptor: HopliteResponseBodyV1) -> Result<Self, BridgeError> {
         let mut guard = CloseGuard::new(descriptor.context, descriptor.close);
         let body = implementation::FfiResponseBody::new(descriptor)?;
         guard.disarm();
@@ -139,11 +136,7 @@ impl ResponseBody for FfiResponseBody {
         self.0.len()
     }
 
-    fn read_at(
-        &mut self,
-        offset: u64,
-        output: &mut [u8],
-    ) -> Result<usize, BodyError> {
+    fn read_at(&mut self, offset: u64, output: &mut [u8]) -> Result<usize, BodyError> {
         self.0.read_at(offset, output)
     }
 }
@@ -173,9 +166,7 @@ mod tests {
         if count != 0 {
             // SAFETY: the bridge supplies a writable buffer of `capacity`.
             let output = unsafe { slice::from_raw_parts_mut(output, capacity) };
-            output[..count].copy_from_slice(
-                &context.bytes[context.cursor..context.cursor + count],
-            );
+            output[..count].copy_from_slice(&context.bytes[context.cursor..context.cursor + count]);
             context.cursor += count;
         }
         // SAFETY: `returned` is supplied by the bridge and is non-null.

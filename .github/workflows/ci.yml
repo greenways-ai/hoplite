@@ -2,8 +2,8 @@ name: Hoplite
 
 env:
   # Hoplite consumes an immutable Hara source checkout until the embedding ABI
-  # is available as a published crate. This pin includes the closed portable
-  # hara.response-source/1 contract used by the Nginx transport.
+  # is available as a published crate. Hoplite-owned boundary contracts are
+  # compiled from this repository rather than from the Hara checkout.
   HARA_REF: b97f85180c57c320c1b8f011a1a91ddba4be2c46
 
 on:
@@ -28,6 +28,14 @@ jobs:
           path: hara
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
+      - name: Verify Hoplite owns its portable boundary contracts
+        run: |
+          test -f hoplite/core/lib/src/hoplite/value.hal
+          test -f hoplite/core/lib/src/hoplite/response_source.hal
+          test -f hoplite/core/lib/test/hoplite/value_test.hal
+          test -f hoplite/core/lib/test/hoplite/response_source_test.hal
+          grep -F ':hoplite/value-contract' hoplite/core/project.edn
+          grep -F ':hoplite/response-source-contract' hoplite/core/project.edn
       - run: cargo test --manifest-path hoplite/core/Cargo.toml --workspace --locked
       - name: Compile the public native data-plane header
         run: |
@@ -98,28 +106,32 @@ jobs:
             hoplite/core/nginx/tests/response_source.c \
             -o /tmp/hoplite-response-source-test
           /tmp/hoplite-response-source-test
-          grep -F 'hoplite_blob_host_provider_response_read_v1(' \
+          grep -F 'ctx->response_provider->response_read(' \
             hoplite/core/nginx/ngx_http_hoplite_module.c
           grep -F 'ngx_http_output_filter(request, NULL)' \
             hoplite/core/nginx/ngx_http_hoplite_module.c
           grep -F 'request->header_only' \
             hoplite/core/nginx/ngx_http_hoplite_module.c
-      - name: Test worker-owned hara.store provider registration
+      - name: Verify providers are not bundled into Hoplite core
         run: |
-          cc -std=c11 -Wall -Wextra -Werror \
-            -I hoplite/core/nginx \
-            -I hoplite/core/abi/value-store-provider-ffi/include \
-            hoplite/core/nginx/hoplite_host_provider.c \
-            hoplite/core/nginx/hoplite_value_store_host_provider.c \
-            hoplite/core/nginx/tests/value_store_host_provider.c \
-            -o /tmp/hoplite-value-store-host-provider-test
-          /tmp/hoplite-value-store-host-provider-test disabled
-          /tmp/hoplite-value-store-host-provider-test invalid-env
-          /tmp/hoplite-value-store-host-provider-test
-          grep -F 'hoplite_value_store_host_provider_init_process_v1();' \
-            hoplite/core/nginx/ngx_http_hoplite_module.c
-          grep -F 'hoplite_value_store_host_provider_exit_process_v1();' \
-            hoplite/core/nginx/ngx_http_hoplite_module.c
+          ! grep -E 'hoplite_(blob|value|value_store)_host_provider' \
+            hoplite/core/nginx/config
+          ! grep -E 'libhoplite_(blob|value)' hoplite/core/nginx/config
+          ! grep -E 'HOPLITE_(BLOB|STORE|VALUE)' \
+            hoplite/packaging/docker/Dockerfile
+      - name: Verify semantic authorization is not bundled into Hoplite core
+        run: |
+          ! grep -F 'signed-device-worker' hoplite/core/Cargo.toml
+          ! grep -F 'signed-device-worker' hoplite/core/runtime/Cargo.toml
+          ! grep -F 'preflight_environment' hoplite/core/src/bin/hoplite-server.rs
+          grep -F ':route/auth is not a Hoplite transport field' \
+            hoplite/core/src/app.rs
+          grep -F 'hoplite-auth-store-abi = { path = "abi/auth-store", optional = true }' \
+            hoplite/core/Cargo.toml
+          ! grep -F ':hoplite/auth ' hoplite/core/project.edn
+          ! grep -F ':hoplite/authentication' hoplite/core/examples/project.edn
+          ! cargo tree --manifest-path hoplite/core/Cargo.toml -p hoplite \
+            --edges normal | grep -E 'auth-store|signed-device|hoplite-store-sqlite|rusqlite'
       - name: Verify work-scoped provider body access
         run: |
           cat > /tmp/hoplite-provider-body-access.c <<'EOF'
@@ -171,12 +183,10 @@ jobs:
           submodules: recursive
       - name: Build the production image
         run: docker build -f hoplite/packaging/docker/Dockerfile -t hoplite-ci .
-      - name: Smoke-test the production server, bodies, providers, and response sources
+      - name: Smoke-test the thin production server and request bodies
         run: |
           docker run --rm hoplite-ci version
           bash hoplite/packaging/scripts/smoke-request-body-v3.sh hoplite-ci
-          bash hoplite/packaging/scripts/smoke-host-providers.sh hoplite-ci
-          bash hoplite/packaging/scripts/smoke-response-source.sh hoplite-ci
 
   packaging:
     runs-on: ubuntu-latest

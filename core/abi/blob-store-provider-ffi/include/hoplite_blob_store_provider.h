@@ -80,7 +80,7 @@ int32_t hoplite_blob_store_provider_open_filesystem_v1(
     hoplite_blob_store_provider_t **provider);
 
 /*
- * Execute one exact hara.blob operation over a standalone canonical HTA1
+ * Execute one exact hoplite.blob operation over a standalone canonical HTA1
  * argument frame. Request source callbacks are already bound by the host to
  * the exact request and work. The provider returns an owned canonical result
  * frame or a closed stable error-code string.

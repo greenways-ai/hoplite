@@ -1,10 +1,11 @@
-use hoplite_signed_device_worker::{preflight_environment, KEYS_PATH_ENV, REPLAY_PATH_ENV};
 use std::collections::hash_map::DefaultHasher;
 use std::env;
 use std::fs;
 use std::hash::{Hash, Hasher};
+#[cfg(all(unix, feature = "embedded-nginx"))]
+use std::os::unix::fs::PermissionsExt;
 #[cfg(unix)]
-use std::os::unix::{fs::PermissionsExt, process::CommandExt};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process;
 #[cfg(unix)]
@@ -14,24 +15,9 @@ const NGINX_VERSION: &str = "1.30.4";
 
 // Nginx deliberately removes inherited environment variables from workers
 // unless each name is allowlisted in the main configuration context.  These
-// names configure generic host providers during worker init; their values
-// remain in the process environment and are never written into generated
-// configuration files.
-const TRUSTED_WORKER_ENVIRONMENT: &[&str] = &[
-    "HOPLITE_HARA_BLOB_ROOT",
-    "HOPLITE_HARA_BLOB_MAX_OBJECT_BYTES",
-    "HOPLITE_HARA_BLOB_MAX_APPEND_BYTES",
-    "HOPLITE_HARA_BLOB_MAX_SOURCE_CHUNK_BYTES",
-    "HOPLITE_HARA_BLOB_MAX_STAGING_KEY_BYTES",
-    "HOPLITE_HARA_BLOB_MAX_MEDIA_TYPE_BYTES",
-    "HOPLITE_HARA_BLOB_MAX_STAGING_ENTRIES",
-    "HOPLITE_HARA_BLOB_MAX_OBJECTS",
-    "HOPLITE_HARA_STORE_PATH",
-    "HOPLITE_HARA_STORE_MAX_VALUE_BYTES",
-    "HOPLITE_HARA_STORE_MAX_RECEIPT_BYTES",
-    KEYS_PATH_ENV,
-    REPLAY_PATH_ENV,
-];
+// names configure Hoplite's request runtime. Provider packages extend this
+// allowlist in their own release composition rather than entering core here.
+const TRUSTED_WORKER_ENVIRONMENT: &[&str] = &[];
 
 #[cfg(feature = "embedded-nginx")]
 const EMBEDDED_NGINX: &[u8] = include_bytes!(concat!(
@@ -113,8 +99,6 @@ fn run_server(root: &Path, workers: Option<&str>) -> Result<(), String> {
         .canonicalize()
         .map_err(|error| format!("cannot resolve project {}: {error}", root.display()))?;
     let configuration = runtime_configuration(&root, workers)?;
-    preflight_environment()
-        .map_err(|error| format!("signed-device ingress preflight failed: {}", error.code()))?;
     let nginx = nginx_binary()?;
     let global_directives = nginx_global_directives();
 

@@ -4,7 +4,7 @@ This crate implements `hoplite-value-store::OpaqueValueStore` using SQLite. It
 is an application-neutral production driver beneath the Hara service:
 
 ```text
-hara.store
+hoplite.store
 ```
 
 It contains no Tahto state model, object graph, transaction plan, receipt
@@ -103,4 +103,4 @@ The suite covers:
 - exact nested canonical value and receipt spans after restart.
 
 The next slice is the request-scoped Hoplite provider adapter that preserves the
-nested HTA spans and registers this installed driver as `hara.store`.
+nested HTA spans and registers this installed driver as `hoplite.store`.

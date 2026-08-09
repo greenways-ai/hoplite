@@ -823,7 +823,7 @@ mod tests {
         let request = map(vec![
             (
                 text(KEYWORD, "protocol"),
-                text(STRING, "hara.store-request/1"),
+                text(STRING, "hoplite.store-request/1"),
             ),
             (text(KEYWORD, "operation"), text(STRING, "compare-and-swap")),
             (text(KEYWORD, "value"), opaque_value.clone()),
