@@ -3,9 +3,9 @@ fn reports_missing_and_tampered_objects_without_provider_details() {
     let root = TestRoot::new("integrity");
     let bootstrap = FilesystemBlobStore::open(root.path(), blob_limits()).unwrap();
     drop(bootstrap);
-    let provider = provider(&root);
+    let missing_provider = provider(&root);
     let missing_digest = digest(b"missing");
-    let missing = provider
+    let missing = missing_provider
         .execute(OPERATION, &request_arguments(missing_digest, 128))
         .unwrap();
     assert_failure(&missing, missing_digest, OBJECT_MISSING);
@@ -19,8 +19,8 @@ fn reports_missing_and_tampered_objects_without_provider_details() {
         file.write_all(&[0xff]).unwrap();
         file.sync_all().unwrap();
     }
-    let provider = provider(&root);
-    let tampered = provider
+    let tampered_provider = provider(&root);
+    let tampered = tampered_provider
         .execute(OPERATION, &request_arguments(object_digest, bytes.len()))
         .unwrap();
     assert_failure(&tampered, object_digest, DIGEST_MISMATCH);
