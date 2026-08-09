@@ -7,6 +7,8 @@ NGINX_SRC ?= $(DEFAULT_NGINX_SRC)
 RUNTIME_DIR := $(CURDIR)/target/release
 VALUE_STORE_PROVIDER_MANIFEST := $(CURDIR)/abi/value-store-provider-ffi/Cargo.toml
 VALUE_STORE_PROVIDER_DIR := $(CURDIR)/abi/value-store-provider-ffi/target/release
+VALUE_PROVIDER_MANIFEST := $(CURDIR)/abi/value-provider-filesystem-ffi/Cargo.toml
+VALUE_PROVIDER_DIR := $(CURDIR)/abi/value-provider-filesystem-ffi/target/release
 BLOB_STORE_PROVIDER_MANIFEST := $(CURDIR)/abi/blob-store-provider-ffi/Cargo.toml
 BLOB_STORE_PROVIDER_DIR := $(CURDIR)/abi/blob-store-provider-ffi/target/release
 UNAME_S := $(shell uname -s)
@@ -31,7 +33,7 @@ NGINX_CC_OPT ?= -I$(OPENSSL_PREFIX)/include -I$(PCRE2_PREFIX)/include
 NGINX_LD_OPT ?= $(PCRE2_PREFIX)/lib/libpcre2-8.a $(OPENSSL_PREFIX)/lib/libssl.a $(OPENSSL_PREFIX)/lib/libcrypto.a -Wl,-dead_strip_dylibs
 endif
 
-.PHONY: help setup check runtime value-store-provider blob-store-provider cli embedded-cli server-cli test nginx nginx-source docker \
+.PHONY: help setup check runtime value-store-provider value-provider blob-store-provider cli embedded-cli server-cli test nginx nginx-source docker \
 	check-macos macos macos-package osx install uninstall example-check \
 	example-build example-dev example-prod benchmark-bytecode
 
@@ -55,6 +57,7 @@ setup: check-macos
 	cargo fetch --manifest-path Cargo.toml
 	cargo fetch --manifest-path runtime/Cargo.toml
 	cargo fetch --manifest-path $(VALUE_STORE_PROVIDER_MANIFEST)
+	cargo fetch --manifest-path $(VALUE_PROVIDER_MANIFEST)
 	cargo fetch --manifest-path $(BLOB_STORE_PROVIDER_MANIFEST) --locked
 
 check:
@@ -63,11 +66,13 @@ check:
 runtime:
 	cargo build --manifest-path runtime/Cargo.toml --release
 
-# This crate is an intentionally standalone FFI workspace and does not commit
-# a Cargo.lock. Its path and git dependency revisions remain pinned by the
-# reviewed manifests; Cargo resolves its transient build lock here.
+# These crates are intentionally standalone FFI workspaces. Their path
+# dependencies are supplied by the reviewed source checkout used for the build.
 value-store-provider:
 	cargo build --manifest-path $(VALUE_STORE_PROVIDER_MANIFEST) --release
+
+value-provider:
+	cargo build --manifest-path $(VALUE_PROVIDER_MANIFEST) --release
 
 blob-store-provider:
 	cargo build --manifest-path $(BLOB_STORE_PROVIDER_MANIFEST) --release --locked
@@ -120,10 +125,11 @@ $(DEFAULT_NGINX_SRC)/configure: $(NGINX_ARCHIVE)
 
 nginx-source: $(NGINX_SRC)/configure
 
-nginx: runtime value-store-provider blob-store-provider nginx-source
+nginx: runtime value-store-provider value-provider blob-store-provider nginx-source
 	cd $(NGINX_SRC) && \
 		HOPLITE_RUNTIME_DIR=$(RUNTIME_DIR) \
 		HOPLITE_VALUE_STORE_PROVIDER_DIR=$(VALUE_STORE_PROVIDER_DIR) \
+		HOPLITE_VALUE_PROVIDER_DIR=$(VALUE_PROVIDER_DIR) \
 		HOPLITE_BLOB_STORE_PROVIDER_DIR=$(BLOB_STORE_PROVIDER_DIR) \
 		./configure --prefix=$(CURDIR)/target/nginx \
 			--with-http_ssl_module --with-threads \
