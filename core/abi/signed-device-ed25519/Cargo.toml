@@ -1,0 +1,11 @@
+[package]
+name = "hoplite-signed-device-ed25519"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.78"
+description = "Trusted Ed25519 verifier for Hoplite signed application-device requests"
+
+[dependencies]
+ed25519-dalek = "2.2"
+hoplite-data-plane-abi = { path = "../data-plane" }

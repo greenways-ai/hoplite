@@ -619,6 +619,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hoplite-signed-device-ed25519"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "hoplite-data-plane-abi",
+]
+
+[[package]]
 name = "hoplite-store-sqlite"
 version = "0.4.1"
 source = "git+https://github.com/greenways-ai/hoplite-store-sqlite?rev=6ef90070e0fa7ffbc2f2dbcb9832d4f2b14ac29b#6ef90070e0fa7ffbc2f2dbcb9832d4f2b14ac29b"
