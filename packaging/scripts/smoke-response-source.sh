@@ -24,14 +24,35 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 diagnose() {
+  echo '--- response headers ---' >&2
+  sed -n '1,80p' "$headers_file" >&2 || true
+  echo '--- response body prefix ---' >&2
+  head -c 512 "$body_file" | od -An -tx1c >&2 || true
   echo '--- docker ps ---' >&2
   docker ps -a --filter "name=^/${container}$" >&2 || true
   echo '--- container state ---' >&2
   docker inspect "$container" --format '{{json .State}}' >&2 || true
+  echo '--- container environment ---' >&2
+  docker exec "$container" sh -c \
+    'env | grep -E "^(HOPLITE_HARA_BLOB|HOPLITE_HARA_STORE|HOPLITE_SERVER_CACHE|HOPLITE_WORKERS)=" | sort' \
+    >&2 || true
   echo '--- container logs ---' >&2
   docker logs "$container" >&2 || true
+  echo '--- Hoplite and Nginx error logs ---' >&2
+  docker exec "$container" sh -c '
+    for path in /app/.hoplite/error.log /app/.hoplite/logs/error.log /app/.hoplite/logs/*.log; do
+      if [ -f "$path" ]; then
+        echo "--- $path ---"
+        tail -n 200 "$path"
+      fi
+    done
+  ' >&2 || true
   echo '--- generated nginx configuration ---' >&2
   docker exec "$container" sh -c 'cat /app/.hoplite/conf/nginx.conf 2>/dev/null || true' >&2 || true
+  echo '--- persistent blob layout ---' >&2
+  docker exec "$container" sh -c \
+    'find /var/lib/hoplite/blob -maxdepth 6 -printf "%M %u:%g %s %p\n" 2>/dev/null | sort' \
+    >&2 || true
   echo '--- persistent data volume ---' >&2
   docker volume inspect "$volume" >&2 || true
   echo '--- container processes ---' >&2
@@ -117,6 +138,27 @@ start_container() {
   fi
 }
 
+assert_persisted_object() {
+  local label="$1"
+  local actual_size
+  local actual_digest
+  if ! docker exec "$container" test -f "$object_blob" \
+    || ! docker exec "$container" test -f "$object_meta"; then
+    echo "$label failed: committed object files are absent" >&2
+    diagnose
+    exit 1
+  fi
+  actual_size="$(docker exec "$container" sh -c 'wc -c < "$1"' sh "$object_blob" \
+    | tr -d ' ')"
+  actual_digest="$(docker exec "$container" sha256sum "$object_blob" | awk '{print $1}')"
+  if [[ "$actual_size" != "$expected_size" ]] \
+    || [[ "$actual_digest" != "$expected_digest" ]]; then
+    echo "$label failed: size=$actual_size digest=$actual_digest" >&2
+    diagnose
+    exit 1
+  fi
+}
+
 assert_full_response() {
   local label="$1"
   local status
@@ -184,6 +226,11 @@ PY
 
 expected_size=1048576
 expected_digest=aca1cd027e979588d14b877b7b0cb8585ad9fec599eb45801992ee5382b3760f
+object_prefix="${expected_digest:0:2}"
+object_stem="${expected_digest:2}"
+object_root=/var/lib/hoplite/blob/objects/sha256
+object_blob="${object_root}/${object_prefix}/${object_stem}.blob"
+object_meta="${object_root}/${object_prefix}/${object_stem}.meta"
 range_offset=4096
 range_length=65536
 range_end=$((range_offset + range_length - 1))
@@ -219,6 +266,7 @@ if [[ "$status" != 200 ]] \
   exit 1
 fi
 
+assert_persisted_object 'Initial persistent object installation'
 assert_head_response "$base/response-source" 200 "$expected_size"
 assert_range_response 'Initial non-zero response-source range'
 assert_head_response \
@@ -263,6 +311,7 @@ fi
 docker rm -f "$container" >/dev/null
 start_container
 
+assert_persisted_object 'Post-recreation persistent object installation'
 assert_full_response 'Post-recreation full response-source retrieval'
 assert_range_response 'Post-recreation non-zero response-source range'
 assert_head_response "$base/response-source" 200 "$expected_size"
