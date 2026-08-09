@@ -1,0 +1,71 @@
+name: Filesystem hara.value provider core
+
+env:
+  # Merge revision of hara-lang/hara#464. The installed-host registration slice
+  # will reconcile the broader Hoplite Hara runtime pin separately.
+  HARA_REF: d2a2e376917131cfb8954ac156db3a5e174f2c1a
+
+on:
+  pull_request:
+    paths:
+      - core/abi/blob-store/**
+      - core/abi/blob-store-filesystem/**
+      - core/abi/provider-hta/**
+      - core/abi/value-provider-filesystem/**
+      - .github/workflows/value-provider-filesystem.yml
+  push:
+    branches: [main]
+    paths:
+      - core/abi/blob-store/**
+      - core/abi/blob-store-filesystem/**
+      - core/abi/provider-hta/**
+      - core/abi/value-provider-filesystem/**
+      - .github/workflows/value-provider-filesystem.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: filesystem-hara-value-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  provider-core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ env.HARA_REF }}
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.78.0
+          components: rustfmt,clippy
+      - name: Check formatting
+        run: |
+          rustfmt --edition 2021 --check \
+            hoplite/core/abi/value-provider-filesystem/src/lib.rs \
+            hoplite/core/abi/value-provider-filesystem/src/provider.rs \
+            hoplite/core/abi/value-provider-filesystem/src/metadata.rs \
+            hoplite/core/abi/value-provider-filesystem/src/hta.rs \
+            hoplite/core/abi/value-provider-filesystem/src/filesystem.rs \
+            hoplite/core/abi/value-provider-filesystem/src/tests.rs \
+            hoplite/core/abi/value-provider-filesystem/src/verification_cases.rs \
+            hoplite/core/abi/value-provider-filesystem/src/integrity_cases.rs \
+            hoplite/core/abi/value-provider-filesystem/src/restart_cases.rs
+      - name: Reject warnings
+        run: |
+          cargo clippy \
+            --manifest-path hoplite/core/abi/value-provider-filesystem/Cargo.toml \
+            --all-targets --locked -- -D warnings
+      - name: Run bounded filesystem value conformance
+        run: |
+          cargo test \
+            --manifest-path hoplite/core/abi/value-provider-filesystem/Cargo.toml \
+            --all-targets --locked
