@@ -11,6 +11,25 @@ use std::process::Command;
 
 const NGINX_VERSION: &str = "1.30.4";
 
+// Nginx deliberately removes inherited environment variables from workers
+// unless each name is allowlisted in the main configuration context.  These
+// names configure generic host providers during worker init; their values
+// remain in the process environment and are never written into generated
+// configuration files.
+const TRUSTED_WORKER_ENVIRONMENT: &[&str] = &[
+    "HOPLITE_HARA_BLOB_ROOT",
+    "HOPLITE_HARA_BLOB_MAX_OBJECT_BYTES",
+    "HOPLITE_HARA_BLOB_MAX_APPEND_BYTES",
+    "HOPLITE_HARA_BLOB_MAX_SOURCE_CHUNK_BYTES",
+    "HOPLITE_HARA_BLOB_MAX_STAGING_KEY_BYTES",
+    "HOPLITE_HARA_BLOB_MAX_MEDIA_TYPE_BYTES",
+    "HOPLITE_HARA_BLOB_MAX_STAGING_ENTRIES",
+    "HOPLITE_HARA_BLOB_MAX_OBJECTS",
+    "HOPLITE_HARA_STORE_PATH",
+    "HOPLITE_HARA_STORE_MAX_VALUE_BYTES",
+    "HOPLITE_HARA_STORE_MAX_RECEIPT_BYTES",
+];
+
 #[cfg(feature = "embedded-nginx")]
 const EMBEDDED_NGINX: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -92,6 +111,7 @@ fn run_server(root: &Path, workers: Option<&str>) -> Result<(), String> {
         .map_err(|error| format!("cannot resolve project {}: {error}", root.display()))?;
     let configuration = runtime_configuration(&root, workers)?;
     let nginx = nginx_binary()?;
+    let global_directives = nginx_global_directives();
 
     #[cfg(unix)]
     {
@@ -102,7 +122,8 @@ fn run_server(root: &Path, workers: Option<&str>) -> Result<(), String> {
             .arg(&configuration)
             .arg("-e")
             .arg(".hoplite/error.log")
-            .args(["-g", "daemon off;"])
+            .arg("-g")
+            .arg(&global_directives)
             .exec();
         Err(format!("cannot exec {}: {error}", nginx.display()))
     }
@@ -110,8 +131,19 @@ fn run_server(root: &Path, workers: Option<&str>) -> Result<(), String> {
     #[cfg(not(unix))]
     {
         let _ = nginx;
+        let _ = global_directives;
         Err("hoplite-server supports macOS and Linux".into())
     }
+}
+
+fn nginx_global_directives() -> String {
+    let mut directives = String::from("daemon off;");
+    for name in TRUSTED_WORKER_ENVIRONMENT {
+        directives.push_str(" env ");
+        directives.push_str(name);
+        directives.push(';');
+    }
+    directives
 }
 
 fn runtime_configuration(root: &Path, workers: Option<&str>) -> Result<PathBuf, String> {
@@ -282,6 +314,21 @@ mod tests {
         assert!(validate_workers("64").is_ok());
         assert!(validate_workers("0").is_err());
         assert!(validate_workers("many").is_err());
+    }
+
+    #[test]
+    fn preserves_only_allowlisted_provider_environment() {
+        let directives = nginx_global_directives();
+        assert!(directives.starts_with("daemon off;"));
+        assert_eq!(
+            directives.matches(" env ").count(),
+            TRUSTED_WORKER_ENVIRONMENT.len()
+        );
+        for name in TRUSTED_WORKER_ENVIRONMENT {
+            assert!(directives.contains(&format!(" env {name};")));
+        }
+        assert!(!directives.contains("SECRET"));
+        assert!(!directives.contains('='));
     }
 
     #[test]

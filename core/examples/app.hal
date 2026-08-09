@@ -2,7 +2,8 @@
   (:require [hoplite.core :as h]))
 
 ;; This example is also the production-image conformance surface for request
-;; bodies, registered host providers, and bounded response-source streaming.
+;; bodies, registered host providers, persistent blob custody, and bounded
+;; response-source streaming.
 
 (def response-source-fixture-digest
   "sha256:aca1cd027e979588d14b877b7b0cb8585ad9fec599eb45801992ee5382b3760f")
@@ -12,6 +13,15 @@
 
 (def response-source-fixture-staging-key
   "hoplite-response-source-fixture")
+
+(def response-source-range-offset
+  4096)
+
+(def response-source-range-length
+  65536)
+
+(def response-source-range-header
+  "bytes 4096-69631/1048576")
 
 (defn response-source-descriptor
   [source-handle offset length]
@@ -74,6 +84,21 @@
    :headers {"content-type" "application/octet-stream"
              ;; The Nginx host owns the authoritative descriptor length.
              "content-length" "1"
+             "x-hoplite-source" "true"}
+   :body
+   (response-source-descriptor
+    (get opened :source-handle)
+    (get opened :offset)
+    (get opened :length))})
+
+(defn range-source-response
+  [opened]
+  {:status 206
+   :headers {"content-type" "application/octet-stream"
+             ;; The Nginx host replaces this with the exact source length.
+             "content-length" "1"
+             "content-range" response-source-range-header
+             "accept-ranges" "bytes"
              "x-hoplite-source" "true"}
    :body
    (response-source-descriptor
@@ -145,6 +170,20 @@
             :length response-source-fixture-length}]))]
     (source-response opened)))
 
+(defn ^:async read-response-source-range
+  [request]
+  (let [opened
+        (std.foundation.coroutine/await
+         (std.native.Host/call
+          "hara.blob"
+          "object/open-source"
+          [{:protocol "hara.blob-request/1"
+            :operation "object/open-source"
+            :digest response-source-fixture-digest
+            :offset response-source-range-offset
+            :length response-source-range-length}]))]
+    (range-source-response opened)))
+
 (defn ^:async invalid-response-source
   [request]
   (std.foundation.coroutine/await
@@ -209,6 +248,13 @@
         :head {:name "response-source-head"
                :summary "Closes a source without reading its body"
                :handler #'read-response-source}}]
+      ["/response-source/range"
+       {:get {:name "response-source-range-read"
+              :summary "Streams a non-zero immutable source range"
+              :handler #'read-response-source-range}
+        :head {:name "response-source-range-head"
+               :summary "Closes a ranged source without reading its body"
+               :handler #'read-response-source-range}}]
       ["/response-source/invalid"
        {:get {:name "response-source-invalid"
               :summary "Rejects a descriptor with additional authority"
