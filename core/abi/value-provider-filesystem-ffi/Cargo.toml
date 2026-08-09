@@ -15,4 +15,8 @@ hoplite-value-provider-filesystem = { path = "../value-provider-filesystem" }
 [dev-dependencies]
 sha2 = "0.10"
 
+[lints.clippy]
+# Test-only digest fixture; production provider paths remain warning-denied.
+format_collect = "allow"
+
 [workspace]
