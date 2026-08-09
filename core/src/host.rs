@@ -1,6 +1,8 @@
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use hara_wasm::core::Value;
 use hara_wasm::Runtime;
+use p256::ecdsa::{Signature as P256Signature, VerifyingKey as P256VerifyingKey};
 use sha2::{Digest, Sha256};
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -17,11 +19,129 @@ pub(crate) fn dispatch(service: String, method: String, args: Vec<Value>) -> Res
     match method.as_str() {
         "random-bytes" => random_bytes(&args),
         "hash" => hash(&args),
+        "base64url-decode" => base64url_decode(&args),
+        "hex-decode" => hex_decode(&args),
+        "hex-encode" => hex_encode(&args),
+        "p256-jwk-sec1" => p256_jwk_sec1(&args),
         "verify-signature" => verify_signature(&args),
         "now" if args.is_empty() => now().map(Value::Number),
         "secret" => Err("hoplite.host/secret requires an installed secret provider".into()),
         _ => Err(format!("unknown hoplite.host operation {method:?}")),
     }
+}
+
+fn base64url_decode(args: &[Value]) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("base64url-decode requires one string".into());
+    }
+    let input = text_arg(args, 0, "base64url value")?;
+    if input.is_empty() || input.len() > 1_398_102 || input.contains('=') {
+        return Err(
+            "base64url value must be non-empty, unpadded, and at most 1 MiB decoded".into(),
+        );
+    }
+    let output = URL_SAFE_NO_PAD
+        .decode(input)
+        .map_err(|_| "base64url value is invalid".to_string())?;
+    if output.len() > 1_048_576 {
+        return Err("base64url value exceeds the 1 MiB decoded limit".into());
+    }
+    Ok(Value::Bytes(output))
+}
+
+fn hex_decode(args: &[Value]) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("hex-decode requires one lowercase string".into());
+    }
+    let input = text_arg(args, 0, "hex value")?;
+    if input.is_empty() || input.len() > 2_097_152 || input.len() % 2 != 0 {
+        return Err("hex value must be non-empty, even-length, and at most 1 MiB decoded".into());
+    }
+    if !input
+        .bytes()
+        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err("hex value must use canonical lowercase hexadecimal".into());
+    }
+    let output = input
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let digit = |byte: u8| {
+                if byte <= b'9' {
+                    byte - b'0'
+                } else {
+                    byte - b'a' + 10
+                }
+            };
+            (digit(pair[0]) << 4) | digit(pair[1])
+        })
+        .collect();
+    Ok(Value::Bytes(output))
+}
+
+fn hex_encode(args: &[Value]) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("hex-encode requires one byte value".into());
+    }
+    let input = bytes_arg(args, 0, "hex value")?;
+    if input.is_empty() || input.len() > 1_048_576 {
+        return Err("hex value must contain between 1 byte and 1 MiB".into());
+    }
+    let mut output = String::with_capacity(input.len() * 2);
+    for byte in input {
+        use std::fmt::Write as _;
+        write!(&mut output, "{byte:02x}").map_err(|_| "cannot encode hex".to_string())?;
+    }
+    Ok(Value::String(output))
+}
+
+fn p256_jwk_sec1(args: &[Value]) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("p256-jwk-sec1 requires one JSON string".into());
+    }
+    let input = text_arg(args, 0, "P-256 public JWK")?;
+    if input.len() > 2048 {
+        return Err("P-256 public JWK exceeds 2048 bytes".into());
+    }
+    let value: serde_json::Value =
+        serde_json::from_str(input).map_err(|_| "P-256 public JWK is invalid JSON".to_string())?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| "P-256 public JWK must be an object".to_string())?;
+    let allowed = ["crv", "ext", "key_ops", "kty", "x", "y"];
+    if object.len() != allowed.len() || object.keys().any(|key| !allowed.contains(&key.as_str())) {
+        return Err("P-256 public JWK fields are invalid".into());
+    }
+    if object.get("kty").and_then(|value| value.as_str()) != Some("EC")
+        || object.get("crv").and_then(|value| value.as_str()) != Some("P-256")
+        || object.get("ext").and_then(|value| value.as_bool()) != Some(true)
+        || object.get("key_ops") != Some(&serde_json::json!(["verify"]))
+    {
+        return Err("P-256 public JWK parameters are invalid".into());
+    }
+    let coordinate = |name: &str| -> Result<Vec<u8>, String> {
+        let encoded = object
+            .get(name)
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| format!("P-256 public JWK {name} coordinate is missing"))?;
+        let decoded = URL_SAFE_NO_PAD
+            .decode(encoded)
+            .map_err(|_| format!("P-256 public JWK {name} coordinate is invalid"))?;
+        if decoded.len() != 32 {
+            return Err(format!(
+                "P-256 public JWK {name} coordinate must contain 32 bytes"
+            ));
+        }
+        Ok(decoded)
+    };
+    let mut output = Vec::with_capacity(65);
+    output.push(4);
+    output.extend(coordinate("x")?);
+    output.extend(coordinate("y")?);
+    P256VerifyingKey::from_sec1_bytes(&output)
+        .map_err(|_| "P-256 public JWK point is invalid".to_string())?;
+    Ok(Value::Bytes(output))
 }
 
 fn random_bytes(args: &[Value]) -> Result<Value, String> {
@@ -44,18 +164,35 @@ fn hash(args: &[Value]) -> Result<Value, String> {
 }
 
 fn verify_signature(args: &[Value]) -> Result<Value, String> {
-    if args.len() != 4 || text_arg(args, 0, "signature algorithm")? != "ed25519" {
-        return Err("verify-signature currently supports only ed25519".into());
+    if args.len() != 4 {
+        return Err(
+            "verify-signature requires algorithm, public key, message, and signature".into(),
+        );
     }
-    let public_key = fixed_bytes::<32>(args, 1, "Ed25519 public key")?;
+    let algorithm = text_arg(args, 0, "signature algorithm")?;
     let message = data_arg(args, 2, "signed message")?;
-    let signature = fixed_bytes::<64>(args, 3, "Ed25519 signature")?;
-    let key = VerifyingKey::from_bytes(&public_key)
-        .map_err(|_| "Ed25519 public key is invalid".to_string())?;
-    Ok(Value::Bool(
-        key.verify(&message, &Signature::from_bytes(&signature))
-            .is_ok(),
-    ))
+    match algorithm {
+        "ed25519" => {
+            let public_key = fixed_bytes::<32>(args, 1, "Ed25519 public key")?;
+            let signature = fixed_bytes::<64>(args, 3, "Ed25519 signature")?;
+            let key = VerifyingKey::from_bytes(&public_key)
+                .map_err(|_| "Ed25519 public key is invalid".to_string())?;
+            Ok(Value::Bool(
+                key.verify(&message, &Signature::from_bytes(&signature))
+                    .is_ok(),
+            ))
+        }
+        "p256-sha256" => {
+            let public_key = fixed_bytes::<65>(args, 1, "P-256 SEC1 public key")?;
+            let signature = fixed_bytes::<64>(args, 3, "P-256 P1363 signature")?;
+            let key = P256VerifyingKey::from_sec1_bytes(&public_key)
+                .map_err(|_| "P-256 SEC1 public key is invalid".to_string())?;
+            let signature = P256Signature::from_slice(&signature)
+                .map_err(|_| "P-256 P1363 signature is invalid".to_string())?;
+            Ok(Value::Bool(key.verify(&message, &signature).is_ok()))
+        }
+        _ => Err("verify-signature supports only ed25519 and p256-sha256".into()),
+    }
 }
 
 fn now() -> Result<i64, String> {
@@ -107,8 +244,11 @@ fn fixed_bytes<const N: usize>(
 
 #[cfg(test)]
 mod tests {
-    use super::install;
+    use super::{dispatch, install};
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+    use hara_wasm::core::Value;
     use hara_wasm::Runtime;
+    use p256::ecdsa::{signature::Signer, Signature, SigningKey};
 
     #[test]
     fn hal_host_capabilities_use_the_native_boundary() {
@@ -134,5 +274,108 @@ mod tests {
             .eval_native("(ns host-secret (:require [hoplite.host :as host])) (host/secret \"auth/signing-key\")")
             .expect_err("secret access must fail closed");
         assert!(error.contains("requires an installed secret provider"));
+    }
+
+    #[test]
+    fn verifies_browser_compatible_p256_p1363_signatures() {
+        let signing_key = SigningKey::from_bytes((&[7_u8; 32]).into()).expect("fixed test key");
+        let message = b"tahto.device-request/1\nsha256:fixture";
+        let signature: Signature = signing_key.sign(message);
+        let public_key = signing_key.verifying_key().to_encoded_point(false);
+        let verified = dispatch(
+            "hoplite.host".into(),
+            "verify-signature".into(),
+            vec![
+                Value::String("p256-sha256".into()),
+                Value::Bytes(public_key.as_bytes().to_vec()),
+                Value::Bytes(message.to_vec()),
+                Value::Bytes(signature.to_bytes().to_vec()),
+            ],
+        )
+        .expect("P-256 verification evaluates");
+        assert_eq!(verified, Value::Bool(true));
+
+        let rejected = dispatch(
+            "hoplite.host".into(),
+            "verify-signature".into(),
+            vec![
+                Value::String("p256-sha256".into()),
+                Value::Bytes(public_key.as_bytes().to_vec()),
+                Value::Bytes(b"tampered".to_vec()),
+                Value::Bytes(signature.to_bytes().to_vec()),
+            ],
+        )
+        .expect("invalid signatures return false");
+        assert_eq!(rejected, Value::Bool(false));
+    }
+
+    #[test]
+    fn decodes_only_bounded_unpadded_base64url() {
+        assert_eq!(
+            dispatch(
+                "hoplite.host".into(),
+                "base64url-decode".into(),
+                vec![Value::String("aGVsbG8td29ybGQ".into())],
+            )
+            .expect("canonical base64url decodes"),
+            Value::Bytes(b"hello-world".to_vec())
+        );
+        assert!(dispatch(
+            "hoplite.host".into(),
+            "base64url-decode".into(),
+            vec![Value::String("aGVsbG8=".into())],
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn converts_a_strict_public_p256_jwk_to_sec1() {
+        let signing_key = SigningKey::from_bytes((&[9_u8; 32]).into()).expect("fixed test key");
+        let point = signing_key.verifying_key().to_encoded_point(false);
+        let jwk = serde_json::json!({
+            "crv": "P-256",
+            "ext": true,
+            "key_ops": ["verify"],
+            "kty": "EC",
+            "x": URL_SAFE_NO_PAD.encode(point.x().expect("x coordinate")),
+            "y": URL_SAFE_NO_PAD.encode(point.y().expect("y coordinate")),
+        });
+        assert_eq!(
+            dispatch(
+                "hoplite.host".into(),
+                "p256-jwk-sec1".into(),
+                vec![Value::String(jwk.to_string())],
+            )
+            .expect("strict JWK converts"),
+            Value::Bytes(point.as_bytes().to_vec())
+        );
+    }
+
+    #[test]
+    fn decodes_only_canonical_bounded_hex() {
+        assert_eq!(
+            dispatch(
+                "hoplite.host".into(),
+                "hex-decode".into(),
+                vec![Value::String("00a1ff".into())],
+            )
+            .expect("canonical hex decodes"),
+            Value::Bytes(vec![0, 161, 255])
+        );
+        assert!(dispatch(
+            "hoplite.host".into(),
+            "hex-decode".into(),
+            vec![Value::String("A1".into())],
+        )
+        .is_err());
+        assert_eq!(
+            dispatch(
+                "hoplite.host".into(),
+                "hex-encode".into(),
+                vec![Value::Bytes(vec![0, 161, 255])],
+            )
+            .expect("bytes encode as lowercase hex"),
+            Value::String("00a1ff".into())
+        );
     }
 }

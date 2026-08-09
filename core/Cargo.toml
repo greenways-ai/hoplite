@@ -25,6 +25,7 @@ bytecode-vm = ["hara-wasm/bytecode-vm"]
 embedded-nginx = []
 
 [dependencies]
+base64 = "0.22"
 hara-wasm = { path = "../../hara/core/rust", features = ["bytecode-vm"] }
 hoplite-auth-store-abi = { path = "abi/auth-store" }
 hoplite-store-sqlite = { git = "https://github.com/greenways-ai/hoplite-store-sqlite", rev = "6ef90070e0fa7ffbc2f2dbcb9832d4f2b14ac29b" }
@@ -33,6 +34,7 @@ home = "=0.5.9"
 serde_json = "1.0"
 semver = "1.0"
 ed25519-dalek = "2.2"
+p256 = { version = "0.13", features = ["ecdsa"] }
 getrandom = "0.2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 sha2 = "0.10"
