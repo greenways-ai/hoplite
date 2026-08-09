@@ -77,20 +77,22 @@ fn classifies_malformed_noncanonical_and_runtime_only_hta() {
 
 #[test]
 fn detects_short_and_excess_object_reads_from_actual_bytes() {
-    let root = TestRoot::new("length");
     let bytes = portable_value();
-    let short_digest = install(&root, "short", &bytes);
-    let (short_meta, _) = object_paths(&root, short_digest);
+
+    let short_root = TestRoot::new("short-length");
+    let short_digest = install(&short_root, "short", &bytes);
+    let (short_meta, _) = object_paths(&short_root, short_digest);
     rewrite_metadata_size(&short_meta, bytes.len() as u64 + 1);
-    let short = provider(&root)
+    let short = provider(&short_root)
         .execute(OPERATION, &request_arguments(short_digest, bytes.len() + 1))
         .unwrap();
     assert_failure(&short, short_digest, PROVIDER_FAILURE);
 
-    let excess_digest = install(&root, "excess", &bytes);
-    let (excess_meta, _) = object_paths(&root, excess_digest);
+    let excess_root = TestRoot::new("excess-length");
+    let excess_digest = install(&excess_root, "excess", &bytes);
+    let (excess_meta, _) = object_paths(&excess_root, excess_digest);
     rewrite_metadata_size(&excess_meta, bytes.len() as u64 - 1);
-    let excess = provider(&root)
+    let excess = provider(&excess_root)
         .execute(OPERATION, &request_arguments(excess_digest, bytes.len()))
         .unwrap();
     assert_failure(&excess, excess_digest, PROVIDER_FAILURE);
