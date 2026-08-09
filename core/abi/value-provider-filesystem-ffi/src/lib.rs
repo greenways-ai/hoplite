@@ -132,9 +132,7 @@ pub unsafe extern "C" fn hoplite_value_provider_execute_v1(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn hoplite_value_provider_result_free_v1(
-    result: *mut HopliteValueResultV1,
-) {
+pub unsafe extern "C" fn hoplite_value_provider_result_free_v1(result: *mut HopliteValueResultV1) {
     if result.is_null() {
         return;
     }
@@ -147,9 +145,7 @@ pub unsafe extern "C" fn hoplite_value_provider_result_free_v1(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn hoplite_value_provider_close_v1(
-    provider: *mut HopliteValueProvider,
-) {
+pub unsafe extern "C" fn hoplite_value_provider_close_v1(provider: *mut HopliteValueProvider) {
     if !provider.is_null() {
         drop(Box::from_raw(provider));
     }
@@ -187,7 +183,6 @@ mod tests {
     use super::*;
     use sha2::{Digest as Sha2Digest, Sha256};
     use std::fs::{self, File};
-    use std::io::Write;
     use std::path::PathBuf;
     use std::process;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -356,14 +351,7 @@ mod tests {
         let mut provider = ptr::null_mut();
         assert_eq!(
             unsafe {
-                hoplite_value_provider_open_filesystem_v1(
-                    ptr::null(),
-                    0,
-                    1,
-                    1,
-                    1,
-                    &mut provider,
-                )
+                hoplite_value_provider_open_filesystem_v1(ptr::null(), 0, 1, 1, 1, &mut provider)
             },
             STATUS_INVALID
         );
