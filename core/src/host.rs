@@ -1,7 +1,7 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-use hara_wasm::core::Value;
 use hara_wasm::Runtime;
+use hara_wasm::{core::Value, hta};
 use p256::ecdsa::{Signature as P256Signature, VerifyingKey as P256VerifyingKey};
 use sha2::{Digest, Sha256};
 use std::rc::Rc;
@@ -19,6 +19,7 @@ pub(crate) fn dispatch(service: String, method: String, args: Vec<Value>) -> Res
     match method.as_str() {
         "random-bytes" => random_bytes(&args),
         "hash" => hash(&args),
+        "canonical-value-digest" => canonical_value_digest(&args),
         "base64url-decode" => base64url_decode(&args),
         "hex-decode" => hex_decode(&args),
         "hex-encode" => hex_encode(&args),
@@ -163,6 +164,18 @@ fn hash(args: &[Value]) -> Result<Value, String> {
     Ok(Value::Bytes(Sha256::digest(&input).to_vec()))
 }
 
+fn canonical_value_digest(args: &[Value]) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("canonical-value-digest requires one portable value".into());
+    }
+    let frame = hta::encode(&args[0])
+        .map_err(|error| format!("cannot encode canonical HTA value: {error}"))?;
+    if frame.len() > 8 * 1024 * 1024 {
+        return Err("canonical HTA value exceeds the 8 MiB limit".into());
+    }
+    Ok(Value::String(format!("sha256:{:x}", Sha256::digest(frame))))
+}
+
 fn verify_signature(args: &[Value]) -> Result<Value, String> {
     if args.len() != 4 {
         return Err(
@@ -249,6 +262,7 @@ mod tests {
     use hara_wasm::core::Value;
     use hara_wasm::Runtime;
     use p256::ecdsa::{signature::Signer, Signature, SigningKey};
+    use sha2::{Digest, Sha256};
 
     #[test]
     fn hal_host_capabilities_use_the_native_boundary() {
@@ -260,10 +274,42 @@ mod tests {
                                          [std.foundation.string :as str]))\n\
                  [(count (host/random-bytes 32))\n\
                   (count (host/hash \"sha256\" (str/encode-utf8 \"hoplite\")))\n\
+                  (count (host/canonical-value-digest {:ready true}))\n\
                   (number? (host/now))]",
             )
             .expect("host calls evaluate");
-        assert_eq!(value.display(), "[32 32 true]");
+        assert_eq!(value.display(), "[32 32 71 true]");
+    }
+
+    #[test]
+    fn hashes_the_exact_canonical_hta_value() {
+        let value = Value::Map(
+            [
+                (Value::Keyword("revision".into()), Value::Number(3)),
+                (Value::Keyword("ready".into()), Value::Bool(true)),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let expected = format!(
+            "sha256:{:x}",
+            Sha256::digest(hara_wasm::hta::encode(&value).expect("fixture encodes"))
+        );
+        assert_eq!(
+            dispatch(
+                "hoplite.host".into(),
+                "canonical-value-digest".into(),
+                vec![value],
+            )
+            .expect("canonical value digest evaluates"),
+            Value::String(expected)
+        );
+        assert!(dispatch(
+            "hoplite.host".into(),
+            "canonical-value-digest".into(),
+            Vec::new(),
+        )
+        .is_err());
     }
 
     #[test]
