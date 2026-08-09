@@ -1,3 +1,4 @@
+use hoplite_signed_device_worker::{preflight_environment, KEYS_PATH_ENV, REPLAY_PATH_ENV};
 use std::collections::hash_map::DefaultHasher;
 use std::env;
 use std::fs;
@@ -28,6 +29,8 @@ const TRUSTED_WORKER_ENVIRONMENT: &[&str] = &[
     "HOPLITE_HARA_STORE_PATH",
     "HOPLITE_HARA_STORE_MAX_VALUE_BYTES",
     "HOPLITE_HARA_STORE_MAX_RECEIPT_BYTES",
+    KEYS_PATH_ENV,
+    REPLAY_PATH_ENV,
 ];
 
 #[cfg(feature = "embedded-nginx")]
@@ -110,6 +113,8 @@ fn run_server(root: &Path, workers: Option<&str>) -> Result<(), String> {
         .canonicalize()
         .map_err(|error| format!("cannot resolve project {}: {error}", root.display()))?;
     let configuration = runtime_configuration(&root, workers)?;
+    preflight_environment()
+        .map_err(|error| format!("signed-device ingress preflight failed: {}", error.code()))?;
     let nginx = nginx_binary()?;
     let global_directives = nginx_global_directives();
 

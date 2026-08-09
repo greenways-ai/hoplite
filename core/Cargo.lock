@@ -669,6 +669,7 @@ dependencies = [
  "hara-wasm",
  "home",
  "hoplite-auth-store-abi",
+ "hoplite-signed-device-worker",
  "hoplite-store-sqlite",
  "p256",
  "rusqlite",
@@ -710,6 +711,7 @@ dependencies = [
  "hoplite-data-plane-abi",
  "hoplite-data-plane-ffi",
  "hoplite-data-plane-registry",
+ "hoplite-signed-device-worker",
 ]
 
 [[package]]
@@ -727,6 +729,17 @@ dependencies = [
  "hoplite-data-plane-abi",
  "rusqlite",
  "sha2",
+]
+
+[[package]]
+name = "hoplite-signed-device-worker"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "hoplite-data-plane-abi",
+ "hoplite-signed-device-ed25519",
+ "hoplite-signed-device-replay",
+ "serde_json",
 ]
 
 [[package]]

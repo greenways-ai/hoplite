@@ -24,3 +24,4 @@ hara-wasm = { path = "../../../hara/core/rust", features = ["bytecode-vm"] }
 hoplite-data-plane-abi = { path = "../abi/data-plane" }
 hoplite-data-plane-ffi = { path = "../abi/data-plane-ffi" }
 hoplite-data-plane-registry = { path = "../abi/data-plane-registry" }
+hoplite-signed-device-worker = { path = "../abi/signed-device-worker" }

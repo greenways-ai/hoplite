@@ -42,6 +42,14 @@ impl RouteAdapter {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignedRoute {
+    pub operation: String,
+    pub application: String,
+    pub namespace: String,
+    pub collection: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Route {
     pub method: String,
     pub path: String,
@@ -49,6 +57,7 @@ pub struct Route {
     pub name: Option<String>,
     pub summary: Option<String>,
     pub adapter: RouteAdapter,
+    pub authentication: Option<SignedRoute>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -234,6 +243,7 @@ fn parse_app(
             name: Some(format!("{name}/handler")),
             summary: None,
             adapter: default_adapter.clone(),
+            authentication: None,
         });
     }
     for resource in sequence_field(&value, "resources").unwrap_or_default() {
@@ -309,6 +319,58 @@ fn parse_request_body(
     Ok(Some(RequestBodyPolicy {
         max_bytes,
         max_chunk_bytes,
+    }))
+}
+
+fn parse_route_auth(value: Option<Value>, context: &str) -> Result<Option<SignedRoute>, String> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let entries =
+        core::map_entries(&value).ok_or_else(|| format!("{context} :route/auth must be a map"))?;
+    let allowed = [
+        "profile",
+        "operation",
+        "application",
+        "namespace",
+        "collection",
+    ];
+    if entries.len() != allowed.len() {
+        return Err(format!("{context} :route/auth fields must be exact"));
+    }
+    for (key, _) in &entries {
+        let Value::Keyword(key) = key else {
+            return Err(format!("{context} :route/auth keys must be keywords"));
+        };
+        if !allowed.contains(&key.as_str()) {
+            return Err(format!("{context} :route/auth contains unsupported field"));
+        }
+    }
+    if keyword_field(&value, "profile").as_deref() != Some("signed-device") {
+        return Err(format!(
+            "{context} :route/auth :profile must be :signed-device"
+        ));
+    }
+    let operation = text_field(&value, "operation")
+        .ok_or_else(|| format!("{context} :route/auth requires :operation"))?;
+    let application = text_field(&value, "application")
+        .ok_or_else(|| format!("{context} :route/auth requires :application"))?;
+    let namespace = text_field(&value, "namespace")
+        .ok_or_else(|| format!("{context} :route/auth requires :namespace"))?;
+    let collection = text_field(&value, "collection")
+        .ok_or_else(|| format!("{context} :route/auth requires :collection"))?;
+    hoplite_signed_device_worker::RoutePolicy::new(
+        operation.clone(),
+        application.clone(),
+        namespace.clone(),
+        collection.clone(),
+    )
+    .map_err(|error| format!("{context} :route/auth is invalid: {}", error.code()))?;
+    Ok(Some(SignedRoute {
+        operation,
+        application,
+        namespace,
+        collection,
     }))
 }
 
@@ -495,9 +557,9 @@ fn flatten_resource(
             let Some(operation) = field(data, method) else {
                 continue;
             };
-            let handler = field(&operation, "handler").ok_or_else(|| {
-                format!("{method:?} operation at {full_path:?} requires :handler")
-            })?;
+            let context = format!("{method:?} operation at {full_path:?}");
+            let handler = field(&operation, "handler")
+                .ok_or_else(|| format!("{context} requires :handler"))?;
             output.push(Route {
                 method: method.to_ascii_uppercase(),
                 path: full_path.clone(),
@@ -507,8 +569,9 @@ fn flatten_resource(
                 adapter: RouteAdapter::parse(
                     keyword_field(&operation, "route/adapter")
                         .or_else(|| Some(default_adapter.keyword().to_owned())),
-                    &format!("{method:?} operation at {full_path:?}"),
+                    &context,
                 )?,
+                authentication: parse_route_auth(field(&operation, "route/auth"), &context)?,
             });
         }
     }
@@ -536,6 +599,16 @@ fn validate_instances(apps: &[App]) -> Result<(), String> {
 }
 
 pub fn manifest(config: &Config) -> Result<Vec<u8>, String> {
+    let format = if config
+        .apps
+        .iter()
+        .flat_map(|app| &app.routes)
+        .any(|route| route.authentication.is_some())
+    {
+        3
+    } else {
+        2
+    };
     let apps = config
         .apps
         .iter()
@@ -548,7 +621,7 @@ pub fn manifest(config: &Config) -> Result<Vec<u8>, String> {
                         app.routes
                             .iter()
                             .map(|route| {
-                                map_value(vec![
+                                let mut fields = vec![
                                     (keyword("method"), Value::String(route.method.clone())),
                                     (keyword("path"), Value::String(route.path.clone())),
                                     (keyword("handler"), Value::String(route.handler.clone())),
@@ -556,7 +629,38 @@ pub fn manifest(config: &Config) -> Result<Vec<u8>, String> {
                                         keyword("adapter"),
                                         Value::Keyword(route.adapter.keyword().into()),
                                     ),
-                                ])
+                                ];
+                                if let Some(authentication) = &route.authentication {
+                                    fields.push((
+                                        keyword("auth"),
+                                        map_value(vec![
+                                            (
+                                                keyword("profile"),
+                                                Value::String(
+                                                    hoplite_signed_device_worker::REQUEST_PROFILE
+                                                        .into(),
+                                                ),
+                                            ),
+                                            (
+                                                keyword("operation"),
+                                                Value::String(authentication.operation.clone()),
+                                            ),
+                                            (
+                                                keyword("application"),
+                                                Value::String(authentication.application.clone()),
+                                            ),
+                                            (
+                                                keyword("namespace"),
+                                                Value::String(authentication.namespace.clone()),
+                                            ),
+                                            (
+                                                keyword("collection"),
+                                                Value::String(authentication.collection.clone()),
+                                            ),
+                                        ]),
+                                    ));
+                                }
+                                map_value(fields)
                             })
                             .collect(),
                     ),
@@ -565,7 +669,7 @@ pub fn manifest(config: &Config) -> Result<Vec<u8>, String> {
         })
         .collect();
     hara_wasm::hta::encode(&map_value(vec![
-        (keyword("format"), Value::Number(2)),
+        (keyword("format"), Value::Number(format)),
         (keyword("apps"), Value::Vector(apps)),
     ]))
 }
