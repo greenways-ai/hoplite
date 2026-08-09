@@ -4,14 +4,22 @@ set -euo pipefail
 image="${1:-hoplite-ci}"
 container="hoplite-response-source-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$"
 container="${container//[^A-Za-z0-9_.-]/-}"
+volume="${container}-data"
 body_file="$(mktemp)"
 headers_file="$(mktemp)"
 fixture_file="$(mktemp)"
 slow_file="$(mktemp)"
+expected_range_file="$(mktemp)"
 
 cleanup() {
   docker rm -f "$container" >/dev/null 2>&1 || true
-  rm -f "$body_file" "$headers_file" "$fixture_file" "$slow_file"
+  docker volume rm -f "$volume" >/dev/null 2>&1 || true
+  rm -f \
+    "$body_file" \
+    "$headers_file" \
+    "$fixture_file" \
+    "$slow_file" \
+    "$expected_range_file"
 }
 trap cleanup EXIT INT TERM
 
@@ -24,6 +32,8 @@ diagnose() {
   docker logs "$container" >&2 || true
   echo '--- generated nginx configuration ---' >&2
   docker exec "$container" sh -c 'cat /app/.hoplite/conf/nginx.conf 2>/dev/null || true' >&2 || true
+  echo '--- persistent data volume ---' >&2
+  docker volume inspect "$volume" >&2 || true
   echo '--- container processes ---' >&2
   docker top "$container" -eo pid,args >&2 || true
 }
@@ -59,6 +69,112 @@ header_value() {
   ' "$headers_file"
 }
 
+start_container() {
+  docker run --detach \
+    --name "$container" \
+    -e HOPLITE_WORKERS=1 \
+    --mount "type=volume,src=${volume},dst=/var/lib/hoplite" \
+    -p 127.0.0.1::8080 \
+    "$image" >/dev/null
+
+  port=''
+  for _ in $(seq 1 50); do
+    port="$(docker port "$container" 8080/tcp 2>/dev/null \
+      | head -n 1 | awk -F: '{print $NF}' || true)"
+    if [[ -n "$port" ]]; then
+      break
+    fi
+    if [[ "$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null || true)" != true ]]; then
+      diagnose
+      exit 1
+    fi
+    sleep .1
+  done
+  if [[ -z "$port" ]]; then
+    echo 'Docker did not publish the Hoplite port.' >&2
+    diagnose
+    exit 1
+  fi
+
+  base="http://127.0.0.1:${port}"
+  ready=false
+  for _ in $(seq 1 60); do
+    status="$(request GET "$base/hello" || true)"
+    if [[ "$status" == 200 ]] \
+      && [[ "$(cat "$body_file")" == 'Hello from Hoplite' ]]; then
+      ready=true
+      break
+    fi
+    if [[ "$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null || true)" != true ]]; then
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$ready" != true ]]; then
+    echo 'Hoplite did not become ready for response-source conformance.' >&2
+    diagnose
+    exit 1
+  fi
+}
+
+assert_full_response() {
+  local label="$1"
+  local status
+  status="$(request GET "$base/response-source")"
+  if [[ "$status" != 200 ]] \
+    || ! cmp -s "$fixture_file" "$body_file" \
+    || [[ "$(header_value content-length)" != "$expected_size" ]] \
+    || [[ "$(header_value x-hoplite-source)" != true ]]; then
+    echo "$label failed: status=$status size=$(wc -c < "$body_file")" >&2
+    diagnose
+    exit 1
+  fi
+}
+
+assert_range_response() {
+  local label="$1"
+  local status
+  status="$(request GET "$base/response-source/range")"
+  if [[ "$status" != 206 ]] \
+    || ! cmp -s "$expected_range_file" "$body_file" \
+    || [[ "$(header_value content-length)" != "$range_length" ]] \
+    || [[ "$(header_value content-range)" != "$expected_content_range" ]] \
+    || [[ "$(header_value accept-ranges)" != bytes ]] \
+    || [[ "$(header_value x-hoplite-source)" != true ]]; then
+    echo "$label failed: status=$status size=$(wc -c < "$body_file")" >&2
+    diagnose
+    exit 1
+  fi
+}
+
+assert_head_response() {
+  local url="$1"
+  local expected_status="$2"
+  local expected_length="$3"
+  local expected_range="${4:-}"
+  local status
+  status="$(curl --silent --show-error \
+    --max-time 15 \
+    --head \
+    --dump-header "$headers_file" \
+    --output /dev/null \
+    --write-out '%{http_code}' \
+    "$url")"
+  if [[ "$status" != "$expected_status" ]] \
+    || [[ "$(header_value content-length)" != "$expected_length" ]] \
+    || [[ "$(header_value x-hoplite-source)" != true ]]; then
+    echo "HEAD response-source conformance failed: status=$status url=$url" >&2
+    diagnose
+    exit 1
+  fi
+  if [[ -n "$expected_range" ]] \
+    && [[ "$(header_value content-range)" != "$expected_range" ]]; then
+    echo "HEAD range metadata mismatch: url=$url" >&2
+    diagnose
+    exit 1
+  fi
+}
+
 python3 - "$fixture_file" <<'PY'
 from pathlib import Path
 import sys
@@ -68,56 +184,30 @@ PY
 
 expected_size=1048576
 expected_digest=aca1cd027e979588d14b877b7b0cb8585ad9fec599eb45801992ee5382b3760f
+range_offset=4096
+range_length=65536
+range_end=$((range_offset + range_length - 1))
+expected_content_range="bytes ${range_offset}-${range_end}/${expected_size}"
+
 if [[ "$(wc -c < "$fixture_file" | tr -d ' ')" != "$expected_size" ]] \
   || [[ "$(sha256sum "$fixture_file" | awk '{print $1}')" != "$expected_digest" ]]; then
   echo 'Response-source fixture generation is not deterministic.' >&2
   exit 1
 fi
 
-docker run --detach \
-  --name "$container" \
-  -e HOPLITE_WORKERS=1 \
-  -p 127.0.0.1::8080 \
-  "$image" >/dev/null
-
-port=''
-for _ in $(seq 1 50); do
-  port="$(docker port "$container" 8080/tcp 2>/dev/null \
-    | head -n 1 | awk -F: '{print $NF}' || true)"
-  if [[ -n "$port" ]]; then
-    break
-  fi
-  if [[ "$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null || true)" != true ]]; then
-    diagnose
-    exit 1
-  fi
-  sleep .1
-done
-if [[ -z "$port" ]]; then
-  echo 'Docker did not publish the Hoplite port.' >&2
-  diagnose
+dd if="$fixture_file" \
+  of="$expected_range_file" \
+  bs=1 \
+  skip="$range_offset" \
+  count="$range_length" \
+  status=none
+if [[ "$(wc -c < "$expected_range_file" | tr -d ' ')" != "$range_length" ]]; then
+  echo 'Response-source range fixture generation is not deterministic.' >&2
   exit 1
 fi
 
-base="http://127.0.0.1:${port}"
-ready=false
-for _ in $(seq 1 60); do
-  status="$(request GET "$base/hello" || true)"
-  if [[ "$status" == 200 ]] \
-    && [[ "$(cat "$body_file")" == 'Hello from Hoplite' ]]; then
-    ready=true
-    break
-  fi
-  if [[ "$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null || true)" != true ]]; then
-    break
-  fi
-  sleep 1
-done
-if [[ "$ready" != true ]]; then
-  echo 'Hoplite did not become ready for response-source conformance.' >&2
-  diagnose
-  exit 1
-fi
+docker volume create "$volume" >/dev/null
+start_container
 
 status="$(request POST "$base/response-source" --data-binary "@$fixture_file")"
 if [[ "$status" != 200 ]] \
@@ -129,20 +219,13 @@ if [[ "$status" != 200 ]] \
   exit 1
 fi
 
-status="$(curl --silent --show-error \
-  --max-time 15 \
-  --head \
-  --dump-header "$headers_file" \
-  --output /dev/null \
-  --write-out '%{http_code}' \
-  "$base/response-source")"
-if [[ "$status" != 200 ]] \
-  || [[ "$(header_value content-length)" != "$expected_size" ]] \
-  || [[ "$(header_value x-hoplite-source)" != true ]]; then
-  echo "HEAD response-source conformance failed: status=$status" >&2
-  diagnose
-  exit 1
-fi
+assert_head_response "$base/response-source" 200 "$expected_size"
+assert_range_response 'Initial non-zero response-source range'
+assert_head_response \
+  "$base/response-source/range" \
+  206 \
+  "$range_length" \
+  "$expected_content_range"
 
 status="$(curl --silent --show-error \
   --max-time 20 \
@@ -175,5 +258,14 @@ if [[ "$status" != 200 ]] \
   exit 1
 fi
 
-printf 'Validated bounded hara.response-source/1 streaming through %s on port %s.\n' \
+# Remove the complete serving process, retain only the trusted data volume, and
+# prove a fresh worker can independently open the exact immutable object.
+docker rm -f "$container" >/dev/null
+start_container
+
+assert_full_response 'Post-recreation full response-source retrieval'
+assert_range_response 'Post-recreation non-zero response-source range'
+assert_head_response "$base/response-source" 200 "$expected_size"
+
+printf 'Validated persistent bounded hara.response-source/1 streaming through %s on port %s.\n' \
   "$image" "$port"
