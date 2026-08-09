@@ -1,12 +1,13 @@
-use hara_wasm::core;
 use hara_wasm::kernel::{parse_forms, Form};
 use hara_wasm::project::{self, Project};
-use hara_wasm::vm;
 use hara_wasm::Runtime;
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 #[cfg(all(unix, feature = "embedded-nginx"))]
 use std::os::unix::fs::PermissionsExt;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 use std::thread;
@@ -293,12 +294,8 @@ fn check(root: &Path, settings: &BuildSettings) -> Result<Project, String> {
     if sources.is_empty() {
         return Err("project has no .hal source files".into());
     }
-    let source = bundle_sources(&sources)?;
-    let runtime_source = format!(
-        "{}\n\n{}",
-        app::RAW_SOURCE, runtime_application_source(&source)?
-    );
-    compile_application(&runtime_source)
+    let modules = application_modules(&sources)?;
+    compile_application_modules(&modules)
         .map_err(|error| format!("Hoplite bytecode compilation failed: {error}"))?;
     app::load(&project, settings.profile.as_deref(), settings.production)?;
     platform::load(&project, settings.profile.as_deref())?;
@@ -319,13 +316,9 @@ fn reject_legacy_extension_manifest(root: &Path) -> Result<(), String> {
 fn build(root: &Path, settings: &BuildSettings) -> Result<PathBuf, String> {
     let project = check(root, settings)?;
     let sources = source_files(&project)?;
-    let source = bundle_sources(&sources)?;
-    let runtime_source = format!(
-        "{}\n\n{}",
-        app::RAW_SOURCE,
-        runtime_application_source(&source)?
-    );
-    let bytecode = compile_application(&runtime_source)
+    let modules = application_modules(&sources)?;
+    let runtime_source = runtime_application_modules(&modules)?;
+    let bytecode = compile_application_modules(&modules)
         .map_err(|error| format!("Hoplite bytecode compilation failed: {error}"))?;
     let app_config = app::load(&project, settings.profile.as_deref(), settings.production)?;
     let platform_config = platform::load(&project, settings.profile.as_deref())?;
@@ -730,50 +723,207 @@ fn collect_hal(path: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
     Ok(())
 }
 
-fn bundle_sources(files: &[PathBuf]) -> Result<String, String> {
-    let mut source = String::new();
+#[derive(Clone, Debug)]
+struct ApplicationModule {
+    namespace: String,
+    requires: Vec<String>,
+    source: String,
+}
+
+fn namespace_declaration(forms: &[Form]) -> Result<(&Form, String, Vec<String>), String> {
+    let form = forms
+        .iter()
+        .find(|form| matches!(form, Form::List(items) if matches!(items.first(), Some(Form::Symbol(operator)) if operator == "ns")))
+        .ok_or("HAL module is missing ns form")?;
+    let Form::List(items) = form else {
+        unreachable!()
+    };
+    let namespace = match items.get(1) {
+        Some(Form::Symbol(namespace)) if !namespace.contains('/') => namespace.clone(),
+        _ => return Err("HAL module ns name must be an unqualified symbol".into()),
+    };
+    let mut requires = Vec::new();
+    for clause in &items[2..] {
+        let Form::List(values) = clause else { continue };
+        if !matches!(values.first(), Some(Form::Keyword(keyword)) if keyword == "require") {
+            continue;
+        }
+        for entry in &values[1..] {
+            if let Form::Vector(require) = entry {
+                if let Some(Form::Symbol(dependency)) = require.first() {
+                    requires.push(dependency.clone());
+                }
+            }
+        }
+    }
+    requires.sort();
+    requires.dedup();
+    Ok((form, namespace, requires))
+}
+
+fn application_module(source: &str) -> Result<ApplicationModule, String> {
+    let forms = parse_forms(source)?;
+    let (_, namespace, requires) = namespace_declaration(&forms)?;
+    Ok(ApplicationModule {
+        namespace,
+        requires,
+        source: source.to_owned(),
+    })
+}
+
+fn visit_application_module(
+    namespace: &str,
+    modules: &HashMap<String, ApplicationModule>,
+    visiting: &mut HashSet<String>,
+    visited: &mut HashSet<String>,
+    ordered: &mut Vec<ApplicationModule>,
+) -> Result<(), String> {
+    if visited.contains(namespace) {
+        return Ok(());
+    }
+    if !visiting.insert(namespace.to_owned()) {
+        return Err(format!(
+            "Hoplite application namespace cycle includes {namespace}"
+        ));
+    }
+    let module = modules
+        .get(namespace)
+        .ok_or_else(|| format!("missing Hoplite application namespace {namespace}"))?;
+    for dependency in &module.requires {
+        if modules.contains_key(dependency) {
+            visit_application_module(dependency, modules, visiting, visited, ordered)?;
+        }
+    }
+    visiting.remove(namespace);
+    visited.insert(namespace.to_owned());
+    ordered.push(module.clone());
+    Ok(())
+}
+
+fn application_modules(files: &[PathBuf]) -> Result<Vec<ApplicationModule>, String> {
+    let mut modules = HashMap::new();
+    for source in [
+        app::CORE_SOURCE,
+        app::HOST_SOURCE,
+        app::INTERNAL_SOURCE,
+        app::RAW_SOURCE,
+        app::RESPONSE_SOURCE,
+        app::VALUE_SOURCE,
+    ] {
+        let module = application_module(source)?;
+        modules.insert(module.namespace.clone(), module);
+    }
     for path in files {
-        source.push_str(&format!(";; {}\n", path.display()));
-        source.push_str(&fs::read_to_string(path).map_err(io)?);
-        source.push_str("\n\n");
+        let source = fs::read_to_string(path).map_err(io)?;
+        let module =
+            application_module(&source).map_err(|error| format!("{}: {error}", path.display()))?;
+        if modules.insert(module.namespace.clone(), module).is_some() {
+            return Err(format!(
+                "duplicate Hoplite application namespace in {}",
+                path.display()
+            ));
+        }
     }
-    Ok(source)
+    let mut namespaces = modules.keys().cloned().collect::<Vec<_>>();
+    namespaces.sort();
+    let mut visiting = HashSet::new();
+    let mut visited = HashSet::new();
+    let mut ordered = Vec::with_capacity(modules.len());
+    for namespace in namespaces {
+        visit_application_module(
+            &namespace,
+            &modules,
+            &mut visiting,
+            &mut visited,
+            &mut ordered,
+        )?;
+    }
+    Ok(ordered)
 }
 
-fn compile_application(source: &str) -> Result<Vec<u8>, String> {
-    let forms = parse_forms(source)?;
-    let compilable = forms
-        .into_iter()
-        .filter(|form| {
-            !matches!(form, Form::List(items) if matches!(items.first(), Some(Form::Symbol(operator)) if operator == "ns"))
-        })
-        .map(|form| render_form(&form))
-        .collect::<Vec<_>>();
-    let program = format!("(do {})", compilable.join("\n"));
-    let namespaces = hara_wasm::embedding_namespace_registry();
-    let raw = namespaces.find_or_create("hoplite.raw.native");
-    for (name, arity) in [("respond", 4), ("start", 3), ("write", 2), ("finish", 1)] {
-        let qualified = format!("hoplite.raw.native/{name}");
-        raw.intern(
-            name,
-            core::native_function(&qualified, arity, |_| {
-                Err("compile-only Hoplite raw binding was invoked".into())
-            }),
-        );
-    }
-    let compiled =
-        vm::compile_source_with(&program, &namespaces).map_err(|error| error.to_string())?;
-    vm::encode_program(&compiled)
-}
-
-fn runtime_application_source(source: &str) -> Result<String, String> {
-    let forms = parse_forms(source)?;
+fn runtime_application_module(module: &ApplicationModule) -> Result<String, String> {
+    let forms = parse_forms(&module.source)?;
     Ok(forms
         .into_iter()
         .filter(|form| !application_definition(form))
         .map(|form| render_form(&form))
         .collect::<Vec<_>>()
         .join("\n"))
+}
+
+fn runtime_application_modules(modules: &[ApplicationModule]) -> Result<String, String> {
+    modules
+        .iter()
+        .map(runtime_application_module)
+        .collect::<Result<Vec<_>, _>>()
+        .map(|sources| sources.join("\n\n"))
+}
+
+fn put_bundle_bytes(output: &mut Vec<u8>, value: &[u8]) -> Result<(), String> {
+    let len =
+        u32::try_from(value.len()).map_err(|_| "Hoplite bytecode bundle exceeds u32 limits")?;
+    output.extend_from_slice(&len.to_le_bytes());
+    output.extend_from_slice(value);
+    Ok(())
+}
+
+fn encode_application_bundle(modules: &[(String, String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+    let mut payload = Vec::new();
+    let count =
+        u32::try_from(modules.len()).map_err(|_| "Hoplite bytecode bundle exceeds u32 limits")?;
+    payload.extend_from_slice(&count.to_le_bytes());
+    for (namespace, declaration, artifact) in modules {
+        put_bundle_bytes(&mut payload, namespace.as_bytes())?;
+        put_bundle_bytes(&mut payload, declaration.as_bytes())?;
+        put_bundle_bytes(&mut payload, artifact)?;
+    }
+    let checksum = Sha256::digest(&payload);
+    let mut output = Vec::with_capacity(4 + checksum.len() + payload.len());
+    output.extend_from_slice(b"HBB1");
+    output.extend_from_slice(&checksum);
+    output.extend_from_slice(&payload);
+    Ok(output)
+}
+
+fn compile_application_modules(modules: &[ApplicationModule]) -> Result<Vec<u8>, String> {
+    let mut runtime = Runtime::new();
+    app::register_resources(&mut runtime);
+    for module in modules {
+        runtime.register_resource(&module.namespace, &module.source);
+    }
+    runtime.eval_native(
+        "(ns hoplite.raw.native)\n\
+         (defn respond [_exchange _status _headers _body] nil)\n\
+         (defn start [_exchange _status _headers] nil)\n\
+         (defn write [_exchange _chunk] nil)\n\
+         (defn finish [_exchange] nil)",
+    )?;
+    let mut artifacts = Vec::with_capacity(modules.len());
+    for module in modules {
+        let source = runtime_application_module(module)?;
+        let forms = parse_forms(&source)?;
+        let (declaration, namespace, _) = namespace_declaration(&forms)?;
+        let declaration = render_form(declaration);
+        runtime
+            .eval_native(&declaration)
+            .map_err(|error| format!("{namespace}: cannot load namespace: {error}"))?;
+        let body = forms
+            .into_iter()
+            .filter(|form| !matches!(form, Form::List(items) if matches!(items.first(), Some(Form::Symbol(operator)) if operator == "ns")))
+            .map(|form| render_form(&form))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let artifact = catch_unwind(AssertUnwindSafe(|| {
+            runtime.compile_bytecode_artifact(&body)
+        }))
+        .map_err(|_| format!("{namespace}: bytecode compiler panicked"))?
+        .map_err(|error| format!("{namespace}: {error}"))?;
+        runtime
+            .eval_bytecode_artifact(&artifact)
+            .map_err(|error| format!("{namespace}: cannot load bytecode: {error}"))?;
+        artifacts.push((namespace, declaration, artifact));
+    }
+    encode_application_bundle(&artifacts)
 }
 
 fn application_definition(form: &Form) -> bool {
@@ -955,7 +1105,7 @@ fn nginx_app_configuration(project: &Project, config: &app::Config) -> Result<St
         ));
     }
     Ok(format!(
-        "worker_processes {};\npid .hoplite/nginx.pid;\nerror_log .hoplite/error.log;\nevents {{}}\nhttp {{\n    access_log .hoplite/access.log;\n    hoplite_bootstrap {};\n    hoplite_manifest {};\n{} }}\n",
+        "worker_processes {};\nenv HOPLITE_STORE_PATH;\nenv HOPLITE_STORE_MAX_VALUE_BYTES;\nenv HOPLITE_STORE_MAX_RECEIPT_BYTES;\nenv HOPLITE_VALUE_PROVIDER;\nenv HOPLITE_VALUE_ROOT;\nenv HOPLITE_VALUE_MAX_BYTES;\nenv HOPLITE_BLOB_ROOT;\nenv HOPLITE_BLOB_MAX_OBJECT_BYTES;\nenv HOPLITE_BLOB_MAX_APPEND_BYTES;\nenv HOPLITE_BLOB_MAX_SOURCE_CHUNK_BYTES;\nenv HOPLITE_BLOB_MAX_STAGING_KEY_BYTES;\nenv HOPLITE_BLOB_MAX_MEDIA_TYPE_BYTES;\nenv HOPLITE_BLOB_MAX_STAGING_ENTRIES;\nenv HOPLITE_BLOB_MAX_OBJECTS;\npid .hoplite/nginx.pid;\nerror_log .hoplite/error.log;\nevents {{}}\nhttp {{\n    access_log .hoplite/access.log;\n    hoplite_bootstrap {};\n    hoplite_manifest {};\n{} }}\n",
         config.workers,
         bootstrap.display(),
         manifest.display(),
@@ -979,6 +1129,71 @@ fn io(error: std::io::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn module(source: &str) -> ApplicationModule {
+        application_module(source).expect("valid HAL module")
+    }
+
+    #[test]
+    fn orders_application_modules_before_their_dependents() {
+        let dependency = module("(ns example.dependency) (defn answer [] 42)");
+        let application = module(
+            "(ns example.application (:require [example.dependency :as dependency])) \
+             (defn answer [] (dependency/answer))",
+        );
+        let modules = HashMap::from([
+            (application.namespace.clone(), application),
+            (dependency.namespace.clone(), dependency),
+        ]);
+        let mut ordered = Vec::new();
+        visit_application_module(
+            "example.application",
+            &modules,
+            &mut HashSet::new(),
+            &mut HashSet::new(),
+            &mut ordered,
+        )
+        .unwrap();
+        assert_eq!(
+            ordered
+                .iter()
+                .map(|module| module.namespace.as_str())
+                .collect::<Vec<_>>(),
+            ["example.dependency", "example.application"]
+        );
+    }
+
+    #[test]
+    fn compiles_a_multi_namespace_application_bundle() {
+        let modules = [
+            module("(ns example.dependency) (defn answer [] 42)"),
+            module(
+                "(ns example.application (:require [example.dependency :as dependency])) \
+                 (defn answer [] (dependency/answer))",
+            ),
+        ];
+        let bundle = compile_application_modules(&modules).unwrap();
+        assert_eq!(&bundle[..4], b"HBB1");
+    }
+
+    #[test]
+    fn rejects_application_namespace_cycles() {
+        let first = module("(ns example.first (:require [example.second :as second]))");
+        let second = module("(ns example.second (:require [example.first :as first]))");
+        let modules = HashMap::from([
+            (first.namespace.clone(), first),
+            (second.namespace.clone(), second),
+        ]);
+        let error = visit_application_module(
+            "example.first",
+            &modules,
+            &mut HashSet::new(),
+            &mut HashSet::new(),
+            &mut Vec::new(),
+        )
+        .unwrap_err();
+        assert!(error.contains("namespace cycle"), "{error}");
+    }
 
     #[test]
     fn rejects_nginx_configuration_injection() {

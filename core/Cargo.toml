@@ -22,8 +22,9 @@ default-members = ["."]
 resolver = "2"
 
 [features]
-default = ["bytecode-vm"]
+default = ["bytecode-vm", "cli-host"]
 bytecode-vm = ["hara-wasm/bytecode-vm"]
+cli-host = []
 embedded-nginx = []
 legacy-management = [
   "dep:hoplite-auth-store-abi",

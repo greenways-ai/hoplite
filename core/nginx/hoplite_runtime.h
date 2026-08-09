@@ -65,6 +65,9 @@ typedef struct {
 uint32_t hoplite_abi_version(void);
 hoplite_runtime_t *hoplite_runtime_new(void);
 void hoplite_runtime_free(hoplite_runtime_t *runtime);
+int hoplite_bootstrap_modules(hoplite_runtime_t *runtime,
+                              const uint8_t *source,
+                              size_t source_len);
 
 uint64_t hoplite_handler_prepare(hoplite_runtime_t *runtime,
                                  const uint8_t *function,

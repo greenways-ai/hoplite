@@ -7,9 +7,18 @@ ngx_module_name=ngx_http_hoplite_module
 ngx_module_srcs="$ngx_addon_dir/ngx_http_hoplite_module.c \
                  $ngx_addon_dir/hoplite_hta.c \
                  $ngx_addon_dir/hoplite_host_provider.c \
+                 $ngx_addon_dir/hoplite_value_host_provider.c \
+                 $ngx_addon_dir/hoplite_value_store_host_provider.c \
+                 $ngx_addon_dir/hoplite_blob_host_provider.c \
                  $ngx_addon_dir/hoplite_response_source.c"
-ngx_module_incs="$ngx_addon_dir"
+ngx_module_incs="$ngx_addon_dir \
+                 $ngx_addon_dir/../abi/value-store-provider-ffi/include \
+                 $ngx_addon_dir/../abi/value-provider-filesystem-ffi/include \
+                 $ngx_addon_dir/../abi/blob-store-provider-ffi/include"
 ngx_module_libs="$HOPLITE_RUNTIME_DIR/libhoplite_runtime.a \
+                 $ngx_addon_dir/../abi/value-store-provider-ffi/target/release/libhoplite_value_store_provider_ffi.a \
+                 $ngx_addon_dir/../abi/value-provider-filesystem-ffi/target/release/libhoplite_value_provider_filesystem_ffi.a \
+                 $ngx_addon_dir/../abi/blob-store-provider-ffi/target/release/libhoplite_blob_store_provider_ffi.a \
                  -ldl -lpthread -lm"
 
 . auto/module

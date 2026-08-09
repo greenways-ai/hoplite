@@ -7,7 +7,8 @@
 ;; SHA-256 identity and canonical HTA encoding before returning a value.
 ;; ==========================================================================
 (ns hoplite.value
-  (:require [std.foundation.string :as string]))
+  (:require [std.foundation :refer :all]
+            [std.foundation.string :as string]))
 
 (def service
   "hoplite.value")
@@ -62,6 +63,11 @@
    (> value 0)
    (<= value max-frame-bytes)))
 
+(defn boolean-value?
+  [value]
+  (or (= true value)
+      (= false value)))
+
 (defn exact-request-fields?
   [value]
   (and
@@ -93,7 +99,7 @@
     (nil? value)
     true
 
-    (boolean? value)
+    (boolean-value? value)
     true
 
     (number? value)
@@ -105,7 +111,7 @@
     (keyword? value)
     true
 
-    (bytes? value)
+    (= :hara.type/byte-buffer (type value))
     true
 
     (vector? value)

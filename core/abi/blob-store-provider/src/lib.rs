@@ -23,6 +23,7 @@ const STRING: u8 = 4;
 const KEYWORD: u8 = 6;
 const MAP: u8 = 11;
 
+const PROBE_FIELDS: &[&str] = &["operation", "protocol"];
 const OPEN_FIELDS: &[&str] = &[
     "expected-digest",
     "expected-size",
@@ -182,6 +183,11 @@ where
         }
 
         match operation {
+            "probe" => {
+                exact_fields(request, PROBE_FIELDS)?;
+                self.store.probe()?;
+                probe_result()
+            }
             "staging/open" => {
                 exact_fields(request, OPEN_FIELDS)?;
                 self.staging_open(request)
@@ -335,6 +341,14 @@ fn open_result(status: &StagingStatus) -> Result<Vec<u8>, Error> {
         ("operation", bare_string("staging/open")),
         ("protocol", bare_string(RESULT_PROTOCOL)),
         ("staging-key", bare_string(status.staging_key.as_str())),
+    ])
+}
+
+fn probe_result() -> Result<Vec<u8>, Error> {
+    result_map(vec![
+        ("operation", bare_string("probe")),
+        ("protocol", bare_string(RESULT_PROTOCOL)),
+        ("ready", bare_bool(true)),
     ])
 }
 
@@ -663,6 +677,29 @@ mod tests {
             ("protocol", bare_string(REQUEST_PROTOCOL)),
             ("staging-key", bare_string(staging_key)),
         ])
+    }
+
+    #[test]
+    fn probe_is_non_mutating_and_reports_provider_readiness() {
+        let (provider, _, _) = provider();
+        let staging_key = StagingKey::new("probe-check", limits()).unwrap();
+        let absent_digest = Digest::from_bytes([0; 32]);
+        let result = provider
+            .execute(
+                "probe",
+                &arguments(request(vec![
+                    ("operation", bare_string("probe")),
+                    ("protocol", bare_string(REQUEST_PROTOCOL)),
+                ])),
+            )
+            .unwrap();
+        assert_eq!(result_text(&result, "operation"), "probe");
+        assert!(result_bool(&result, "ready"));
+        assert_eq!(provider.store().staging_offset(&staging_key).unwrap(), None);
+        assert_eq!(
+            provider.store().object_descriptor(absent_digest).unwrap(),
+            None
+        );
     }
 
     fn append_request(staging_key: &str, offset: u64, length: u64, handle: u64) -> Vec<u8> {

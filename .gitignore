@@ -1,5 +1,7 @@
 /target/
 **/target/
+/core/abi/value-provider-filesystem-ffi/Cargo.lock
+/core/abi/value-store-provider-ffi/Cargo.lock
 /.hoplite/
 **/.hoplite/
 .DS_Store

@@ -1,5 +1,8 @@
 #![allow(clippy::missing_safety_doc)]
 
+#[path = "../../src/host.rs"]
+mod host_intrinsics;
+
 use hara_wasm::{core, hta, kernel, vm};
 use hoplite_data_plane_abi::{BodyLimits, ResourceHandle};
 use hoplite_data_plane_ffi::HopliteRequestBodyV1;
@@ -14,6 +17,7 @@ use std::rc::Rc;
 use std::{ffi::c_void, slice, str};
 
 const ABI_VERSION: u32 = 3;
+const MAX_CHILD_DRIVE_PASSES: usize = 64;
 type HostCall = (u64, Promise, String, String, Vec<Value>);
 
 type WorkId = u64;
@@ -697,6 +701,9 @@ impl HopliteRuntime {
         let host_next = Rc::new(RefCell::new(1_u64));
         let next = host_next.clone();
         let host = Rc::new(move |service: String, method: String, args: Vec<Value>| {
+            if service == "hoplite.host" {
+                return host_intrinsics::dispatch(service, method, args);
+            }
             let call = *next.borrow();
             *next.borrow_mut() = call.saturating_add(1);
             let promise = Promise::new();
@@ -1121,6 +1128,55 @@ impl HopliteRuntime {
         }
     }
 
+    fn bootstrap_modules(&mut self, source: &str) -> Result<(), String> {
+        let forms = kernel::parse_forms(source)?;
+        let mut modules = Vec::<Vec<kernel::Form>>::new();
+        for form in forms {
+            if matches!(namespace_form(&form), FormNamespace::Namespace(_)) {
+                modules.push(vec![form]);
+            } else if let Some(module) = modules.last_mut() {
+                module.push(form);
+            } else {
+                return Err("bootstrap source must begin with an ns form".into());
+            }
+        }
+        for module in modules {
+            let declaration = module.first().expect("bootstrap module has ns form");
+            let namespace = match namespace_form(declaration) {
+                FormNamespace::Namespace(namespace) => namespace.to_owned(),
+                FormNamespace::Other => "unknown".to_owned(),
+            };
+            let mut environment = HashMap::new();
+            core::with_namespace_registry(&self.namespaces, || {
+                core::with_protocols(&self.protocols, || {
+                    core::eval(declaration, &mut environment)
+                })
+            })
+            .map_err(|error| format!("{namespace}: namespace declaration: {error}"))?;
+            let body = module
+                .iter()
+                .skip(1)
+                .filter(|form| !application_definition(form))
+                .map(render_form)
+                .collect::<Vec<_>>()
+                .join("\n");
+            if body.is_empty() {
+                continue;
+            }
+            let program = vm::compile_source_with(&body, &self.namespaces)
+                .map(Rc::new)
+                .map_err(|error| format!("{namespace}: {error}"))?;
+            core::with_namespace_registry(&self.namespaces, || {
+                core::with_protocols(&self.protocols, || {
+                    vm::execute_program_with_globals(program, &self.namespaces)
+                        .map_err(|error| error.to_string())
+                })
+            })
+            .map_err(|error| format!("{namespace}: execution: {error}"))?;
+        }
+        Ok(())
+    }
+
     fn work_call(&mut self, handler: HandlerId, binding: Value) -> Result<WorkId, ()> {
         let call = self.handlers.get(&handler).cloned().ok_or(())?;
         let work = self.open_work();
@@ -1275,31 +1331,34 @@ impl HopliteRuntime {
     fn poll_child_results(&mut self) {
         let work_ids = self.works.keys().copied().collect::<Vec<_>>();
         for work in work_ids {
-            let children = self
-                .works
-                .get(&work)
-                .map(|owner| owner.children.clone())
-                .unwrap_or_default();
-            if children.is_empty() {
-                continue;
-            }
-            let (handler, pending, next) = self.host_handler(work);
-            let namespaces = self.namespaces.clone();
-            let protocols = self.protocols.clone();
-            core::with_namespace_registry(&namespaces, || {
-                core::with_protocols(&protocols, || {
-                    core::with_host_calls(handler, || {
-                        for child in &children {
-                            child.state();
-                        }
-                    });
+            for _ in 0..MAX_CHILD_DRIVE_PASSES {
+                let Some(owner) = self.works.get(&work) else {
+                    break;
+                };
+                if !owner.calls.is_empty() || owner.children.is_empty() {
+                    break;
+                }
+                let children = owner.children.clone();
+                let (handler, pending, next) = self.host_handler(work);
+                let namespaces = self.namespaces.clone();
+                let protocols = self.protocols.clone();
+                let states = core::with_namespace_registry(&namespaces, || {
+                    core::with_protocols(&protocols, || {
+                        core::with_host_calls(handler, || {
+                            children.iter().map(Promise::state).collect::<Vec<_>>()
+                        })
+                    })
                 });
-            });
-            self.collect_calls(work, pending, next);
-            if let Some(owner) = self.works.get_mut(&work) {
-                owner
-                    .children
-                    .retain(|child| matches!(child.state(), PromiseState::Pending));
+                self.collect_calls(work, pending, next);
+                if let Some(owner) = self.works.get_mut(&work) {
+                    owner.children = children
+                        .into_iter()
+                        .zip(states)
+                        .filter_map(|(child, state)| {
+                            matches!(state, PromiseState::Pending).then_some(child)
+                        })
+                        .collect();
+                }
             }
         }
     }
@@ -1315,11 +1374,21 @@ impl HopliteRuntime {
         else {
             return Err(());
         };
-        if success {
-            promise.resolve(payload);
-        } else {
-            promise.reject_value(payload);
-        }
+        let (handler, pending, next) = self.host_handler(work);
+        let namespaces = self.namespaces.clone();
+        let protocols = self.protocols.clone();
+        core::with_namespace_registry(&namespaces, || {
+            core::with_protocols(&protocols, || {
+                core::with_host_calls(handler, || {
+                    if success {
+                        promise.resolve(payload);
+                    } else {
+                        promise.reject_value(payload);
+                    }
+                })
+            })
+        });
+        self.collect_calls(work, pending, next);
         self.drain_ready();
         Ok(())
     }
@@ -1631,6 +1700,26 @@ pub unsafe extern "C" fn hoplite_runtime_free(runtime: *mut HopliteRuntime) {
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn hoplite_bootstrap_modules(
+    runtime: *mut HopliteRuntime,
+    source_ptr: *const u8,
+    source_len: usize,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        let source = source(source_ptr, source_len)?;
+        if let Err(error) = runtime.bootstrap_modules(source) {
+            eprintln!("hoplite bootstrap: {error}");
+            return Err(());
+        }
+        Ok::<i32, ()>(0)
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(1)
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn hoplite_work_start(
     runtime: *mut HopliteRuntime,
     source_ptr: *const u8,
@@ -1749,7 +1838,9 @@ pub unsafe extern "C" fn hoplite_app_invoke_v2(
     (*outcome).id = 0;
     catch_unwind(AssertUnwindSafe(|| {
         let runtime = runtime_mut(runtime)?;
-        match runtime.app_invoke(app, *request).map_err(|_| ())? {
+        match runtime.app_invoke(app, *request).map_err(|error| {
+            eprintln!("hoplite app invocation failed: {error}");
+        })? {
             InvokeState::Complete(response) => {
                 (*outcome).kind = 1;
                 (*outcome).id = response;
@@ -2184,6 +2275,68 @@ mod tests {
     use super::*;
     use hara_wasm::lang::IPeekFirst;
 
+    #[test]
+    fn bootstrap_compiles_namespaces_independently_in_dependency_order() {
+        let mut runtime = HopliteRuntime::new();
+        runtime
+            .bootstrap_modules(
+                "(ns example.dependency (:require [std.foundation :refer :all])) \
+                 (defn answer [value] (if (and (map? value) (type value)) 42 0)) \
+                 (ns example.application (:require [example.dependency :as dependency])) \
+                 (defn answer [value] (dependency/answer value))",
+            )
+            .unwrap();
+        assert!(runtime
+            .namespaces
+            .find("example.dependency")
+            .unwrap()
+            .mappings()
+            .iter()
+            .any(|(name, _)| name.as_str() == "answer"));
+        assert!(runtime
+            .namespaces
+            .find("example.application")
+            .unwrap()
+            .mappings()
+            .iter()
+            .any(|(name, _)| name.as_str() == "answer"));
+    }
+
+    #[test]
+    fn independently_compiled_async_namespaces_drive_inner_host_calls() {
+        let mut runtime = HopliteRuntime::new();
+        runtime
+            .bootstrap_modules(
+                "(ns example.provider (:require [std.foundation.coroutine :as coroutine])) \
+                 (defn ^:async load [] (coroutine/await (std.native.Host/call \"hoplite.store\" \"load\" [\"state\"])) (coroutine/await (std.native.Host/call \"hoplite.store\" \"initialize\" [\"state\"]))) \
+                 (ns example.service (:require [std.foundation.coroutine :as coroutine] [example.provider :as provider])) \
+                 (defn ^:async load [] (coroutine/await (provider/load))) \
+                 (ns example.handler (:require [std.foundation.coroutine :as coroutine] [example.service :as service])) \
+                 (defn ^:async show [request] (coroutine/await (service/load)) {:status 200 :body \"ready\"})",
+            )
+            .unwrap();
+        let handler = runtime.handler_prepare("example.handler/show").unwrap();
+        runtime
+            .work_call(handler, Value::Map(Default::default()))
+            .unwrap();
+        let Value::Vector(call) = take_event(&mut runtime) else {
+            panic!("cross-namespace host event")
+        };
+        assert!(matches!(call.get(0), Some(Value::Number(2))));
+        assert!(matches!(call.get(5), Some(Value::String(service)) if service == "hoplite.store"));
+        let first_call = match call.get(1) {
+            Some(Value::Number(value)) => *value as u64,
+            _ => panic!("first call id"),
+        };
+        runtime
+            .call_deliver(first_call, true, Value::Nil)
+            .expect("first cross-namespace call is delivered");
+        let Value::Vector(call) = take_event(&mut runtime) else {
+            panic!("second cross-namespace host event")
+        };
+        assert!(matches!(call.get(6), Some(Value::String(method)) if method == "initialize"));
+    }
+
     struct TestRequest {
         headers: Vec<(&'static str, &'static str)>,
     }
@@ -2486,6 +2639,22 @@ mod tests {
     }
 
     #[test]
+    fn trusted_hoplite_host_intrinsics_complete_synchronously() {
+        let mut runtime = HopliteRuntime::new();
+        let work = runtime.work_start(
+            "(do (defn decode [] (std.foundation.string/decode-utf8 (std.native.Host/call \"hoplite.host\" \"base64url-decode\" [\"aGVsbG8\"]))) (decode))",
+            None,
+        );
+        assert!(runtime.host_pending.borrow().is_empty());
+        let Value::Vector(done) = take_event(&mut runtime) else {
+            panic!("completion event")
+        };
+        assert!(matches!(done.get(0), Some(Value::Number(0))));
+        assert!(matches!(done.get(1), Some(Value::Number(value)) if *value == work as i64));
+        assert!(matches!(done.get(2), Some(Value::String(value)) if value == "hello"));
+    }
+
+    #[test]
     fn one_work_owns_multiple_sequential_host_calls() {
         let mut runtime = HopliteRuntime::new();
         let work = runtime.work_start(
@@ -2515,6 +2684,34 @@ mod tests {
         };
         assert!(matches!(done.get(0), Some(Value::Number(0))));
         assert!(matches!(done.get(1), Some(Value::Number(value)) if *value == work as i64));
+    }
+
+    #[test]
+    fn nested_async_service_exposes_its_first_host_call() {
+        let mut runtime = HopliteRuntime::new();
+        runtime.work_start(
+            "(do (defn ^:async leaf [] (std.foundation.coroutine/await (std.native.Host/call \"hoplite.store\" \"load\" [\"state\"])) (std.foundation.coroutine/await (std.native.Host/call \"hoplite.store\" \"commit\" [\"state\"]))) (defn ^:async child [] (std.foundation.coroutine/await (leaf))) (defn ^:async parent [] (std.foundation.coroutine/await (child))) (parent))",
+            None,
+        );
+        runtime.drain_ready();
+        let Value::Vector(call) = take_event(&mut runtime) else {
+            panic!("nested host event")
+        };
+        assert!(matches!(call.get(0), Some(Value::Number(2))));
+        assert!(matches!(call.get(5), Some(Value::String(service)) if service == "hoplite.store"));
+        assert!(matches!(call.get(6), Some(Value::String(method)) if method == "load"));
+        let first_call = match call.get(1) {
+            Some(Value::Number(value)) => *value as u64,
+            _ => panic!("first call id"),
+        };
+        runtime
+            .call_deliver(first_call, true, Value::Nil)
+            .expect("first call is delivered");
+        let Value::Vector(call) = take_event(&mut runtime) else {
+            panic!("second nested host event")
+        };
+        assert!(matches!(call.get(0), Some(Value::Number(2))));
+        assert!(matches!(call.get(6), Some(Value::String(method)) if method == "commit"));
     }
 
     #[test]

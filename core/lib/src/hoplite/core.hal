@@ -1,4 +1,5 @@
-(ns hoplite.core)
+(ns hoplite.core
+  (:require [std.foundation :refer :all]))
 
 (defn- tagged
   [kind value]

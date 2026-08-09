@@ -5,6 +5,8 @@
 #include "hoplite_hta.h"
 #include "hoplite_response_source.h"
 #include "hoplite_host_provider.h"
+#include "hoplite_blob_host_provider.h"
+#include "hoplite_value_store_host_provider.h"
 #include "hoplite_runtime.h"
 
 typedef struct {
@@ -1373,6 +1375,9 @@ ngx_http_hoplite_host_call(hoplite_hta_value_t *event,
     lookup.len = service.len;
     native_provider = hoplite_host_provider_find_v1(lookup);
     if (native_provider == NULL) {
+        ngx_log_error(NGX_LOG_ERR, log, 0,
+                      "unsupported Hoplite host service: service=%V operation=%V",
+                      &service, &operation);
         return ngx_http_hoplite_reject((uint64_t) call_number, pool,
                                        "unsupported Hoplite host service");
     }
@@ -1407,7 +1412,13 @@ ngx_http_hoplite_host_call(hoplite_hta_value_t *event,
     native_call.completer.fail = ngx_http_hoplite_native_fail;
 
     ctx->native_provider = native_provider;
+    ngx_log_error(NGX_LOG_NOTICE, log, 0,
+                  "invoking native Hoplite provider: service=%V operation=%V",
+                  &service, &operation);
     native_rc = native_provider->invoke(&native_call);
+    ngx_log_error(NGX_LOG_NOTICE, log, 0,
+                  "native Hoplite provider returned: service=%V operation=%V status=%d completed=%d",
+                  &service, &operation, native_rc, completion->completed);
     if (completion->completed) {
         return completion->failed ? NGX_ERROR : NGX_OK;
     }
@@ -1424,6 +1435,9 @@ ngx_http_hoplite_host_call(hoplite_hta_value_t *event,
             (uint64_t) call_number, pool,
             "native provider returned without completing");
     }
+    ngx_log_error(NGX_LOG_ERR, log, 0,
+                  "native Hoplite provider failed: service=%V operation=%V status=%d",
+                  &service, &operation, native_rc);
     return NGX_ERROR;
 }
 
@@ -1664,6 +1678,9 @@ ngx_http_hoplite_invoke(ngx_http_request_t *request,
                                        &native_request_v3, &outcome);
         }
         if (rc != 0) {
+            ngx_log_error(NGX_LOG_ERR, request->connection->log, 0,
+                          "Hoplite app invocation failed: app=%ui rc=%i",
+                          conf->app, rc);
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         if (outcome.kind == 1) {
@@ -1672,6 +1689,9 @@ ngx_http_hoplite_invoke(ngx_http_request_t *request,
             return ngx_http_hoplite_send_native(ctx);
         }
         if (outcome.kind != 2 || outcome.id == 0) {
+            ngx_log_error(NGX_LOG_ERR, request->connection->log, 0,
+                          "Hoplite app returned an invalid outcome: kind=%ui id=%uL",
+                          outcome.kind, outcome.id);
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         ctx->work = outcome.id;
@@ -1728,6 +1748,8 @@ ngx_http_hoplite_invoke(ngx_http_request_t *request,
     ctx->queued = 1;
     request->main->count++;
     if (ngx_http_hoplite_drain(request->connection->log) != NGX_OK) {
+        ngx_log_error(NGX_LOG_ERR, request->connection->log, 0,
+                      "Hoplite work drain failed: work=%uL", ctx->work);
         ngx_http_hoplite_finish(ctx);
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
@@ -1887,59 +1909,27 @@ static ngx_int_t
 ngx_http_hoplite_bootstrap(ngx_cycle_t *cycle, const ngx_str_t *path)
 {
     ngx_str_t source;
-    hoplite_buffer_t buffer;
-    hoplite_hta_value_t *event;
-    ngx_pool_t *pool;
-    int64_t kind, event_work;
-    uint64_t work;
-    ngx_int_t rc = NGX_ERROR;
 
-    if (ngx_http_hoplite_read_file(cycle, path, &source, 1) != NGX_OK) {
+    if (ngx_http_hoplite_read_file(cycle, path, &source, 0) != NGX_OK) {
         return NGX_ERROR;
     }
-    work = hoplite_work_start(ngx_http_hoplite_runtime,
-                         source.data, source.len, NULL, 0);
+    if (hoplite_bootstrap_modules(ngx_http_hoplite_runtime,
+                                  source.data, source.len) != 0)
+    {
+        ngx_free(source.data);
+        ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
+                      "hoplite bootstrap module loading failed");
+        return NGX_ERROR;
+    }
     ngx_free(source.data);
-    if (work == 0 || hoplite_work_poll(ngx_http_hoplite_runtime) == 0) {
-        ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
-                      "hoplite bootstrap suspended or failed to start");
-        return NGX_ERROR;
-    }
-
-    while (hoplite_work_poll(ngx_http_hoplite_runtime) != 0) {
-        if (hoplite_work_next_event(ngx_http_hoplite_runtime, &buffer) != 0) {
-            break;
-        }
-        pool = ngx_create_pool(4096, cycle->log);
-        if (pool == NULL) {
-            hoplite_buffer_free(buffer.data, buffer.len);
-            break;
-        }
-        if (hoplite_hta_decode(pool, buffer.data, buffer.len, &event) == NGX_OK
-            && event->kind == HOPLITE_HTA_VECTOR
-            && event->as.vector.count == 3
-            && hoplite_hta_number(event->as.vector.items[0], &kind) == NGX_OK
-            && hoplite_hta_number(event->as.vector.items[1], &event_work) == NGX_OK
-            && (uint64_t) event_work == work)
-        {
-            rc = kind == 0 ? NGX_OK : NGX_ERROR;
-        }
-        ngx_destroy_pool(pool);
-        hoplite_buffer_free(buffer.data, buffer.len);
-    }
-    (void) hoplite_work_close(ngx_http_hoplite_runtime, work);
-
-    if (rc != NGX_OK) {
-        ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
-                      "hoplite bootstrap evaluation failed");
-    }
-    return rc;
+    return NGX_OK;
 }
 
 static ngx_int_t
 ngx_http_hoplite_init_process(ngx_cycle_t *cycle)
 {
     ngx_http_hoplite_main_conf_t *conf;
+    int32_t value_store_status;
 
     ngx_queue_init(&ngx_http_hoplite_requests);
     ngx_http_hoplite_queue_ready = 1;
@@ -1949,6 +1939,16 @@ ngx_http_hoplite_init_process(ngx_cycle_t *cycle)
     {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
                       "hoplite native host providers could not be registered");
+        return NGX_ERROR;
+    }
+    value_store_status = hoplite_value_store_host_provider_init_process_v1();
+    if ((value_store_status != HOPLITE_VALUE_STORE_HOST_PROVIDER_OK
+         && value_store_status != HOPLITE_VALUE_STORE_HOST_PROVIDER_DISABLED)
+        || hoplite_blob_host_provider_init_process_v1()
+               != HOPLITE_BLOB_HOST_PROVIDER_OK)
+    {
+        ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
+                      "hoplite storage host providers could not be initialized");
         return NGX_ERROR;
     }
     ngx_http_hoplite_runtime = hoplite_runtime_new();
@@ -1989,6 +1989,8 @@ ngx_http_hoplite_exit_process(ngx_cycle_t *cycle)
         hoplite_runtime_free(ngx_http_hoplite_runtime);
         ngx_http_hoplite_runtime = NULL;
     }
+    hoplite_blob_host_provider_exit_process_v1();
+    hoplite_value_store_host_provider_exit_process_v1();
     ngx_http_hoplite_queue_ready = 0;
 }
 

@@ -1,12 +1,16 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-use hara_wasm::Runtime;
 use hara_wasm::{core::Value, hta};
 use p256::ecdsa::{Signature as P256Signature, VerifyingKey as P256VerifyingKey};
 use sha2::{Digest, Sha256};
-use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(feature = "cli-host")]
+use hara_wasm::Runtime;
+#[cfg(feature = "cli-host")]
+use std::rc::Rc;
+
+#[cfg(feature = "cli-host")]
 pub fn install(runtime: &mut Runtime) {
     runtime.register_resource("hoplite.host", super::app::HOST_SOURCE);
     runtime.install_native_host_handler(Rc::new(dispatch));
@@ -255,7 +259,7 @@ fn fixed_bytes<const N: usize>(
         .map_err(|_| format!("{label} must contain {N} bytes"))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cli-host"))]
 mod tests {
     use super::{dispatch, install};
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};

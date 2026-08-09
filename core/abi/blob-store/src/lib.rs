@@ -356,6 +356,12 @@ pub trait ResponseSource {
 pub trait BlobStore: Send + Sync {
     type Source: ResponseSource;
 
+    /// Verify that the configured provider can service requests without
+    /// creating staging state or opening an application object.
+    fn probe(&self) -> Result<(), Error> {
+        Ok(())
+    }
+
     fn staging_open(&self, request: StagingOpen) -> Result<StagingStatus, Error>;
 
     fn staging_append_from_source(

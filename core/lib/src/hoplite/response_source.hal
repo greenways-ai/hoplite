@@ -6,7 +6,8 @@
 ;; numeric handle is not authority by itself: hosts must bind it to the exact
 ;; work that created it and close it on completion or cancellation.
 ;; ==========================================================================
-(ns hoplite.response-source)
+(ns hoplite.response-source
+  (:require [std.foundation :refer :all]))
 
 (def protocol
   "hoplite.response-source/1")
