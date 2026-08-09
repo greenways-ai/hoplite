@@ -120,7 +120,9 @@ impl Error {
 impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidLimits(message) => write!(formatter, "invalid hara.value limits: {message}"),
+            Self::InvalidLimits(message) => {
+                write!(formatter, "invalid hara.value limits: {message}")
+            }
             Self::Hta(error) => write!(formatter, "invalid provider HTA: {error}"),
             Self::InvalidRequest(message) => {
                 write!(formatter, "invalid hara.value request: {message}")

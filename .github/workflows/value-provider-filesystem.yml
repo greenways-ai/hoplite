@@ -49,9 +49,16 @@ jobs:
           components: rustfmt,clippy
       - name: Check formatting
         run: |
-          cargo fmt \
-            --manifest-path hoplite/core/abi/value-provider-filesystem/Cargo.toml \
-            --all -- --check
+          rustfmt --edition 2021 --check \
+            hoplite/core/abi/value-provider-filesystem/src/lib.rs \
+            hoplite/core/abi/value-provider-filesystem/src/provider.rs \
+            hoplite/core/abi/value-provider-filesystem/src/metadata.rs \
+            hoplite/core/abi/value-provider-filesystem/src/hta.rs \
+            hoplite/core/abi/value-provider-filesystem/src/filesystem.rs \
+            hoplite/core/abi/value-provider-filesystem/src/tests.rs \
+            hoplite/core/abi/value-provider-filesystem/src/verification_cases.rs \
+            hoplite/core/abi/value-provider-filesystem/src/integrity_cases.rs \
+            hoplite/core/abi/value-provider-filesystem/src/restart_cases.rs
       - name: Reject warnings
         run: |
           cargo clippy \
