@@ -83,10 +83,7 @@ fn detects_short_and_excess_object_reads_from_actual_bytes() {
     let (short_meta, _) = object_paths(&root, short_digest);
     rewrite_metadata_size(&short_meta, bytes.len() as u64 + 1);
     let short = provider(&root)
-        .execute(
-            OPERATION,
-            &request_arguments(short_digest, bytes.len() + 1),
-        )
+        .execute(OPERATION, &request_arguments(short_digest, bytes.len() + 1))
         .unwrap();
     assert_failure(&short, short_digest, PROVIDER_FAILURE);
 
@@ -94,10 +91,7 @@ fn detects_short_and_excess_object_reads_from_actual_bytes() {
     let (excess_meta, _) = object_paths(&root, excess_digest);
     rewrite_metadata_size(&excess_meta, bytes.len() as u64 - 1);
     let excess = provider(&root)
-        .execute(
-            OPERATION,
-            &request_arguments(excess_digest, bytes.len()),
-        )
+        .execute(OPERATION, &request_arguments(excess_digest, bytes.len()))
         .unwrap();
     assert_failure(&excess, excess_digest, PROVIDER_FAILURE);
 }

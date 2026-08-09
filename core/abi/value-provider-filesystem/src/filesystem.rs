@@ -64,8 +64,8 @@ fn read_metadata_file(path: &Path, maximum: usize) -> Result<Vec<u8>, Error> {
             "object metadata exceeds its bounded profile",
         ));
     }
-    let mut file = File::open(path)
-        .map_err(|error| io_error("value-provider-metadata-open", error))?;
+    let mut file =
+        File::open(path).map_err(|error| io_error("value-provider-metadata-open", error))?;
     let mut bytes = Vec::with_capacity(declared as usize);
     file.read_to_end(&mut bytes)
         .map_err(|error| io_error("value-provider-metadata-read", error))?;
@@ -82,9 +82,7 @@ fn read_bounded_file(path: &Path, maximum: usize, chunk_bytes: usize) -> Result<
     if !regular_file_exists(path).map_err(|_| Failure::Provider)? {
         return Err(Failure::Provider);
     }
-    let declared = fs::metadata(path)
-        .map_err(|_| Failure::Provider)?
-        .len();
+    let declared = fs::metadata(path).map_err(|_| Failure::Provider)?.len();
     if declared > maximum as u64 {
         return Err(Failure::Maximum);
     }
@@ -133,19 +131,7 @@ fn validate_media_type(bytes: &[u8]) -> Result<(), Error> {
         character.is_ascii_alphanumeric()
             || matches!(
                 character,
-                '!' | '#'
-                    | '$'
-                    | '&'
-                    | '\''
-                    | '*'
-                    | '+'
-                    | '-'
-                    | '.'
-                    | '^'
-                    | '_'
-                    | '`'
-                    | '|'
-                    | '~'
+                '!' | '#' | '$' | '&' | '\'' | '*' | '+' | '-' | '.' | '^' | '_' | '`' | '|' | '~'
             )
     };
     if type_name.is_empty()

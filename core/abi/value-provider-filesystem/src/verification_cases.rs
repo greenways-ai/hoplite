@@ -91,10 +91,7 @@ fn enforces_exact_request_and_installed_maximum_boundaries() {
         file.sync_all().unwrap();
     }
     let during_io = provider
-        .execute(
-            OPERATION,
-            &request_arguments(overflow_digest, bytes.len()),
-        )
+        .execute(OPERATION, &request_arguments(overflow_digest, bytes.len()))
         .unwrap();
     assert_failure(&during_io, overflow_digest, MAXIMUM_EXCEEDED);
 

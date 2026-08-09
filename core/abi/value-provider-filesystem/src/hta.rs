@@ -54,9 +54,11 @@ fn classify_hta_error(message: &str) -> &'static str {
 }
 
 fn success_result(digest: &str, value_frame: &[u8]) -> Result<Vec<u8>, Error> {
-    let value = value_frame.strip_prefix(MAGIC).ok_or(Error::InvalidRequest(
-        "verified value frame does not contain HTA1 magic",
-    ))?;
+    let value = value_frame
+        .strip_prefix(MAGIC)
+        .ok_or(Error::InvalidRequest(
+            "verified value frame does not contain HTA1 magic",
+        ))?;
     result_map(vec![
         ("byte-length", bare_usize(value_frame.len())?),
         ("digest", bare_string(digest)),

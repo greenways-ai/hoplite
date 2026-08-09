@@ -54,10 +54,7 @@ impl<'a> MetadataReader<'a> {
             )
         })?;
         let value = self.bytes.get(self.cursor..end).ok_or_else(|| {
-            Error::installation(
-                "value-provider-metadata-truncated",
-                "metadata is truncated",
-            )
+            Error::installation("value-provider-metadata-truncated", "metadata is truncated")
         })?;
         self.cursor = end;
         Ok(value)
@@ -90,10 +87,7 @@ impl<'a> MetadataReader<'a> {
 
     fn array_32(&mut self) -> Result<[u8; 32], Error> {
         self.take(32)?.try_into().map_err(|_| {
-            Error::installation(
-                "value-provider-metadata-digest",
-                "invalid metadata digest",
-            )
+            Error::installation("value-provider-metadata-digest", "invalid metadata digest")
         })
     }
 
