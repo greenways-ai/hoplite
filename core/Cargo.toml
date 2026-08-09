@@ -15,6 +15,7 @@ members = [
   "abi/data-plane-ffi",
   "abi/data-plane-registry",
   "abi/signed-device-ed25519",
+  "abi/signed-device-replay",
   "runtime",
 ]
 default-members = ["."]
