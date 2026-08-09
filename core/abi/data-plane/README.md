@@ -1,8 +1,12 @@
 # Hoplite data-plane ABI
 
-This crate defines the application-neutral transport contracts required by Tahto and other large-object Hoplite applications.
+This crate defines the application-neutral transport contracts required by
+Tahto and other large-object Hoplite applications.
 
-It exists because the ordinary Hoplite/Hara route boundary is intentionally value-oriented: request metadata becomes a Hara request value and ordinary response bodies become strings or byte values. Multi-megabyte and multi-gigabyte objects must not cross that boundary as ordinary Hara values.
+It exists because the ordinary Hoplite/Hara route boundary is intentionally
+value-oriented: request metadata becomes a Hara request value and ordinary
+response bodies become strings or byte values. Multi-megabyte and
+multi-gigabyte objects must not cross that boundary as ordinary Hara values.
 
 ## Contracts
 
@@ -18,7 +22,9 @@ It exists because the ordinary Hoplite/Hara route boundary is intentionally valu
 - rejection when observed bytes exceed the declaration; and
 - exact declaration verification when a body finishes.
 
-A runtime adapter exposes only an opaque server-owned body handle to Hara. Hara may authorize the operation and choose an application-owned storage action, but the object bytes remain in the native data plane.
+A runtime adapter exposes only an opaque server-owned body handle to Hara. Hara
+may authorize the operation and choose an application-owned storage action, but
+the object bytes remain in the native data plane.
 
 ### Streaming and range responses
 
@@ -31,56 +37,100 @@ A runtime adapter exposes only an opaque server-owned body handle to Hara. Hara 
 - bounded chunk reads; and
 - early-EOF and source-contract checks.
 
-Multiple ranges are deliberately rejected in the first ABI. A response source is a server-owned resource handle, not a request-selected filesystem path or upstream URL.
+Multiple ranges are deliberately rejected in the first ABI. A response source
+is a server-owned resource handle, not a request-selected filesystem path or
+upstream URL.
 
-### Signed-device authentication
+### Signed application-device authentication
 
-`SignedDeviceRequest` fixes the canonical request fields used by a provider:
+`SignedDeviceRequest` fixes the exact production signing fields:
 
 ```text
+hoplite-signed-device/2
 method
 target
 authority
 content digest
+operation
+application
+namespace
+collection
 timestamp
 nonce
+idempotency key
 key id
-signature
 ```
 
-The signing input is domain-separated by `hoplite-signed-device/1`. Targets must be origin-relative, authorities cannot contain userinfo or paths, and content digests use lower-case SHA-256 identifiers.
+The encoded signature is carried beside those fields and is never part of the
+signing input. Version 2 is necessary because the earlier
+`hoplite-signed-device/1` profile did not bind the application operation,
+coordinates, or idempotency key. Production providers must not accept version
+1 as an alias for version 2.
 
-`SignedDeviceProvider` is a provider contract, not a built-in Tahto authenticator. Hoplite owns the transport and realm projection; applications or installed provider packages own key lookup, nonce persistence, clock policy, signature verification, and revocation checks.
+Targets are origin-relative, authorities cannot contain userinfo or paths,
+content digests are lower-case SHA-256 identifiers, and line-delimited fields
+reject whitespace or delimiter ambiguity before a provider is invoked.
+
+`ApplicationRequestExpectation` contains trusted facts derived from the actual
+HTTP exchange and selected route. `authenticate_application_request` compares
+every signed transport and application field against those facts before
+calling a provider. It then projects only a closed application identity and
+returns `hoplite-verified-application-request/1` evidence.
+
+`SignedDeviceProvider` is application-neutral. An installed provider owns key
+lookup, clock policy, signature verification and revocation checks. Durable
+nonce/idempotency admission remains a separate atomic boundary: a valid
+signature alone never means that a nonce has been consumed.
 
 ### Safe application identity projection
 
-`ApplicationIdentity::project` accepts only the `application` realm and requires:
+`ApplicationIdentity::project` accepts only the `application` realm and
+requires:
 
 ```text
 application/id
 application/version
 application/publisher
 application/lock-digest
+application/namespace
+application/collection
+application/operations
 ```
 
-Only an allowlisted claim set reaches the Hara application. Bearer tokens, session identifiers, management claims, administrator credentials, raw device keys, and provider-private claims are not projected.
+Only an allowlisted claim set reaches the Hara application. Provider identity,
+bearer tokens, session identifiers, management claims, administrator
+credentials and raw device keys are removed. The adapter also checks the
+projected application, namespace, collection and allowed operation against the
+signed request.
 
 ### Opaque resource handles
 
-`ResourceHandle` is a non-zero server-assigned integer. It intentionally carries no path, URL, upstream, file descriptor, or executable instruction. Runtime adapters resolve it against request-scoped or response-scoped native registries.
+`ResourceHandle` is a non-zero server-assigned integer. It intentionally carries
+no path, URL, upstream, file descriptor, or executable instruction. Runtime
+adapters resolve it against request-scoped or response-scoped native
+registries.
 
 ## Security laws
 
 A conforming adapter must never:
 
-- let a request choose a filesystem path;
+- let a request choose a filesystem path, provider or public key;
 - let a request choose a proxy upstream;
 - materialize a large request or response body as an ordinary Hara value;
+- verify a signature before matching signed fields to the actual request;
 - project a management principal into the application realm;
-- expose access or refresh tokens to application handlers;
-- infer administrator authority from device enrolment; or
+- expose provider identity, signatures, access or refresh tokens to handlers;
+- infer administrator authority from device enrolment;
+- treat signature verification as durable replay admission; or
 - treat an opaque resource handle as portable outside its server scope.
 
 ## Integration sequence
 
-This PR introduces the compiled contract and conformance tests as the first reviewable HOPLITE-1 slice. Runtime and Nginx wiring should implement these traits and handles without changing the contract. Tahto then binds its object-vault operations to the resulting native adapter.
+1. `hoplite-signed-device-ed25519` verifies the exact version-2 signing bytes
+   using trusted key and clock configuration.
+2. The runtime supplies actual request/route expectations and projects the
+   closed verified evidence into the handler request.
+3. A durable admission provider atomically consumes nonce/idempotency evidence
+   across worker and process restart.
+4. The Tahto fixture uses the resulting generic boundary without moving its
+   authorization or state-transition semantics into Hoplite.
