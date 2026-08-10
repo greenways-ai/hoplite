@@ -9,6 +9,16 @@ WORKDIR /src
 COPY hoplite hoplite
 COPY hara hara
 
+RUN cargo run --manifest-path hoplite/core/Cargo.toml --locked \
+      --bin hoplite-provider-manifest -- \
+      hoplite/packaging/providers/blob/provider-manifest.json \
+      --provider hoplite.blob \
+      --request hoplite.blob-request/1 \
+      --result hoplite.blob-result/1 \
+      --abi hoplite.blob-provider-ffi \
+      --abi-version 1 \
+      --driver filesystem \
+      --driver-version 1
 RUN make -C hoplite/core runtime blob-store-provider nginx-source
 RUN cd "hoplite/core/target/sources/nginx-${NGINX_VERSION}" \
     && HOPLITE_RUNTIME_DIR=/src/hoplite/core/target/release \
