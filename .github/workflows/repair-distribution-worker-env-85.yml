@@ -55,24 +55,15 @@ jobs:
           start = text.index('"worker_processes {};')
           end = text.index("pid .hoplite/nginx.pid;", start)
           generated_prefix = text[start:end]
+          escaped_newline = chr(92) + "n"
           for name in provider_names:
-              token = f"env {name};"
-              count = generated_prefix.count(token)
+              fragment = f"env {name};{escaped_newline}"
+              count = generated_prefix.count(fragment)
               if count != 1:
                   raise SystemExit(
                       f"expected one generated directive for {name}, found {count}"
                   )
-              position = generated_prefix.index(token)
-              line_start = generated_prefix.rfind("\n", 0, position) + 1
-              line_end = generated_prefix.find("\n", position)
-              if line_end == -1:
-                  raise SystemExit(f"unterminated generated directive for {name}")
-              line = generated_prefix[line_start : line_end + 1]
-              if "worker_processes" in line or "pid .hoplite/nginx.pid" in line:
-                  raise SystemExit(f"refusing to remove mixed core line: {line!r}")
-              generated_prefix = (
-                  generated_prefix[:line_start] + generated_prefix[line_end + 1 :]
-              )
+              generated_prefix = generated_prefix.replace(fragment, "")
           if "env HOPLITE_" in generated_prefix:
               raise SystemExit("unreviewed Hoplite environment directive remains")
           text = text[:start] + generated_prefix + text[end:]
