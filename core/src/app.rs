@@ -869,9 +869,19 @@ mod tests {
 
     #[test]
     fn value_boundary_contract_evaluates_from_hoplite() {
-        let mut runtime = Runtime::new();
-        runtime.register_resource("hoplite.value", VALUE_SOURCE);
-        runtime.eval_native_value(VALUE_TEST_SOURCE).unwrap();
+        // This evaluator-heavy recursive contract exceeds libtest's 2 MiB
+        // worker stack. Keep the larger stack scoped to this test.
+        std::thread::Builder::new()
+            .name("hoplite-value-contract".to_owned())
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                let mut runtime = Runtime::new();
+                runtime.register_resource("hoplite.value", VALUE_SOURCE);
+                runtime.eval_native_value(VALUE_TEST_SOURCE).unwrap();
+            })
+            .expect("spawn value contract test")
+            .join()
+            .expect("value contract test panicked");
     }
 
     #[test]

@@ -4,7 +4,7 @@ env:
   # Hoplite consumes an immutable Hara source checkout until the embedding ABI
   # is available as a published crate. Hoplite-owned boundary contracts are
   # compiled from this repository rather than from the Hara checkout.
-  HARA_REF: b97f85180c57c320c1b8f011a1a91ddba4be2c46
+  HARA_REF: d310105d54954399da0b0289b7d43c7d1bf9d984
 
 on:
   push:
