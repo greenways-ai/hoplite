@@ -36,18 +36,40 @@ jobs:
 
           main = root / "core/src/main.rs"
           text = main.read_text(encoding="utf-8")
-          lines = text.splitlines(keepends=True)
-          retained = []
-          removed = []
-          for line in lines:
-              stripped = line.strip()
-              if stripped.startswith("env HOPLITE_") and stripped.endswith("\\"):
-                  removed.append(stripped)
-              else:
-                  retained.append(line)
-          if len(removed) != 14:
-              raise SystemExit(f"expected 14 provider environment directives, removed {len(removed)}: {removed}")
-          main.write_text("".join(retained), encoding="utf-8")
+          provider_names = [
+              "HOPLITE_STORE_PATH",
+              "HOPLITE_STORE_MAX_VALUE_BYTES",
+              "HOPLITE_STORE_MAX_RECEIPT_BYTES",
+              "HOPLITE_VALUE_PROVIDER",
+              "HOPLITE_VALUE_ROOT",
+              "HOPLITE_VALUE_MAX_BYTES",
+              "HOPLITE_BLOB_ROOT",
+              "HOPLITE_BLOB_MAX_OBJECT_BYTES",
+              "HOPLITE_BLOB_MAX_APPEND_BYTES",
+              "HOPLITE_BLOB_MAX_SOURCE_CHUNK_BYTES",
+              "HOPLITE_BLOB_MAX_STAGING_KEY_BYTES",
+              "HOPLITE_BLOB_MAX_MEDIA_TYPE_BYTES",
+              "HOPLITE_BLOB_MAX_STAGING_ENTRIES",
+              "HOPLITE_BLOB_MAX_OBJECTS",
+          ]
+          slash = chr(92)
+          start_marker = f'"worker_processes {{}};{slash}\n'
+          end_marker = f'pid .hoplite/nginx.pid;{slash}\n'
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          generated_prefix = text[start:end]
+          for name in provider_names:
+              fragment = f"env {name};{slash}\n"
+              count = generated_prefix.count(fragment)
+              if count != 1:
+                  raise SystemExit(
+                      f"expected one generated directive for {name}, found {count}"
+                  )
+              generated_prefix = generated_prefix.replace(fragment, "")
+          if "env HOPLITE_" in generated_prefix:
+              raise SystemExit("unreviewed Hoplite environment directive remains")
+          text = text[:start] + generated_prefix + text[end:]
+          main.write_text(text, encoding="utf-8")
 
           server = root / "core/src/bin/hoplite-server.rs"
           text = server.read_text(encoding="utf-8")
@@ -215,7 +237,9 @@ jobs:
           cargo fmt --manifest-path core/Cargo.toml
           cargo test --manifest-path core/Cargo.toml --workspace --locked
           ! grep -E 'env HOPLITE_(BLOB|STORE|VALUE)' core/src/main.rs
-          ! grep -E 'HOPLITE_(BLOB|STORE|VALUE)' core/src/bin/hoplite-server.rs
+          ! grep -F 'const TRUSTED_WORKER_ENVIRONMENT' core/src/bin/hoplite-server.rs
+          grep -F 'option_env!("HOPLITE_DISTRIBUTION_WORKER_ENVIRONMENT")' \
+            core/src/bin/hoplite-server.rs
           grep -F 'HOPLITE_DISTRIBUTION_WORKER_ENVIRONMENT=HOPLITE_BLOB_ROOT' \
             packaging/docker/Dockerfile.blob-provider
       - name: Commit the validated source repair
