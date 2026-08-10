@@ -113,10 +113,15 @@ jobs:
               raise SystemExit("provider lifecycle remains in the core Nginx module")
           module.write_text(text, encoding="utf-8")
           PY
-      - name: Validate locked core and standalone provider workspaces
+      - name: Reconcile and validate the reviewed Hara lock
         working-directory: hoplite
         run: |
+          cargo test --manifest-path core/Cargo.toml --workspace --no-run
+          git diff -- core/Cargo.lock
           cargo test --manifest-path core/Cargo.toml --workspace --locked
+      - name: Validate standalone provider workspaces
+        working-directory: hoplite
+        run: |
           cargo test --manifest-path core/abi/value-store-provider-ffi/Cargo.toml
           cargo test --manifest-path core/abi/value-provider-filesystem-ffi/Cargo.toml
           cargo test --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml --locked
