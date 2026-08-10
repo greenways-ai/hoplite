@@ -1,0 +1,115 @@
+name: Repair provider-neutral core 85
+
+on:
+  push:
+    branches:
+      - agent/provider-neutral-core-85
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    env:
+      HARA_REF: b97f85180c57c320c1b8f011a1a91ddba4be2c46
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ env.HARA_REF }}
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Restore the provider-neutral core composition
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path("hoplite")
+
+          config = root / "core/nginx/config"
+          config.write_text(
+              """ngx_addon_name=ngx_http_hoplite_module
+
+          HOPLITE_RUNTIME_DIR=${HOPLITE_RUNTIME_DIR:-$ngx_addon_dir/../../target/release}
+
+          ngx_module_type=HTTP
+          ngx_module_name=ngx_http_hoplite_module
+          ngx_module_srcs=\"$ngx_addon_dir/ngx_http_hoplite_module.c \\
+                           $ngx_addon_dir/hoplite_hta.c \\
+                           $ngx_addon_dir/hoplite_host_provider.c \\
+                           $ngx_addon_dir/hoplite_response_source.c\"
+          ngx_module_incs=\"$ngx_addon_dir\"
+          ngx_module_libs=\"$HOPLITE_RUNTIME_DIR/libhoplite_runtime.a \\
+                           -ldl -lpthread -lm\"
+
+          . auto/module
+          """.replace("          ", ""),
+              encoding="utf-8",
+          )
+
+          makefile = root / "core/Makefile"
+          text = makefile.read_text(encoding="utf-8")
+          old = "nginx: runtime value-store-provider value-provider blob-store-provider nginx-source"
+          new = "nginx: runtime nginx-source"
+          if text.count(old) != 1:
+              raise SystemExit(f"expected one bundled nginx target, found {text.count(old)}")
+          makefile.write_text(text.replace(old, new), encoding="utf-8")
+
+          module = root / "core/nginx/ngx_http_hoplite_module.c"
+          text = module.read_text(encoding="utf-8")
+          replacements = [
+              ('#include "hoplite_blob_host_provider.h"\n', ''),
+              ('#include "hoplite_value_store_host_provider.h"\n', ''),
+              ('    int32_t value_store_status;\n', ''),
+              ('''    value_store_status = hoplite_value_store_host_provider_init_process_v1();
+              if ((value_store_status != HOPLITE_VALUE_STORE_HOST_PROVIDER_OK
+                   && value_store_status != HOPLITE_VALUE_STORE_HOST_PROVIDER_DISABLED)
+                  || hoplite_blob_host_provider_init_process_v1()
+                         != HOPLITE_BLOB_HOST_PROVIDER_OK)
+              {
+                  ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
+                                "hoplite storage host providers could not be initialized");
+                  return NGX_ERROR;
+              }
+          ''', ''),
+              ('    hoplite_blob_host_provider_exit_process_v1();\n', ''),
+              ('    hoplite_value_store_host_provider_exit_process_v1();\n', ''),
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected one module fragment, found {count}: {old!r}")
+              text = text.replace(old, new)
+          if "hoplite_blob_host_provider" in text or "hoplite_value_store_host_provider" in text:
+              raise SystemExit("provider lifecycle remains in the core Nginx module")
+          module.write_text(text, encoding="utf-8")
+          PY
+      - name: Regenerate the reviewed lock state and validate the core
+        working-directory: hoplite
+        run: |
+          cargo test --manifest-path core/Cargo.toml --workspace
+          cargo test --manifest-path core/Cargo.toml --workspace --locked
+          ! grep -E 'hoplite_(blob|value|value_store)_host_provider' core/nginx/config
+          ! grep -E 'libhoplite_(blob|value)' core/nginx/config
+          ! grep -E 'hoplite_(blob|value|value_store)_host_provider' \
+            core/nginx/ngx_http_hoplite_module.c
+          grep -F 'nginx: runtime nginx-source' core/Makefile
+          cargo test --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml --locked
+      - name: Commit the generated repair and remove this workflow
+        working-directory: hoplite
+        run: |
+          rm .github/workflows/repair-provider-neutral-core-85.yml
+          git add -A
+          git diff --cached --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "Restore provider-neutral core composition"
+          git push origin HEAD:${GITHUB_REF_NAME}
