@@ -54,9 +54,8 @@ jobs:
           ]
           slash = chr(92)
           start_marker = f'"worker_processes {{}};{slash}\n'
-          end_marker = f'pid .hoplite/nginx.pid;{slash}\n'
           start = text.index(start_marker)
-          end = text.index(end_marker, start)
+          end = text.index("pid .hoplite/nginx.pid;", start)
           generated_prefix = text[start:end]
           for name in provider_names:
               fragment = f"env {name};{slash}\n"
