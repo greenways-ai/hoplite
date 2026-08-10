@@ -86,7 +86,7 @@ jobs:
             /tmp/hoplite-blob-host-provider-test
       - name: Audit standalone provider lifecycle and core exclusion
         run: |
-          grep -F 'hoplite_blob_host_provider_init_process_v1();' \
+          grep -F 'hoplite_blob_host_provider_init_process_v1()' \
             core/nginx/tests/blob_host_provider.c
           grep -F 'hoplite_blob_host_provider_exit_process_v1();' \
             core/nginx/tests/blob_host_provider.c
