@@ -167,10 +167,12 @@ jobs:
           ! grep -E 'hoplite_(blob|value|value_store)_host_provider' \
             core/nginx/ngx_http_hoplite_module.c
           grep -F 'nginx: runtime nginx-source' core/Makefile
-      - name: Commit the validated repair and remove this workflow
+      - name: Commit the validated source repair
         working-directory: hoplite
         run: |
-          rm .github/workflows/repair-provider-neutral-core-85.yml
+          git restore --source=HEAD -- \
+            .github/workflows/ci.yml \
+            .github/workflows/repair-provider-neutral-core-85.yml
           git add -A
           git diff --cached --check
           git diff --cached --name-status
