@@ -13,11 +13,13 @@ use std::process::Command;
 
 const NGINX_VERSION: &str = "1.30.4";
 
-// Nginx deliberately removes inherited environment variables from workers
-// unless each name is allowlisted in the main configuration context.  These
-// names configure Hoplite's request runtime. Provider packages extend this
-// allowlist in their own release composition rather than entering core here.
-const TRUSTED_WORKER_ENVIRONMENT: &[&str] = &[];
+// Nginx removes inherited environment variables from workers unless each
+// name is allowlisted in the main context. A distribution may embed a bounded
+// comma-separated name list at build time; generic Hoplite embeds no names.
+const DISTRIBUTION_WORKER_ENVIRONMENT: Option<&str> =
+    option_env!("HOPLITE_DISTRIBUTION_WORKER_ENVIRONMENT");
+const MAX_DISTRIBUTION_WORKER_ENVIRONMENT_NAMES: usize = 32;
+const MAX_DISTRIBUTION_WORKER_ENVIRONMENT_NAME_BYTES: usize = 128;
 
 #[cfg(feature = "embedded-nginx")]
 const EMBEDDED_NGINX: &[u8] = include_bytes!(concat!(
@@ -100,7 +102,7 @@ fn run_server(root: &Path, workers: Option<&str>) -> Result<(), String> {
         .map_err(|error| format!("cannot resolve project {}: {error}", root.display()))?;
     let configuration = runtime_configuration(&root, workers)?;
     let nginx = nginx_binary()?;
-    let global_directives = nginx_global_directives();
+    let global_directives = nginx_global_directives()?;
 
     #[cfg(unix)]
     {
@@ -125,14 +127,53 @@ fn run_server(root: &Path, workers: Option<&str>) -> Result<(), String> {
     }
 }
 
-fn nginx_global_directives() -> String {
+fn nginx_global_directives() -> Result<String, String> {
+    nginx_global_directives_for(DISTRIBUTION_WORKER_ENVIRONMENT)
+}
+
+fn nginx_global_directives_for(environment: Option<&str>) -> Result<String, String> {
     let mut directives = String::from("daemon off;");
-    for name in TRUSTED_WORKER_ENVIRONMENT {
+    let Some(environment) = environment else {
+        return Ok(directives);
+    };
+    let mut names = Vec::new();
+    for name in environment.split(',') {
+        if names.len() == MAX_DISTRIBUTION_WORKER_ENVIRONMENT_NAMES {
+            return Err(format!(
+                "distribution worker environment exceeds {} names",
+                MAX_DISTRIBUTION_WORKER_ENVIRONMENT_NAMES
+            ));
+        }
+        validate_worker_environment_name(name)?;
+        if names.contains(&name) {
+            return Err(format!(
+                "distribution worker environment contains duplicate name {name:?}"
+            ));
+        }
+        names.push(name);
         directives.push_str(" env ");
         directives.push_str(name);
         directives.push(';');
     }
-    directives
+    Ok(directives)
+}
+
+fn validate_worker_environment_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name.len() > MAX_DISTRIBUTION_WORKER_ENVIRONMENT_NAME_BYTES {
+        return Err(format!(
+            "invalid distribution worker environment name {name:?}"
+        ));
+    }
+    let mut bytes = name.bytes();
+    let first = bytes.next().expect("non-empty environment name");
+    if !matches!(first, b'A'..=b'Z' | b'a'..=b'z' | b'_')
+        || bytes.any(|byte| !matches!(byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_'))
+    {
+        return Err(format!(
+            "invalid distribution worker environment name {name:?}"
+        ));
+    }
+    Ok(())
 }
 
 fn runtime_configuration(root: &Path, workers: Option<&str>) -> Result<PathBuf, String> {
@@ -306,18 +347,48 @@ mod tests {
     }
 
     #[test]
-    fn preserves_only_allowlisted_provider_environment() {
-        let directives = nginx_global_directives();
-        assert!(directives.starts_with("daemon off;"));
+    fn generic_server_preserves_no_provider_environment() {
+        assert_eq!(nginx_global_directives_for(None).unwrap(), "daemon off;");
+        assert_eq!(nginx_global_directives().unwrap(), "daemon off;");
+    }
+
+    #[test]
+    fn distribution_server_preserves_only_named_environment() {
+        let directives =
+            nginx_global_directives_for(Some("HOPLITE_BLOB_ROOT,HOPLITE_BLOB_MAX_OBJECT_BYTES"))
+                .unwrap();
         assert_eq!(
-            directives.matches(" env ").count(),
-            TRUSTED_WORKER_ENVIRONMENT.len()
+            directives,
+            "daemon off; env HOPLITE_BLOB_ROOT; env HOPLITE_BLOB_MAX_OBJECT_BYTES;"
         );
-        for name in TRUSTED_WORKER_ENVIRONMENT {
-            assert!(directives.contains(&format!(" env {name};")));
-        }
-        assert!(!directives.contains("SECRET"));
         assert!(!directives.contains('='));
+    }
+
+    #[test]
+    fn rejects_invalid_distribution_worker_environment() {
+        for environment in [
+            "",
+            "1HOPLITE_ROOT",
+            "HOPLITE-ROOT",
+            "HOPLITE ROOT",
+            "HOPLITE_ROOT=secret",
+            "HOPLITE_ROOT,,HOPLITE_LIMIT",
+            "HOPLITE_ROOT,HOPLITE_ROOT",
+        ] {
+            assert!(nginx_global_directives_for(Some(environment)).is_err());
+        }
+
+        let too_many = (0..=MAX_DISTRIBUTION_WORKER_ENVIRONMENT_NAMES)
+            .map(|index| format!("HOPLITE_{index}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        assert!(nginx_global_directives_for(Some(&too_many)).is_err());
+
+        let too_long = format!(
+            "H{}",
+            "A".repeat(MAX_DISTRIBUTION_WORKER_ENVIRONMENT_NAME_BYTES)
+        );
+        assert!(nginx_global_directives_for(Some(&too_long)).is_err());
     }
 
     #[test]
