@@ -125,7 +125,7 @@ $(DEFAULT_NGINX_SRC)/configure: $(NGINX_ARCHIVE)
 
 nginx-source: $(NGINX_SRC)/configure
 
-nginx: runtime value-store-provider value-provider blob-store-provider nginx-source
+nginx: runtime nginx-source
 	cd $(NGINX_SRC) && \
 		HOPLITE_RUNTIME_DIR=$(RUNTIME_DIR) \
 		./configure --prefix=$(CURDIR)/target/nginx \
