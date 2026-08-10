@@ -65,7 +65,9 @@ fn run(arguments: impl IntoIterator<Item = String>) -> Result<(), String> {
             .get(index + 1)
             .ok_or_else(|| format!("provider manifest option {option} requires a value"))?;
         if value.starts_with("--") {
-            return Err(format!("provider manifest option {option} requires a value"));
+            return Err(format!(
+                "provider manifest option {option} requires a value"
+            ));
         }
         if options.insert(option.to_owned(), value.clone()).is_some() {
             return Err(format!("duplicate provider manifest option {option}"));
@@ -149,11 +151,9 @@ mod tests {
 
     #[test]
     fn unknown_options_fail_before_file_access() {
-        let error = run(
-            ["missing.json", "--library-path", "/tmp/provider.so"]
-                .into_iter()
-                .map(str::to_owned),
-        )
+        let error = run(["missing.json", "--library-path", "/tmp/provider.so"]
+            .into_iter()
+            .map(str::to_owned))
         .unwrap_err();
         assert!(error.contains("unknown provider manifest option"));
     }

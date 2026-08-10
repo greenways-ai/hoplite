@@ -111,11 +111,7 @@ pub fn validate(
         "static-build",
         "provider distribution",
     )?;
-    match field(
-        distribution,
-        "request_selectable",
-        "provider distribution",
-    )? {
+    match field(distribution, "request_selectable", "provider distribution")? {
         Value::Bool(false) => {}
         Value::Bool(true) => {
             return Err("provider distribution must not be request-selectable".into())
@@ -134,9 +130,7 @@ pub fn validate(
     )?;
     let artifact_digest = match field(artifact, "digest", "provider artifact")? {
         Value::Null if artifact_policy == ArtifactPolicy::Optional => None,
-        Value::Null => {
-            return Err("published provider manifest requires an artifact digest".into())
-        }
+        Value::Null => return Err("published provider manifest requires an artifact digest".into()),
         Value::String(value) => {
             validate_text("provider artifact digest", value)?;
             validate_digest(value)?;
@@ -167,7 +161,9 @@ fn validate_text(name: &str, value: &str) -> Result<(), String> {
     if value.is_empty()
         || value.len() > MAX_TEXT_BYTES
         || !value.is_ascii()
-        || value.bytes().any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace())
+        || value
+            .bytes()
+            .any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace())
     {
         return Err(format!("{name} is not a bounded visible ASCII identifier"));
     }
@@ -524,8 +520,7 @@ mod tests {
         .contains("requires an artifact digest"));
 
         let source = mutate(|value| {
-            value["artifact"]["digest"] =
-                Value::String(format!("sha256:{}", "a".repeat(64)));
+            value["artifact"]["digest"] = Value::String(format!("sha256:{}", "a".repeat(64)));
         });
         let manifest = validate(&source, expected(), ArtifactPolicy::Required).unwrap();
         assert_eq!(
@@ -560,9 +555,11 @@ mod tests {
             "\"provider\": \"hoplite.blob\",",
             "\"provider\": \"hoplite.blob\", \"provider\": \"other\",",
         );
-        assert!(validate(source.as_bytes(), expected(), ArtifactPolicy::Optional)
-            .unwrap_err()
-            .contains("duplicate key \"provider\""));
+        assert!(
+            validate(source.as_bytes(), expected(), ArtifactPolicy::Optional)
+                .unwrap_err()
+                .contains("duplicate key \"provider\"")
+        );
     }
 
     #[test]
@@ -570,18 +567,13 @@ mod tests {
         for source in [
             mutate(|value| value["provider"] = Value::String("hoplite.store".into())),
             mutate(|value| {
-                value["contract"]["request"] =
-                    Value::String("hoplite.blob-request/2".into())
+                value["contract"]["request"] = Value::String("hoplite.blob-request/2".into())
             }),
             mutate(|value| {
                 value["contract"]["result"] = Value::String("hoplite.blob-result/2".into())
             }),
-            mutate(|value| {
-                value["abi"]["version"] = Value::String("2".into())
-            }),
-            mutate(|value| {
-                value["driver"]["version"] = Value::String("2".into())
-            }),
+            mutate(|value| value["abi"]["version"] = Value::String("2".into())),
+            mutate(|value| value["driver"]["version"] = Value::String("2".into())),
         ] {
             assert!(validate(&source, expected(), ArtifactPolicy::Optional)
                 .unwrap_err()
@@ -598,16 +590,13 @@ mod tests {
             .unwrap_err()
             .contains("incompatible"));
 
-        let request_selectable = mutate(|value| {
-            value["distribution"]["request_selectable"] = Value::Bool(true)
-        });
-        assert!(validate(
-            &request_selectable,
-            expected(),
-            ArtifactPolicy::Optional
-        )
-        .unwrap_err()
-        .contains("must not be request-selectable"));
+        let request_selectable =
+            mutate(|value| value["distribution"]["request_selectable"] = Value::Bool(true));
+        assert!(
+            validate(&request_selectable, expected(), ArtifactPolicy::Optional)
+                .unwrap_err()
+                .contains("must not be request-selectable")
+        );
     }
 
     #[test]
@@ -617,9 +606,7 @@ mod tests {
             "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         ] {
-            let source = mutate(|value| {
-                value["artifact"]["digest"] = Value::String(digest.into())
-            });
+            let source = mutate(|value| value["artifact"]["digest"] = Value::String(digest.into()));
             assert!(validate(&source, expected(), ArtifactPolicy::Required).is_err());
         }
     }
@@ -636,8 +623,10 @@ mod tests {
             "[".repeat(MAX_JSON_DEPTH + 1),
             "]".repeat(MAX_JSON_DEPTH + 1)
         );
-        assert!(validate(nested.as_bytes(), expected(), ArtifactPolicy::Optional)
-            .unwrap_err()
-            .contains("nesting exceeds"));
+        assert!(
+            validate(nested.as_bytes(), expected(), ArtifactPolicy::Optional)
+                .unwrap_err()
+                .contains("nesting exceeds")
+        );
     }
 }
