@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       OLD_HARA_REF: b97f85180c57c320c1b8f011a1a91ddba4be2c46
-      HARA_REF: d2a2e376917131cfb8954ac156db3a5e174f2c1a
+      HARA_REF: d310105d54954399da0b0289b7d43c7d1bf9d984
     steps:
       - uses: actions/checkout@v5
         with:
