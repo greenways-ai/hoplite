@@ -22,7 +22,8 @@ RUN cd "hoplite/core/target/sources/nginx-${NGINX_VERSION}" \
     && make -j"$(nproc)" \
     && make install
 RUN strip --strip-unneeded hoplite/core/target/nginx/sbin/nginx \
-    && cargo build --manifest-path hoplite/core/Cargo.toml --release \
+    && HOPLITE_DISTRIBUTION_WORKER_ENVIRONMENT=HOPLITE_BLOB_ROOT,HOPLITE_BLOB_MAX_OBJECT_BYTES,HOPLITE_BLOB_MAX_APPEND_BYTES,HOPLITE_BLOB_MAX_SOURCE_CHUNK_BYTES,HOPLITE_BLOB_MAX_STAGING_KEY_BYTES,HOPLITE_BLOB_MAX_MEDIA_TYPE_BYTES,HOPLITE_BLOB_MAX_STAGING_ENTRIES,HOPLITE_BLOB_MAX_OBJECTS \
+       cargo build --manifest-path hoplite/core/Cargo.toml --release \
          --features embedded-nginx --bin hoplite --bin hoplite-server \
     && strip --strip-unneeded \
          hoplite/core/target/release/hoplite \

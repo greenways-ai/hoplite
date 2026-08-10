@@ -1105,7 +1105,7 @@ fn nginx_app_configuration(project: &Project, config: &app::Config) -> Result<St
         ));
     }
     Ok(format!(
-        "worker_processes {};\nenv HOPLITE_STORE_PATH;\nenv HOPLITE_STORE_MAX_VALUE_BYTES;\nenv HOPLITE_STORE_MAX_RECEIPT_BYTES;\nenv HOPLITE_VALUE_PROVIDER;\nenv HOPLITE_VALUE_ROOT;\nenv HOPLITE_VALUE_MAX_BYTES;\nenv HOPLITE_BLOB_ROOT;\nenv HOPLITE_BLOB_MAX_OBJECT_BYTES;\nenv HOPLITE_BLOB_MAX_APPEND_BYTES;\nenv HOPLITE_BLOB_MAX_SOURCE_CHUNK_BYTES;\nenv HOPLITE_BLOB_MAX_STAGING_KEY_BYTES;\nenv HOPLITE_BLOB_MAX_MEDIA_TYPE_BYTES;\nenv HOPLITE_BLOB_MAX_STAGING_ENTRIES;\nenv HOPLITE_BLOB_MAX_OBJECTS;\npid .hoplite/nginx.pid;\nerror_log .hoplite/error.log;\nevents {{}}\nhttp {{\n    access_log .hoplite/access.log;\n    hoplite_bootstrap {};\n    hoplite_manifest {};\n{} }}\n",
+        "worker_processes {};\npid .hoplite/nginx.pid;\nerror_log .hoplite/error.log;\nevents {{}}\nhttp {{\n    access_log .hoplite/access.log;\n    hoplite_bootstrap {};\n    hoplite_manifest {};\n{} }}\n",
         config.workers,
         bootstrap.display(),
         manifest.display(),
