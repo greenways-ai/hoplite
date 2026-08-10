@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   repair:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     env:
       HARA_REF: b97f85180c57c320c1b8f011a1a91ddba4be2c46
@@ -92,24 +91,35 @@ jobs:
               raise SystemExit("provider lifecycle remains in the core Nginx module")
           module.write_text(text, encoding="utf-8")
           PY
-      - name: Regenerate the reviewed lock state and validate the core
+      - name: Resolve the reviewed lock state
+        working-directory: hoplite
+        run: cargo test --manifest-path core/Cargo.toml --workspace --no-run
+      - name: Measure the value-contract test stack requirement
         working-directory: hoplite
         run: |
-          cargo test --manifest-path core/Cargo.toml --workspace
-          cargo test --manifest-path core/Cargo.toml --workspace --locked
+          set +e
+          for stack in 2097152 4194304 8388608 16777216 33554432; do
+            echo "=== RUST_MIN_STACK=${stack} ==="
+            RUST_MIN_STACK=${stack} cargo test \
+              --manifest-path core/Cargo.toml \
+              -p hoplite --bin hoplite \
+              app::tests::value_boundary_contract_evaluates_from_hoplite \
+              -- --exact --nocapture
+            status=$?
+            if [ "$status" -eq 0 ]; then
+              echo "VALUE_CONTRACT_MINIMUM_PASSING_STACK=${stack}"
+              exit 0
+            fi
+          done
+          exit 1
+      - name: Validate the full workspace with a diagnostic stack
+        working-directory: hoplite
+        run: |
+          RUST_MIN_STACK=33554432 cargo test \
+            --manifest-path core/Cargo.toml --workspace --locked
           ! grep -E 'hoplite_(blob|value|value_store)_host_provider' core/nginx/config
           ! grep -E 'libhoplite_(blob|value)' core/nginx/config
           ! grep -E 'hoplite_(blob|value|value_store)_host_provider' \
             core/nginx/ngx_http_hoplite_module.c
           grep -F 'nginx: runtime nginx-source' core/Makefile
           cargo test --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml --locked
-      - name: Commit the generated repair and remove this workflow
-        working-directory: hoplite
-        run: |
-          rm .github/workflows/repair-provider-neutral-core-85.yml
-          git add -A
-          git diff --cached --check
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git commit -m "Restore provider-neutral core composition"
-          git push origin HEAD:${GITHUB_REF_NAME}
