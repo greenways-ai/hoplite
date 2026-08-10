@@ -1,0 +1,253 @@
+name: Repair distribution worker environment 85 v2
+
+on:
+  push:
+    branches:
+      - agent/distribution-worker-env-85
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    env:
+      HARA_REF: d310105d54954399da0b0289b7d43c7d1bf9d984
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ env.HARA_REF }}
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Move worker environment ownership into distribution composition
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path("hoplite")
+
+          main = root / "core/src/main.rs"
+          text = main.read_text(encoding="utf-8")
+          provider_names = [
+              "HOPLITE_STORE_PATH",
+              "HOPLITE_STORE_MAX_VALUE_BYTES",
+              "HOPLITE_STORE_MAX_RECEIPT_BYTES",
+              "HOPLITE_VALUE_PROVIDER",
+              "HOPLITE_VALUE_ROOT",
+              "HOPLITE_VALUE_MAX_BYTES",
+              "HOPLITE_BLOB_ROOT",
+              "HOPLITE_BLOB_MAX_OBJECT_BYTES",
+              "HOPLITE_BLOB_MAX_APPEND_BYTES",
+              "HOPLITE_BLOB_MAX_SOURCE_CHUNK_BYTES",
+              "HOPLITE_BLOB_MAX_STAGING_KEY_BYTES",
+              "HOPLITE_BLOB_MAX_MEDIA_TYPE_BYTES",
+              "HOPLITE_BLOB_MAX_STAGING_ENTRIES",
+              "HOPLITE_BLOB_MAX_OBJECTS",
+          ]
+          start = text.index('"worker_processes {};')
+          end = text.index("pid .hoplite/nginx.pid;", start)
+          prefix = text[start:end]
+          escaped_newline = chr(92) + "n"
+          for name in provider_names:
+              fragment = f"env {name};{escaped_newline}"
+              if prefix.count(fragment) != 1:
+                  raise SystemExit(f"expected exactly one generated directive: {name}")
+              prefix = prefix.replace(fragment, "")
+          if "env HOPLITE_" in prefix:
+              raise SystemExit("unreviewed Hoplite worker environment remains")
+          main.write_text(text[:start] + prefix + text[end:], encoding="utf-8")
+
+          server = root / "core/src/bin/hoplite-server.rs"
+          text = server.read_text(encoding="utf-8")
+
+          old_constant = '''// Nginx deliberately removes inherited environment variables from workers
+// unless each name is allowlisted in the main configuration context.  These
+// names configure Hoplite's request runtime. Provider packages extend this
+// allowlist in their own release composition rather than entering core here.
+const TRUSTED_WORKER_ENVIRONMENT: &[&str] = &[];
+'''
+          new_constant = '''// Nginx removes inherited environment variables from workers unless each
+// name is allowlisted in the main context. A distribution may embed a bounded
+// comma-separated name list at build time; generic Hoplite embeds no names.
+const DISTRIBUTION_WORKER_ENVIRONMENT: Option<&str> =
+    option_env!("HOPLITE_DISTRIBUTION_WORKER_ENVIRONMENT");
+const MAX_DISTRIBUTION_WORKER_ENVIRONMENT_NAMES: usize = 32;
+const MAX_DISTRIBUTION_WORKER_ENVIRONMENT_NAME_BYTES: usize = 128;
+'''
+          if text.count(old_constant) != 1:
+              raise SystemExit("trusted worker environment constant changed")
+          text = text.replace(old_constant, new_constant)
+
+          old_call = "    let global_directives = nginx_global_directives();\n"
+          if text.count(old_call) != 1:
+              raise SystemExit("global directive call changed")
+          text = text.replace(
+              old_call,
+              "    let global_directives = nginx_global_directives()?;\n",
+          )
+
+          old_function = '''fn nginx_global_directives() -> String {
+    let mut directives = String::from("daemon off;");
+    for name in TRUSTED_WORKER_ENVIRONMENT {
+        directives.push_str(" env ");
+        directives.push_str(name);
+        directives.push(';');
+    }
+    directives
+}
+'''
+          new_function = '''fn nginx_global_directives() -> Result<String, String> {
+    nginx_global_directives_for(DISTRIBUTION_WORKER_ENVIRONMENT)
+}
+
+fn nginx_global_directives_for(environment: Option<&str>) -> Result<String, String> {
+    let mut directives = String::from("daemon off;");
+    let Some(environment) = environment else {
+        return Ok(directives);
+    };
+    let mut names = Vec::new();
+    for name in environment.split(',') {
+        if names.len() == MAX_DISTRIBUTION_WORKER_ENVIRONMENT_NAMES {
+            return Err(format!(
+                "distribution worker environment exceeds {} names",
+                MAX_DISTRIBUTION_WORKER_ENVIRONMENT_NAMES
+            ));
+        }
+        validate_worker_environment_name(name)?;
+        if names.contains(&name) {
+            return Err(format!(
+                "distribution worker environment contains duplicate name {name:?}"
+            ));
+        }
+        names.push(name);
+        directives.push_str(" env ");
+        directives.push_str(name);
+        directives.push(';');
+    }
+    Ok(directives)
+}
+
+fn validate_worker_environment_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name.len() > MAX_DISTRIBUTION_WORKER_ENVIRONMENT_NAME_BYTES {
+        return Err(format!(
+            "invalid distribution worker environment name {name:?}"
+        ));
+    }
+    let mut bytes = name.bytes();
+    let first = bytes.next().expect("non-empty environment name");
+    if !matches!(first, b'A'..=b'Z' | b'a'..=b'z' | b'_')
+        || bytes.any(|byte| {
+            !matches!(byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_')
+        })
+    {
+        return Err(format!(
+            "invalid distribution worker environment name {name:?}"
+        ));
+    }
+    Ok(())
+}
+'''
+          if text.count(old_function) != 1:
+              raise SystemExit("global directive function changed")
+          text = text.replace(old_function, new_function)
+
+          test_start = text.index(
+              "    #[test]\n    fn preserves_only_allowlisted_provider_environment() {"
+          )
+          test_end = text.index(
+              "    #[test]\n    fn rewrites_generated_worker_directive() {",
+              test_start,
+          )
+          new_tests = '''    #[test]
+    fn generic_server_preserves_no_provider_environment() {
+        assert_eq!(nginx_global_directives_for(None).unwrap(), "daemon off;");
+        assert_eq!(nginx_global_directives().unwrap(), "daemon off;");
+    }
+
+    #[test]
+    fn distribution_server_preserves_only_named_environment() {
+        let directives = nginx_global_directives_for(Some(
+            "HOPLITE_BLOB_ROOT,HOPLITE_BLOB_MAX_OBJECT_BYTES",
+        ))
+        .unwrap();
+        assert_eq!(
+            directives,
+            "daemon off; env HOPLITE_BLOB_ROOT; env HOPLITE_BLOB_MAX_OBJECT_BYTES;"
+        );
+        assert!(!directives.contains('='));
+    }
+
+    #[test]
+    fn rejects_invalid_distribution_worker_environment() {
+        for environment in [
+            "",
+            "1HOPLITE_ROOT",
+            "HOPLITE-ROOT",
+            "HOPLITE ROOT",
+            "HOPLITE_ROOT=secret",
+            "HOPLITE_ROOT,,HOPLITE_LIMIT",
+            "HOPLITE_ROOT,HOPLITE_ROOT",
+        ] {
+            assert!(nginx_global_directives_for(Some(environment)).is_err());
+        }
+
+        let too_many = (0..=MAX_DISTRIBUTION_WORKER_ENVIRONMENT_NAMES)
+            .map(|index| format!("HOPLITE_{index}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        assert!(nginx_global_directives_for(Some(&too_many)).is_err());
+
+        let too_long = format!(
+            "H{}",
+            "A".repeat(MAX_DISTRIBUTION_WORKER_ENVIRONMENT_NAME_BYTES)
+        );
+        assert!(nginx_global_directives_for(Some(&too_long)).is_err());
+    }
+
+'''
+          text = text[:test_start] + new_tests + text[test_end:]
+          server.write_text(text, encoding="utf-8")
+
+          dockerfile = root / "packaging/docker/Dockerfile.blob-provider"
+          text = dockerfile.read_text(encoding="utf-8")
+          old_build = '''    && cargo build --manifest-path hoplite/core/Cargo.toml --release \\
+         --features embedded-nginx --bin hoplite --bin hoplite-server \\
+'''
+          new_build = '''    && HOPLITE_DISTRIBUTION_WORKER_ENVIRONMENT=HOPLITE_BLOB_ROOT,HOPLITE_BLOB_MAX_OBJECT_BYTES,HOPLITE_BLOB_MAX_APPEND_BYTES,HOPLITE_BLOB_MAX_SOURCE_CHUNK_BYTES,HOPLITE_BLOB_MAX_STAGING_KEY_BYTES,HOPLITE_BLOB_MAX_MEDIA_TYPE_BYTES,HOPLITE_BLOB_MAX_STAGING_ENTRIES,HOPLITE_BLOB_MAX_OBJECTS \\
+       cargo build --manifest-path hoplite/core/Cargo.toml --release \\
+         --features embedded-nginx --bin hoplite --bin hoplite-server \\
+'''
+          if text.count(old_build) != 1:
+              raise SystemExit("composed server build changed")
+          dockerfile.write_text(text.replace(old_build, new_build), encoding="utf-8")
+          PY
+      - name: Format and validate
+        working-directory: hoplite
+        run: |
+          cargo fmt --manifest-path core/Cargo.toml
+          cargo test --manifest-path core/Cargo.toml --workspace --locked
+          ! grep -E 'env HOPLITE_(BLOB|STORE|VALUE)' core/src/main.rs
+          ! grep -F 'const TRUSTED_WORKER_ENVIRONMENT' core/src/bin/hoplite-server.rs
+          grep -F 'option_env!("HOPLITE_DISTRIBUTION_WORKER_ENVIRONMENT")' \
+            core/src/bin/hoplite-server.rs
+          grep -F 'HOPLITE_DISTRIBUTION_WORKER_ENVIRONMENT=HOPLITE_BLOB_ROOT' \
+            packaging/docker/Dockerfile.blob-provider
+      - name: Commit validated source changes
+        working-directory: hoplite
+        run: |
+          git add core/src/main.rs core/src/bin/hoplite-server.rs \
+            packaging/docker/Dockerfile.blob-provider
+          git diff --cached --check
+          git diff --cached --name-status
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "Move provider environment into distribution builds"
+          git push origin HEAD:${GITHUB_REF_NAME}
