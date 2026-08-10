@@ -1,0 +1,63 @@
+name: Distribution worker environment
+
+env:
+  HARA_REF: d310105d54954399da0b0289b7d43c7d1bf9d984
+
+on:
+  push:
+    paths:
+      - core/src/main.rs
+      - core/src/bin/hoplite-server.rs
+      - packaging/docker/Dockerfile
+      - packaging/docker/Dockerfile.blob-provider
+      - .github/workflows/distribution-worker-environment.yml
+  pull_request:
+    paths:
+      - core/src/main.rs
+      - core/src/bin/hoplite-server.rs
+      - packaging/docker/Dockerfile
+      - packaging/docker/Dockerfile.blob-provider
+      - .github/workflows/distribution-worker-environment.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: distribution-worker-environment-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ env.HARA_REF }}
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test the bounded name-only composition contract
+        run: |
+          cargo test --manifest-path hoplite/core/Cargo.toml --locked \
+            --bin hoplite-server
+      - name: Audit generic and blob distribution ownership
+        run: |
+          ! grep -E 'env HOPLITE_(BLOB|STORE|VALUE)' \
+            hoplite/core/src/main.rs
+          ! grep -F 'const TRUSTED_WORKER_ENVIRONMENT' \
+            hoplite/core/src/bin/hoplite-server.rs
+          grep -F 'option_env!("HOPLITE_DISTRIBUTION_WORKER_ENVIRONMENT")' \
+            hoplite/core/src/bin/hoplite-server.rs
+          grep -F 'MAX_DISTRIBUTION_WORKER_ENVIRONMENT_NAMES: usize = 32' \
+            hoplite/core/src/bin/hoplite-server.rs
+          grep -F 'MAX_DISTRIBUTION_WORKER_ENVIRONMENT_NAME_BYTES: usize = 128' \
+            hoplite/core/src/bin/hoplite-server.rs
+          ! grep -F 'HOPLITE_DISTRIBUTION_WORKER_ENVIRONMENT' \
+            hoplite/packaging/docker/Dockerfile
+          grep -F 'HOPLITE_DISTRIBUTION_WORKER_ENVIRONMENT=HOPLITE_BLOB_ROOT,HOPLITE_BLOB_MAX_OBJECT_BYTES,HOPLITE_BLOB_MAX_APPEND_BYTES,HOPLITE_BLOB_MAX_SOURCE_CHUNK_BYTES,HOPLITE_BLOB_MAX_STAGING_KEY_BYTES,HOPLITE_BLOB_MAX_MEDIA_TYPE_BYTES,HOPLITE_BLOB_MAX_STAGING_ENTRIES,HOPLITE_BLOB_MAX_OBJECTS' \
+            hoplite/packaging/docker/Dockerfile.blob-provider
