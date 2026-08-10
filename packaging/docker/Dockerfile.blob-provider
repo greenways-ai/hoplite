@@ -1,0 +1,51 @@
+ARG NGINX_VERSION=1.30.4
+
+FROM rust:1.85-bookworm AS builder
+ARG NGINX_VERSION
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential ca-certificates curl libpcre2-dev libssl-dev zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY hoplite hoplite
+COPY hara hara
+
+RUN make -C hoplite/core runtime blob-store-provider nginx-source
+RUN cd "hoplite/core/target/sources/nginx-${NGINX_VERSION}" \
+    && HOPLITE_RUNTIME_DIR=/src/hoplite/core/target/release \
+       HOPLITE_CORE_NGINX_DIR=/src/hoplite/core/nginx \
+       HOPLITE_BLOB_PROVIDER_FFI_DIR=/src/hoplite/core/abi/blob-store-provider-ffi \
+       HOPLITE_BLOB_PROVIDER_LIB_DIR=/src/hoplite/core/abi/blob-store-provider-ffi/target/release \
+       ./configure --prefix=/src/hoplite/core/target/nginx \
+         --with-http_ssl_module --with-threads \
+         --add-module=/src/hoplite/core/nginx \
+         --add-module=/src/hoplite/packaging/providers/blob/nginx \
+    && make -j"$(nproc)" \
+    && make install
+RUN strip --strip-unneeded hoplite/core/target/nginx/sbin/nginx \
+    && cargo build --manifest-path hoplite/core/Cargo.toml --release \
+         --features embedded-nginx --bin hoplite --bin hoplite-server \
+    && strip --strip-unneeded \
+         hoplite/core/target/release/hoplite \
+         hoplite/core/target/release/hoplite-server
+RUN cp -R hoplite/core/examples /app \
+    && hoplite/core/target/release/hoplite serve build --mode prod /app
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl libpcre2-8-0 libssl3 zlib1g \
+    && rm -rf /var/lib/apt/lists/*
+RUN groupadd --system hoplite \
+    && useradd --system --gid hoplite --home /var/lib/hoplite hoplite \
+    && mkdir -p /app /var/lib/hoplite/cache /var/lib/hoplite/blob \
+    && chown -R hoplite:hoplite /app /var/lib/hoplite
+COPY --from=builder /src/hoplite/core/target/release/hoplite-server /usr/local/bin/hoplite-server
+COPY --from=builder --chown=hoplite:hoplite /app /app
+USER hoplite
+ENV HOPLITE_SERVER_CACHE=/var/lib/hoplite/cache \
+    HOPLITE_BLOB_ROOT=/var/lib/hoplite/blob \
+    HOPLITE_WORKERS=auto
+VOLUME ["/var/lib/hoplite"]
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 CMD curl --fail --silent http://127.0.0.1:8080/hello >/dev/null || exit 1
+ENTRYPOINT ["hoplite-server"]
+CMD ["/app"]
