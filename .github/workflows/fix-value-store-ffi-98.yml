@@ -52,8 +52,8 @@ jobs:
             --all-targets --locked
       - name: Commit validated FFI source and lock
         run: |
-          git add core/abi/value-store-provider-ffi/src/lib.rs \
-            core/abi/value-store-provider-ffi/Cargo.lock
+          git add core/abi/value-store-provider-ffi/src/lib.rs
+          git add -f core/abi/value-store-provider-ffi/Cargo.lock
           git diff --cached --check
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
