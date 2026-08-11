@@ -30,9 +30,7 @@ pub struct Limits {
 impl Limits {
     pub fn validate(self) -> Result<Self, Error> {
         if self.max_object_bytes == 0 {
-            return Err(Error::InvalidLimits(
-                "max_object_bytes must be positive",
-            ));
+            return Err(Error::InvalidLimits("max_object_bytes must be positive"));
         }
         if self.max_media_type_bytes == 0 {
             return Err(Error::InvalidLimits(
@@ -87,10 +85,7 @@ impl VerifiedObject {
 #[derive(Debug)]
 pub enum Error {
     InvalidLimits(&'static str),
-    Installation {
-        code: &'static str,
-        detail: String,
-    },
+    Installation { code: &'static str, detail: String },
     Poisoned,
 }
 
@@ -115,7 +110,10 @@ impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidLimits(message) => {
-                write!(formatter, "invalid blob filesystem reader limits: {message}")
+                write!(
+                    formatter,
+                    "invalid blob filesystem reader limits: {message}"
+                )
             }
             Self::Installation { code, detail } => write!(formatter, "{code}: {detail}"),
             Self::Poisoned => formatter.write_str("blob-filesystem-reader-lock-poisoned"),
