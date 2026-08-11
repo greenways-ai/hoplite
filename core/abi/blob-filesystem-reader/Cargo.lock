@@ -67,17 +67,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hara-abi"
-version = "0.1.0"
-
-[[package]]
-name = "hara-hta"
-version = "0.1.0"
-dependencies = [
- "hara-abi",
-]
-
-[[package]]
 name = "hoplite-blob-filesystem-reader"
 version = "0.1.0"
 dependencies = [
@@ -89,31 +78,6 @@ dependencies = [
 [[package]]
 name = "hoplite-blob-store"
 version = "0.1.0"
-
-[[package]]
-name = "hoplite-blob-store-filesystem"
-version = "0.1.0"
-dependencies = [
- "fs2",
- "hoplite-blob-store",
- "sha2",
-]
-
-[[package]]
-name = "hoplite-provider-hta"
-version = "0.1.0"
-
-[[package]]
-name = "hoplite-value-provider-filesystem"
-version = "0.1.0"
-dependencies = [
- "hara-hta",
- "hoplite-blob-filesystem-reader",
- "hoplite-blob-store",
- "hoplite-blob-store-filesystem",
- "hoplite-provider-hta",
- "sha2",
-]
 
 [[package]]
 name = "libc"

@@ -1,29 +1,26 @@
-# Hoplite filesystem `hoplite.value` provider core
+# Hoplite filesystem `hoplite.value` adapter
 
 `hoplite-value-provider-filesystem` implements the application-neutral installed
-provider mechanics for:
+service adapter for:
 
 ```text
 service    hoplite.value
 operation  object/verify-hta
 ```
 
-It reuses the immutable object layout and trusted filesystem root owned by the
-existing `hoplite.blob` provider. It does not create a second object copy, semantic
-cache, Tahto store, or application-specific index.
+It does not implement another object store or filesystem read law. Immutable
+object lookup, `HBO1` metadata validation, lock coordination, bounded reads and
+actual SHA-256 verification are supplied by the shared
+`hoplite-blob-filesystem-reader` package over the object root owned by
+`hoplite.blob`.
 
 ## Verification path
 
 ```text
 closed hoplite.value-request/1
-  -> canonical lowercase SHA-256 identity
-  -> trusted digest-derived .meta and .blob paths
-  -> shared store.lock
-  -> metadata ceiling check
-  -> bounded actual read with maximum-plus-one sentinel
-  -> actual byte-length check
-  -> SHA-256 over actual bytes
-  -> hara_hta::decode_canonical(bytes, max_bytes)
+  -> shared verified object reader
+  -> exact digest and maximum agreement
+  -> hara_hta::decode_canonical(bytes, max-bytes)
   -> closed hoplite.value-result/1
 ```
 
@@ -37,47 +34,49 @@ The request can contain only:
 ```
 
 It cannot select a root, path, driver, provider, URL, credential, source handle,
-decoder, application, namespace, schema, package, or command.
+decoder, application, namespace, schema, package or command.
 
 ## Authority boundary
 
 Hara owns the request/result profiles, portable `hara.hta/1` value model,
-canonical decoder and stable generic failure codes.
+canonical decoder and stable generic value-verification failure codes.
 
-Hoplite owns trusted-root selection, exact object lookup, bounded file reads,
-short/excess-read detection, actual SHA-256 verification, provider lifecycle and
-native-to-portable HTA composition.
+The shared blob filesystem reader owns:
+
+- the installation-selected immutable object root;
+- digest-derived lookup under `objects/sha256`;
+- the shared `store.lock` read boundary;
+- exact `HBO1` metadata validation;
+- bounded actual reads and short/excess-read detection;
+- actual-byte SHA-256 verification.
+
+This adapter owns only:
+
+- exact `hoplite.value-request/1` validation;
+- mandatory request and installation ceilings;
+- translation of mechanical reader failures into `hoplite.value/*` results;
+- canonical HTA decoding and portable-value classification;
+- exact `hoplite.value-result/1` construction.
 
 Tahto remains responsible for namespace authorization before dispatch, expected
 object-size agreement, exact schema-reference binding, installed specification
 validation and all semantic mutation.
 
-## Storage compatibility
+## Result boundary
 
-The provider expects the existing restart-safe blob layout:
+A verified object returns the decoded portable value:
 
-```text
-<root>/
-├── store.lock
-└── objects/sha256/
-    └── <first-two-hex>/
-        ├── <remaining-hex>.meta
-        └── <remaining-hex>.blob
+```clojure
+{:protocol "hoplite.value-result/1"
+ :operation "object/verify-hta"
+ :verified true
+ :digest "sha256:..."
+ :byte-length 512
+ :profile "hara.hta/1"
+ :value decoded-portable-value}
 ```
 
-The root, `objects`, `sha256`, digest-prefix directory, metadata file, data file
-and lock must all be real installation-owned paths. Request data never becomes a
-filesystem path.
-
-Object metadata is checked for exact `HBO1` closure, digest identity, bounded
-media type and declared size. The declared size permits an early conservative
-maximum rejection but never replaces the bounded actual read. The provider reads
-at most `max-bytes + 1`, compares actual and metadata lengths, and recomputes the
-digest before decoding.
-
-## Failure normalization
-
-A valid digest-bound request receives only one of Hara's closed generic codes:
+A valid digest-bound failure returns one closed code:
 
 ```text
 hoplite.value/object-missing
@@ -94,26 +93,24 @@ native detail.
 
 ## Hara dependency
 
-The crate consumes `hara-hta` from a sibling immutable Hara checkout. The
+The adapter consumes `hara-hta` from a sibling immutable Hara checkout. The
 dedicated workflow pins the merge revision of `hara-lang/hara#464`, which added
-`decode_canonical`. The broader Hoplite runtime pin is intentionally not moved in
-this provider-core slice; installed host registration and dependency-train
-reconciliation remain Hoplite #82.
+`decode_canonical`. The broader Hoplite runtime pin remains independent because
+the installed adapter is built as a standalone static library.
 
 ## Conformance
 
-The Rust 1.78 suite covers:
+The Rust 1.78 suites cover:
 
+- the shared reader independently of canonical decoding;
 - valid canonical portable values and exact closed results;
-- exact maximum, maximum-plus-one during actual I/O and installed ceilings;
-- missing objects and on-disk digest tampering;
+- injected non-filesystem readers and stable failure translation;
+- exact maximum, maximum-plus-one actual I/O and installed ceilings;
+- missing, incomplete and tampered filesystem objects;
 - malformed, truncated and trailing HTA;
 - decodable but noncanonical map ordering;
 - runtime-only HTA tags;
-- short and excess actual reads relative to object metadata;
-- provider restart against the same object root;
-- rejection of request path/provider authority; and
+- restart against the same blob-owned object root;
+- absence of filesystem layout, lock and SHA-256 implementation from the value
+  adapter; and
 - coexistence with the existing filesystem blob/source provider.
-
-Registration under the production Hoplite host registry is deliberately left to
-Hoplite #82.

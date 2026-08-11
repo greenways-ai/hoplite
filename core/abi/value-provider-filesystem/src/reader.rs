@@ -1,3 +1,22 @@
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Failure {
+    Missing,
+    Maximum,
+    Digest,
+    Provider,
+}
+
+impl Failure {
+    const fn code(self) -> &'static str {
+        match self {
+            Self::Missing => OBJECT_MISSING,
+            Self::Maximum => MAXIMUM_EXCEEDED,
+            Self::Digest => DIGEST_MISMATCH,
+            Self::Provider => PROVIDER_FAILURE,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct VerifiedObject {
     digest: Digest,

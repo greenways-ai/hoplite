@@ -4,7 +4,8 @@ use hoplite_blob_store::{
     ResponseSource, StagingAppend, StagingCommit, StagingKey, StagingOpen,
 };
 use hoplite_blob_store_filesystem::FilesystemBlobStore;
-use std::fs;
+use sha2::{Digest as Sha2Digest, Sha256};
+use std::fs::{self, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 

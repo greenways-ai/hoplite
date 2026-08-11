@@ -3,24 +3,22 @@
 //! Bounded filesystem-backed provider core for Hara's generic `hoplite.value`
 //! canonical-value verification service.
 //!
-//! The provider reuses the immutable digest-derived object layout owned by the
-//! installed `hoplite.blob` filesystem driver. Its service layer accepts one
-//! closed generic request and delegates actual object verification through an
-//! internal immutable-object reader before applying
-//! `hara_hta::decode_canonical`.
+//! The provider accepts one closed generic request, delegates actual immutable
+//! object verification to the shared blob filesystem reader, then applies
+//! `hara_hta::decode_canonical`. It has no filesystem layout, metadata, locking
+//! or hashing implementation of its own.
 //!
 //! This crate contains no Tahto application, namespace, schema, manifest,
 //! package-resolution, authorization, semantic-admission, or mutation logic.
 
-use fs2::FileExt;
+use hoplite_blob_filesystem_reader::{
+    Error as ObjectReaderError, Failure as ObjectReadFailure, FilesystemObjectReader,
+    Limits as ObjectReaderLimits,
+};
 use hoplite_blob_store::Digest;
 use hoplite_provider_hta::{Document, Error as HtaError, Kind, Node};
-use sha2::{Digest as Sha2Digest, Sha256};
 use std::fmt;
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard};
 
 pub const SERVICE: &str = "hoplite.value";
 pub const OPERATION: &str = "object/verify-hta";
@@ -37,8 +35,6 @@ pub const VALUE_UNSUPPORTED: &str = "hoplite.value/value-unsupported";
 pub const PROVIDER_FAILURE: &str = "hoplite.value/provider-failure";
 
 const MAGIC: &[u8; 4] = b"HTA1";
-const OBJECT_MAGIC: &[u8; 4] = b"HBO1";
-const LOCK_FILE: &str = "store.lock";
 const FALSE: u8 = 1;
 const TRUE: u8 = 2;
 const I64: u8 = 3;
@@ -93,8 +89,7 @@ pub enum Error {
     Hta(HtaError),
     InvalidRequest(&'static str),
     OperationMismatch { call: String, request: String },
-    Installation { code: &'static str, detail: String },
-    Poisoned,
+    Reader(ObjectReaderError),
 }
 
 impl Error {
@@ -104,15 +99,7 @@ impl Error {
             Self::Hta(_) => "value-request-hta",
             Self::InvalidRequest(_) => "value-request-invalid",
             Self::OperationMismatch { .. } => "value-operation-mismatch",
-            Self::Installation { code, .. } => code,
-            Self::Poisoned => "value-provider-lock-poisoned",
-        }
-    }
-
-    fn installation(code: &'static str, detail: impl Into<String>) -> Self {
-        Self::Installation {
-            code,
-            detail: detail.into(),
+            Self::Reader(error) => error.code(),
         }
     }
 }
@@ -131,8 +118,7 @@ impl fmt::Display for Error {
                 formatter,
                 "host operation {call:?} does not match request operation {request:?}"
             ),
-            Self::Installation { code, detail } => write!(formatter, "{code}: {detail}"),
-            Self::Poisoned => formatter.write_str("value-provider-lock-poisoned"),
+            Self::Reader(error) => write!(formatter, "blob object reader error: {error}"),
         }
     }
 }
@@ -145,11 +131,15 @@ impl From<HtaError> for Error {
     }
 }
 
+impl From<ObjectReaderError> for Error {
+    fn from(error: ObjectReaderError) -> Self {
+        Self::Reader(error)
+    }
+}
+
 include!("reader.rs");
 include!("provider.rs");
-include!("metadata.rs");
 include!("hta.rs");
-include!("filesystem.rs");
 
 #[cfg(test)]
 mod tests;

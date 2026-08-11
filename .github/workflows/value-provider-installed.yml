@@ -6,6 +6,7 @@ env:
 on:
   pull_request:
     paths:
+      - core/abi/blob-filesystem-reader/**
       - core/abi/value-provider-filesystem/**
       - core/abi/value-provider-filesystem-ffi/**
       - core/nginx/hoplite_value_host_provider.*
@@ -19,6 +20,7 @@ on:
   push:
     branches: [main]
     paths:
+      - core/abi/blob-filesystem-reader/**
       - core/abi/value-provider-filesystem/**
       - core/abi/value-provider-filesystem-ffi/**
       - core/nginx/hoplite_value_host_provider.*
@@ -100,3 +102,30 @@ jobs:
           ! grep -F 'HOPLITE_VALUE_PROVIDER=filesystem' hoplite/packaging/docker/Dockerfile
           ! grep -F 'HOPLITE_VALUE_ROOT=/var/lib/hoplite/blob' hoplite/packaging/docker/Dockerfile
           ! grep -F 'HOPLITE_VALUE_ROOT' hoplite/core/abi/value-provider-filesystem/src/provider.rs
+          grep -F 'hoplite-blob-filesystem-reader' \
+            hoplite/core/abi/value-provider-filesystem/Cargo.toml
+          ! grep -F 'objects/sha256' \
+            hoplite/core/abi/value-provider-filesystem/src/lib.rs \
+            hoplite/core/abi/value-provider-filesystem/src/reader.rs \
+            hoplite/core/abi/value-provider-filesystem/src/provider.rs \
+            hoplite/core/abi/value-provider-filesystem/src/hta.rs
+          ! grep -F 'HBO1' \
+            hoplite/core/abi/value-provider-filesystem/src/lib.rs \
+            hoplite/core/abi/value-provider-filesystem/src/reader.rs \
+            hoplite/core/abi/value-provider-filesystem/src/provider.rs \
+            hoplite/core/abi/value-provider-filesystem/src/hta.rs
+          ! grep -F 'store.lock' \
+            hoplite/core/abi/value-provider-filesystem/src/lib.rs \
+            hoplite/core/abi/value-provider-filesystem/src/reader.rs \
+            hoplite/core/abi/value-provider-filesystem/src/provider.rs \
+            hoplite/core/abi/value-provider-filesystem/src/hta.rs
+          ! grep -F 'fs2' \
+            hoplite/core/abi/value-provider-filesystem/src/lib.rs \
+            hoplite/core/abi/value-provider-filesystem/src/reader.rs \
+            hoplite/core/abi/value-provider-filesystem/src/provider.rs \
+            hoplite/core/abi/value-provider-filesystem/src/hta.rs
+          ! grep -F 'Sha256' \
+            hoplite/core/abi/value-provider-filesystem/src/lib.rs \
+            hoplite/core/abi/value-provider-filesystem/src/reader.rs \
+            hoplite/core/abi/value-provider-filesystem/src/provider.rs \
+            hoplite/core/abi/value-provider-filesystem/src/hta.rs

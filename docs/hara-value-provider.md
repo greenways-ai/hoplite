@@ -7,9 +7,9 @@ service    hoplite.value
 operation  object/verify-hta
 ```
 
-The installed filesystem provider reuses the immutable object root already owned
-by `hoplite.blob`. It does not create a second copy, decoded-value cache, semantic
-index, schema registry or application store.
+The service is a read-only projection over immutable objects owned by
+`hoplite.blob`. It does not create a second object copy, filesystem reader,
+decoded-value cache, semantic index, schema registry or application store.
 
 ## Trusted worker configuration
 
@@ -40,12 +40,13 @@ schema, application, credential, command or remote location.
 
 During trusted worker startup Hoplite:
 
-1. opens the configured immutable object root;
+1. opens the shared read-only filesystem object provider against the configured
+   blob root;
 2. validates the installed maximum and fixed internal read/media-type bounds;
-3. materializes the filesystem provider through its stable C ABI;
+3. materializes the value adapter through its stable C ABI;
 4. registers exactly one immutable `hoplite.value` service entry;
 5. rejects duplicate registration or an ABI mismatch;
-6. closes the provider during worker shutdown.
+6. closes the adapter during worker shutdown.
 
 The service has no request-body or response-source capability. It returns one
 owned bounded HTA result through the ordinary host completion path.
@@ -55,30 +56,34 @@ owned bounded HTA result through the ordinary host completion path.
 ```text
 registered hoplite.value call
   -> exact closed request
-  -> digest-derived provider-owned path
-  -> shared blob-store lock
-  -> exact HBO1 metadata
-  -> bounded actual read with maximum-plus-one sentinel
-  -> actual size and SHA-256 verification
+  -> shared blob filesystem reader
+       -> digest-derived provider-owned path
+       -> shared store.lock
+       -> exact HBO1 metadata
+       -> bounded actual read
+       -> actual size and SHA-256 verification
   -> Hara canonical HTA decoding
   -> closed hoplite.value-result/1
 ```
 
-The provider never treats metadata size as proof of the bytes and never exposes
-operating-system, path or provider details in portable results.
+The reader never treats metadata size as proof of the bytes. The value adapter
+contains no `objects/sha256`, `HBO1`, lock, filesystem or SHA-256 implementation
+and never exposes operating-system, path or provider details in portable
+results.
 
 ## Build pin
 
 `packaging/hara-value-revision` pins the Hara revision that supplies the
-canonical decoder used by this provider. This pin is separate from Hoplite's
+canonical decoder used by this adapter. This pin is separate from Hoplite's
 runtime/compiler pin because the provider is an isolated static library. The
 installed-provider workflow checks out and tests that exact revision before
 materialization.
 
 ## Boundary with Tahto
 
-Hoplite proves canonical byte identity and returns the bounded portable value.
-Tahto remains responsible for prior namespace authorization, expected object
-identity, exact schema-reference binding, local package-root resolution,
-validator-entry invocation and semantic mutation. Installing `hoplite.value` does
-not install or authorize a specification package.
+The shared reader proves immutable byte identity. `hoplite.value` proves that
+those bytes are one bounded canonical portable Hara value. Tahto remains
+responsible for prior namespace authorization, expected object identity, exact
+schema-reference binding, local package-root resolution, validator-entry
+invocation and semantic mutation. Installing `hoplite.value` does not install or
+authorize a specification package.
