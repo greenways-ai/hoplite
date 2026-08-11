@@ -85,7 +85,9 @@ fn run(arguments: impl IntoIterator<Item = String>) -> Result<(), String> {
             .get(index + 1)
             .ok_or_else(|| format!("object backend lock option {option} requires a value"))?;
         if value.starts_with("--") {
-            return Err(format!("object backend lock option {option} requires a value"));
+            return Err(format!(
+                "object backend lock option {option} requires a value"
+            ));
         }
         if options.insert(option.to_owned(), value.clone()).is_some() {
             return Err(format!("duplicate object backend lock option {option}"));
@@ -185,7 +187,9 @@ fn usage() {
     println!("Hoplite object backend lock verifier");
     println!();
     println!("Usage:");
-    println!("  hoplite-object-backend-lock BINDING CONSUMER_MANIFEST BACKEND_LOCK BACKEND_MANIFEST \\");
+    println!(
+        "  hoplite-object-backend-lock BINDING CONSUMER_MANIFEST BACKEND_LOCK BACKEND_MANIFEST \\"
+    );
     println!("    --consumer NAME --consumer-request PROTOCOL --consumer-result PROTOCOL \\");
     println!("    --consumer-abi NAME --consumer-abi-version VERSION \\");
     println!("    --consumer-driver NAME --consumer-driver-version VERSION \\");

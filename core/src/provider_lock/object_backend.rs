@@ -145,8 +145,7 @@ fn validate_expected(expected: Expected<'_>) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    const DIGEST: &str =
-        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const DIGEST: &str = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const PROVIDER_LOCK: &str = r#"{
   "format": "hoplite.provider-lock/v1",
   "provider": "hoplite.blob",
@@ -227,10 +226,10 @@ mod tests {
             .contains("missing [artifact]"));
 
         let unknown = mutate(|value| {
-            value["backend"].as_object_mut().unwrap().insert(
-                "root".into(),
-                Value::String("/tmp/forbidden".into()),
-            );
+            value["backend"]
+                .as_object_mut()
+                .unwrap()
+                .insert("root".into(), Value::String("/tmp/forbidden".into()));
         });
         assert!(validate(&unknown, expected(), &backend())
             .unwrap_err()
@@ -247,24 +246,21 @@ mod tests {
 
     #[test]
     fn rejects_package_and_provider_artifact_drift() {
-        let package = mutate(|value| {
-            value["backend"]["package"] = Value::String("other-reader".into())
-        });
+        let package =
+            mutate(|value| value["backend"]["package"] = Value::String("other-reader".into()));
         assert!(validate(&package, expected(), &backend())
             .unwrap_err()
             .contains("incompatible"));
 
-        let version = mutate(|value| {
-            value["backend"]["artifact"]["version"] = Value::String("0.2.0".into())
-        });
+        let version =
+            mutate(|value| value["backend"]["artifact"]["version"] = Value::String("0.2.0".into()));
         assert!(validate(&version, expected(), &backend())
             .unwrap_err()
             .contains("incompatible"));
 
         let digest = mutate(|value| {
             value["backend"]["artifact"]["digest"] = Value::String(
-                "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-                    .into(),
+                "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
             )
         });
         assert!(validate(&digest, expected(), &backend())

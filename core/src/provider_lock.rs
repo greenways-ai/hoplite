@@ -1,6 +1,13 @@
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 
+#[path = "provider_lock/object_backend.rs"]
+mod object_backend;
+pub use object_backend::{
+    validate as validate_object_backend_lock, Expected as ObjectBackendExpected,
+    ValidatedLock as ValidatedObjectBackendLock, FORMAT as OBJECT_BACKEND_FORMAT,
+};
+
 pub const FORMAT: &str = "hoplite.provider-lock/v1";
 const MAX_LOCK_BYTES: usize = 16 * 1024;
 const MAX_TEXT_BYTES: usize = 256;
