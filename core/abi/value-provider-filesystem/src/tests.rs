@@ -239,6 +239,7 @@ fn read_blob_source(store: &FilesystemBlobStore, digest: Digest, length: u64) ->
     output
 }
 
+include!("reader_cases.rs");
 include!("verification_cases.rs");
 include!("integrity_cases.rs");
 include!("restart_cases.rs");
