@@ -28,24 +28,21 @@ jobs:
 
           path = Path("core/abi/value-store-provider-ffi/src/lib.rs")
           source = path.read_text(encoding="utf-8")
-          old = '''    match catch_unwind(AssertUnwindSafe(|| {
-              let store = SqliteValueStore::open(PathBuf::from(path), limits)
-                  .map_err(|_| STATUS_OPEN_ERROR)?;
-              let inner = Provider::new(store, Sha256Verifier, limits).map_err(|_| STATUS_OPEN_ERROR)?;
-              Ok::<_, i32>(Box::new(HopliteValueStoreProvider { inner }))
-          })) {
-          '''.replace("          ", "")
-          new = '''    let opening = catch_unwind(AssertUnwindSafe(|| {
-              let store = SqliteValueStore::open(PathBuf::from(path), limits)
-                  .map_err(|_| STATUS_OPEN_ERROR)?;
-              let inner = Provider::new(store, Sha256Verifier, limits).map_err(|_| STATUS_OPEN_ERROR)?;
-              Ok::<_, i32>(Box::new(HopliteValueStoreProvider { inner }))
-          }));
-          match opening {
-          '''.replace("          ", "")
-          if source.count(old) != 1:
-              raise SystemExit(f"expected one FFI open fragment, found {source.count(old)}")
-          path.write_text(source.replace(old, new), encoding="utf-8")
+          opening = "    match catch_unwind(AssertUnwindSafe(|| {\n"
+          closing = "    })) {\n        Ok(Ok(context)) => {\n"
+          if source.count(opening) != 1:
+              raise SystemExit(f"expected one FFI unwind opening, found {source.count(opening)}")
+          if source.count(closing) != 1:
+              raise SystemExit(f"expected one FFI unwind closing, found {source.count(closing)}")
+          source = source.replace(
+              opening,
+              "    let opening = catch_unwind(AssertUnwindSafe(|| {\n",
+          )
+          source = source.replace(
+              closing,
+              "    }));\n    match opening {\n        Ok(Ok(context)) => {\n",
+          )
+          path.write_text(source, encoding="utf-8")
           PY
           cargo generate-lockfile --manifest-path core/abi/value-store-provider-ffi/Cargo.toml
           cargo fmt --manifest-path core/abi/value-store-provider-ffi/Cargo.toml --all
