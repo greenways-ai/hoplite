@@ -1,0 +1,24 @@
+{
+  "format": "hoplite.provider-set-lock/v1",
+  "profile": "hoplite.blob+value/1",
+  "providers": [
+    {
+      "provider": "hoplite.blob",
+      "version": "0.1.1",
+      "digest": "sha256:03c5dea9854cf23b60c7d2638c17712accc7e77eb53db4d15ed0b45327ee8210"
+    },
+    {
+      "provider": "hoplite.value",
+      "version": "0.1.0",
+      "digest": "sha256:47e96af3768621b25ef448004795ce9ecbdca091cfa31910308009156ed89e4f"
+    }
+  ],
+  "bindings": [
+    {
+      "consumer": "hoplite.value",
+      "backend": "hoplite.blob",
+      "package": "hoplite-blob-filesystem-reader",
+      "package-version": "0.1.0"
+    }
+  ]
+}

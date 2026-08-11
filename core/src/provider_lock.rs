@@ -8,6 +8,13 @@ pub use object_backend::{
     ValidatedLock as ValidatedObjectBackendLock, FORMAT as OBJECT_BACKEND_FORMAT,
 };
 
+#[path = "provider_lock/provider_set.rs"]
+mod provider_set;
+pub use provider_set::{
+    validate as validate_provider_set_lock, Expected as ProviderSetExpected,
+    ValidatedSet as ValidatedProviderSet, FORMAT as PROVIDER_SET_FORMAT,
+};
+
 pub const FORMAT: &str = "hoplite.provider-lock/v1";
 const MAX_LOCK_BYTES: usize = 16 * 1024;
 const MAX_TEXT_BYTES: usize = 256;
