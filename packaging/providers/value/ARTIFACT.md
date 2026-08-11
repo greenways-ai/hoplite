@@ -80,16 +80,33 @@ used by the pinned blob provider. It does not merely repeat a compatible name.
 After extraction, the workflow revalidates the provider/backend contracts and
 builds the exact FFI package with Rust 1.78 using the embedded Hara decoder.
 
-## Publication
-
-The initial source release is:
+## Current pinned production package `0.1.0`
 
 ```text
-hoplite-value-provider-v0.1.0
-hoplite-value-provider-0.1.0.tar.gz
+release tag       hoplite-value-provider-v0.1.0
+Hoplite revision  bbc42008a44223a977a84ffedb8f2262ba06f1ba
+Hara revision     d2a2e376917131cfb8954ac156db3a5e174f2c1a
+archive            hoplite-value-provider-0.1.0.tar.gz
+archive SHA-256   47e96af3768621b25ef448004795ce9ecbdca091cfa31910308009156ed89e4f
+object backend    03c5dea9854cf23b60c7d2638c17712accc7e77eb53db4d15ed0b45327ee8210
+```
+
+`provider-manifest.published.json` binds the value archive digest.
+`provider-lock.json` additionally binds the provider version, exact Hoplite
+source revision, release repository and tag, asset name and media type.
+
+The archive itself records and verifies the exact Hara decoder revision and the
+closed object-backend lock. The permanent lock workflow therefore proves four
+linked identities before any value package can be consumed:
+
+```text
+value artifact bytes
+Hoplite source revision
+Hara canonical decoder revision
+blob object-backend artifact bytes
 ```
 
 The source-tree provider manifest keeps `artifact.digest` null because an
-archive cannot contain its own digest. A follow-up pin PR will add an external
-published manifest and provider lock containing the actual merge-revision
-archive SHA-256 before any production distribution consumes the value package.
+archive cannot contain its own digest. Production composition must consume the
+published manifest and provider lock, verify the archive before extraction, and
+revalidate the embedded decoder and backend identities.
