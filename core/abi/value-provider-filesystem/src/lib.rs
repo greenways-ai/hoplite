@@ -4,9 +4,9 @@
 //! canonical-value verification service.
 //!
 //! The provider reuses the immutable digest-derived object layout owned by the
-//! installed `hoplite.blob` filesystem driver. It accepts only one closed generic
-//! request, reads from one trusted installation root, recomputes SHA-256 over
-//! the actual bounded bytes, and delegates portable canonical decoding to
+//! installed `hoplite.blob` filesystem driver. Its service layer accepts one
+//! closed generic request and delegates actual object verification through an
+//! internal immutable-object reader before applying
 //! `hara_hta::decode_canonical`.
 //!
 //! This crate contains no Tahto application, namespace, schema, manifest,
@@ -145,6 +145,7 @@ impl From<HtaError> for Error {
     }
 }
 
+include!("reader.rs");
 include!("provider.rs");
 include!("metadata.rs");
 include!("hta.rs");
