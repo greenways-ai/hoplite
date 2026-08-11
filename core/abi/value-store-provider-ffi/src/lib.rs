@@ -80,12 +80,13 @@ pub unsafe extern "C" fn hoplite_value_store_provider_open_sqlite_v1(
         return STATUS_INVALID;
     }
 
-    match catch_unwind(AssertUnwindSafe(|| {
-        let store = SqliteValueStore::open(PathBuf::from(path), limits)
-            .map_err(|_| STATUS_OPEN_ERROR)?;
+    let opening = catch_unwind(AssertUnwindSafe(|| {
+        let store =
+            SqliteValueStore::open(PathBuf::from(path), limits).map_err(|_| STATUS_OPEN_ERROR)?;
         let inner = Provider::new(store, Sha256Verifier, limits).map_err(|_| STATUS_OPEN_ERROR)?;
         Ok::<_, i32>(Box::new(HopliteValueStoreProvider { inner }))
-    })) {
+    }));
+    match opening {
         Ok(Ok(context)) => {
             *provider = Box::into_raw(context);
             STATUS_OK
@@ -409,13 +410,7 @@ mod tests {
         let mut provider = ptr::null_mut();
         assert_eq!(
             unsafe {
-                hoplite_value_store_provider_open_sqlite_v1(
-                    ptr::null(),
-                    0,
-                    1,
-                    1,
-                    &mut provider,
-                )
+                hoplite_value_store_provider_open_sqlite_v1(ptr::null(), 0, 1, 1, &mut provider)
             },
             STATUS_INVALID
         );
@@ -434,13 +429,7 @@ mod tests {
         );
         assert_eq!(
             unsafe {
-                hoplite_value_store_provider_open_sqlite_v1(
-                    b"x".as_ptr(),
-                    1,
-                    0,
-                    1,
-                    &mut provider,
-                )
+                hoplite_value_store_provider_open_sqlite_v1(b"x".as_ptr(), 1, 0, 1, &mut provider)
             },
             STATUS_INVALID
         );
