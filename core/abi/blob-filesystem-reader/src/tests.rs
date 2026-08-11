@@ -69,9 +69,9 @@ fn install(root: &TestRoot, bytes: &[u8]) -> Digest {
     let object_digest = digest(bytes);
     let (metadata_path, data_path) = object_paths(root, object_digest);
     fs::create_dir_all(metadata_path.parent().unwrap()).unwrap();
-    fs::write(&data_path, bytes).unwrap();
+    fs::write(data_path, bytes).unwrap();
     fs::write(
-        &metadata_path,
+        metadata_path,
         metadata(
             object_digest,
             bytes.len() as u64,
@@ -149,7 +149,7 @@ fn rejects_tampered_bytes_and_metadata() {
 
     fs::write(&data_path, bytes).unwrap();
     fs::write(
-        &metadata_path,
+        metadata_path,
         metadata(
             object_digest,
             (bytes.len() + 1) as u64,
