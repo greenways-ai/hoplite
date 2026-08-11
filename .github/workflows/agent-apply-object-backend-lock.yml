@@ -35,6 +35,7 @@ jobs:
           marker = 'use std::collections::BTreeSet;\n\n'
           replacement = (
               'use std::collections::BTreeSet;\n\n'
+              '#[path = "provider_lock/object_backend.rs"]\n'
               'mod object_backend;\n'
               'pub use object_backend::{\n'
               '    validate as validate_object_backend_lock, Expected as ObjectBackendExpected,\n'
