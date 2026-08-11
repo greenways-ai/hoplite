@@ -22,11 +22,7 @@ impl ImmutableObjectReader for StaticReader {
 struct FailingReader(Failure);
 
 impl ImmutableObjectReader for FailingReader {
-    fn read_verified(
-        &self,
-        _digest: Digest,
-        _max_bytes: usize,
-    ) -> Result<VerifiedObject, Failure> {
+    fn read_verified(&self, _digest: Digest, _max_bytes: usize) -> Result<VerifiedObject, Failure> {
         Err(self.0)
     }
 }
