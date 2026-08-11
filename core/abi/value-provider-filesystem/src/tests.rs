@@ -5,7 +5,7 @@ use hoplite_blob_store::{
 };
 use hoplite_blob_store_filesystem::FilesystemBlobStore;
 use sha2::{Digest as Sha2Digest, Sha256};
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 
