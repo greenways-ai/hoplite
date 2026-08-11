@@ -80,11 +80,12 @@ fully materialized portable value is required.
 
 ## Bytecode status
 
-Application bytecode is generated and validated during the current build. The
-Nginx bootstrap still uses the HAL source while the bytecode bootstrap ABI is
-integrated. Completing HBC-only worker boot is the next major opportunity to
-remove parser, compiler, and general extension-host code from the serving plane.
-This is an implementation milestone, not a stable compatibility promise.
+Application bytecode is generated and validated during the build. Production
+Nginx workers receive the deterministic `app.hbx` artifact through the alpha
+bootstrap ABI and load its eager HBC modules transactionally. A failed module
+load rolls the application bundle back instead of exposing a partially
+initialized worker. HAL source remains an authoring and development input; it
+is not the production worker bootstrap artifact.
 
 ## Worker defaults
 

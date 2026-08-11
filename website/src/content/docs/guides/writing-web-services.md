@@ -340,7 +340,7 @@ The generated application and platform plan live under `.hoplite/`:
 ```text
 .hoplite/
 ├── app.hal
-├── app.hbc
+├── app.hbx
 ├── apps.hta
 ├── platform.edn
 ├── platform.hta

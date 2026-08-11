@@ -165,7 +165,7 @@ Build output is placed under the application's `.hoplite/` directory:
 ```text
 .hoplite/
   app.hal
-  app.hbc
+  app.hbx
   apps.hta
   platform.edn
   platform.hta
@@ -177,7 +177,7 @@ Build output is placed under the application's `.hoplite/` directory:
 equivalent runtime transport. Both are produced from the selected profile in
 `project.edn`.
 
-`app.hbc` is the production startup artifact: a deterministic, checksummed
+`app.hbx` is the production startup artifact: a deterministic, checksummed
 HBX0 bundle of eager HBC0 modules. Nginx worker startup passes those bytes
 through Hoplite runtime ABI V4, validates every module before mutation, and
 loads the bundle transactionally. `app.hal` remains inspectable build output;

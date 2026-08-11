@@ -22,8 +22,10 @@ default-members = ["."]
 resolver = "2"
 
 [features]
-default = ["bytecode-vm", "cli-host"]
+default = ["bytecode-vm", "native-jit", "cli-host"]
 bytecode-vm = ["hara-wasm/bytecode-vm"]
+tracing-jit = ["bytecode-vm", "hara-wasm/tracing-jit"]
+native-jit = ["tracing-jit", "hara-wasm/native-jit"]
 cli-host = []
 embedded-nginx = []
 legacy-management = [

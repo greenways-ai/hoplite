@@ -85,7 +85,7 @@ fn measure(name: &str, module_source: &str, iterations: usize) -> Result<(f64, f
     let decode_speedup = compile_median as f64 / decode_median as f64;
     let bundle_speedup = source_module_median as f64 / bundle_median as f64;
     println!(
-        "{{\"library\":\"{name}\",\"source_bytes\":{},\"artifact_bytes\":{},\"bundle_bytes\":{},\"iterations\":{iterations},\"compile_only_median_ns\":{compile_median},\"decode_only_median_ns\":{decode_median},\"decode_speedup\":{decode_speedup:.3},\"source_compile_execute_median_ns\":{source_median},\"artifact_decode_execute_median_ns\":{artifact_median},\"decoded_execute_median_ns\":{decoded_median},\"artifact_speedup\":{:.3},\"decoded_speedup\":{:.3},\"source_module_load_median_ns\":{source_module_median},\"hbb2_module_load_median_ns\":{bundle_median},\"hbb2_load_speedup\":{bundle_speedup:.3}}}",
+        "{{\"library\":\"{name}\",\"source_bytes\":{},\"artifact_bytes\":{},\"bundle_bytes\":{},\"iterations\":{iterations},\"compile_only_median_ns\":{compile_median},\"decode_only_median_ns\":{decode_median},\"decode_speedup\":{decode_speedup:.3},\"source_compile_execute_median_ns\":{source_median},\"artifact_decode_execute_median_ns\":{artifact_median},\"decoded_execute_median_ns\":{decoded_median},\"artifact_speedup\":{:.3},\"decoded_speedup\":{:.3},\"source_module_load_median_ns\":{source_module_median},\"hbx_module_load_median_ns\":{bundle_median},\"hbx_load_speedup\":{bundle_speedup:.3}}}",
         source.len(),
         artifact.len(),
         bundle.len(),

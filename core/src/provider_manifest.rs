@@ -567,10 +567,10 @@ mod tests {
         for source in [
             mutate(|value| value["provider"] = Value::String("hoplite.store".into())),
             mutate(|value| {
-                value["contract"]["request"] = Value::String("hoplite.blob-request/0-alpha".into())
+                value["contract"]["request"] = Value::String("hoplite.other-request/0-alpha".into())
             }),
             mutate(|value| {
-                value["contract"]["result"] = Value::String("hoplite.blob-result/0-alpha".into())
+                value["contract"]["result"] = Value::String("hoplite.other-result/0-alpha".into())
             }),
             mutate(|value| value["abi"]["version"] = Value::String("2".into())),
             mutate(|value| value["driver"]["version"] = Value::String("2".into())),

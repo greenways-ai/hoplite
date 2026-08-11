@@ -327,7 +327,7 @@ fn build(root: &Path, settings: &BuildSettings) -> Result<PathBuf, String> {
     let configuration = output.join("conf");
     fs::create_dir_all(&configuration).map_err(io)?;
     fs::write(output.join("app.hal"), &runtime_source).map_err(io)?;
-    fs::write(output.join("app.hbc"), bytecode).map_err(io)?;
+    fs::write(output.join("app.hbx"), bytecode).map_err(io)?;
     fs::write(output.join("apps.hta"), app::manifest(&app_config)?).map_err(io)?;
     fs::write(
         output.join("platform.edn"),
@@ -1043,9 +1043,9 @@ fn nginx_proxy_location(proxy: &app::Proxy, trusted_ca: Option<&Path>) -> Result
 fn nginx_app_configuration(project: &Project, config: &app::Config) -> Result<String, String> {
     let bootstrap = project
         .root
-        .join(".hoplite/app.hbc")
+        .join(".hoplite/app.hbx")
         .canonicalize()
-        .unwrap_or_else(|_| project.root.join(".hoplite/app.hbc"));
+        .unwrap_or_else(|_| project.root.join(".hoplite/app.hbx"));
     let manifest = project
         .root
         .join(".hoplite/apps.hta")

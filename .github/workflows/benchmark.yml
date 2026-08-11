@@ -53,12 +53,18 @@ jobs:
           sudo apt-get install --yes --no-install-recommends wrk jq curl
       - name: Run and validate benchmark suite
         run: bash hoplite/packaging/scripts/run-benchmarks.sh benchmark-output
+      - name: Compare HAL compilation with alpha HBC and HBX loading
+        run: |
+          cargo run --release --manifest-path hoplite/core/Cargo.toml \
+            --bin hoplite-bytecode-loading -- 200 --check \
+            > hoplite/benchmark-output/bytecode-loading.jsonl
       - uses: actions/upload-artifact@v4
         with:
           name: hoplite-benchmarks
           path: |
             hoplite/benchmark-output/http-benchmark.json
             hoplite/benchmark-output/stack-footprints.json
+            hoplite/benchmark-output/bytecode-loading.jsonl
           if-no-files-found: error
           retention-days: 90
       - name: Build website against measured reports

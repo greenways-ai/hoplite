@@ -21,7 +21,7 @@ for application and integration work, while interfaces may still change before 1
 | Linux x86-64 | Supported standalone binary, Homebrew formula, and OCI image |
 | Embedded Nginx | Statically linked into the standalone executable |
 | Hara application bytecode | Generated and validated |
-| Nginx bytecode bootstrap ABI | Integration in progress; HAL bootstrap remains active |
+| Nginx bytecode bootstrap ABI | Integrated; workers transactionally load the generated alpha `app.hbx` bundle |
 | Portable host providers | Fixed worker-local registry with bounded HTA request and completion contracts |
 | Blob provider | Source artifact 0.1.1 is digest-pinned and independently composed |
 | Authentication | Application-owned HAL policy; no default account, session, or management service |
@@ -30,7 +30,7 @@ for application and integration work, while interfaces may still change before 1
 
 <div class="doc-card-grid">
   <article class="doc-card"><h3>Published HTTP benchmarks</h3><p>Report throughput, tail latency, resident memory, machine shape, concurrency, and response size together.</p></article>
-  <article class="doc-card"><h3>Bytecode bootstrap</h3><p>Move the Nginx worker bootstrap from HAL source to the validated HBC artifact.</p></article>
+  <article class="doc-card"><h3>Bytecode startup hardening</h3><p>Measure and harden the transactional HBX worker path across supported release targets.</p></article>
   <article class="doc-card"><h3>Deployment templates</h3><p>Turn the published OCI image into direct launch paths for major container services.</p></article>
   <article class="doc-card"><h3>Interface stabilization</h3><p>Exercise and specify streaming, middleware, service, and internal hosting contracts.</p></article>
   <article class="doc-card"><h3>Provider ecosystem</h3><p>Publish independently versioned storage, value, secret, and policy providers without widening the portable host boundary.</p></article>

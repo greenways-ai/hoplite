@@ -11,14 +11,14 @@ name = "hoplite_runtime"
 crate-type = ["staticlib", "rlib"]
 
 [features]
-default = ["bytecode-vm"]
-bytecode-vm = []
+default = ["bytecode-vm", "native-jit"]
+bytecode-vm = ["hara-wasm/bytecode-vm"]
 cli-host = []
 evaluation-journal = []
 halc-encoder = []
 hir-encoder = ["halc-encoder"]
-tracing-jit = ["bytecode-vm"]
-native-jit = ["tracing-jit"]
+tracing-jit = ["bytecode-vm", "hara-wasm/tracing-jit"]
+native-jit = ["tracing-jit", "hara-wasm/native-jit"]
 
 [dependencies]
 base64 = "0.22"

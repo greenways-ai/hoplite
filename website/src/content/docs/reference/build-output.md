@@ -8,7 +8,7 @@ Build output is isolated beneath the application project's `.hoplite/` directory
 ```text
 .hoplite/
   app.hal
-  app.hbc
+  app.hbx
   apps.hta
   platform.edn
   platform.hta
@@ -22,7 +22,7 @@ Build output is isolated beneath the application project's `.hoplite/` directory
 | Path | Purpose |
 | --- | --- |
 | `app.hal` | Application bootstrap source used by the current Nginx integration |
-| `app.hbc` | Generated and validated Hara bytecode |
+| `app.hbx` | Deterministic alpha Hara bytecode bundle |
 | `apps.hta` | Version 2 application/route manifest, including each route's boundary adapter |
 | `platform.edn` | Inspectable, canonical module plan compiled from `project.edn` |
 | `platform.hta` | HTA-encoded platform plan for worker startup |
@@ -33,7 +33,7 @@ Build output is isolated beneath the application project's `.hoplite/` directory
 | `error.log` | Nginx and Hoplite error log |
 
 :::note[Bytecode transition]
-`app.hbc` is generated and validated today. The active Nginx bootstrap still uses HAL while the bytecode bootstrap ABI is integrated.
+`app.hbx` is generated, validated, and loaded transactionally by the active Nginx bootstrap ABI.
 :::
 
 The migration-only `legacy-management` feature may emit `auth-store.hta`, its
