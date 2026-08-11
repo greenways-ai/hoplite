@@ -23,11 +23,7 @@ impl VerifiedObject {
 }
 
 trait ImmutableObjectReader {
-    fn read_verified(
-        &self,
-        digest: Digest,
-        max_bytes: usize,
-    ) -> Result<VerifiedObject, Failure>;
+    fn read_verified(&self, digest: Digest, max_bytes: usize) -> Result<VerifiedObject, Failure>;
 }
 
 struct ValueService<R> {
