@@ -1,9 +1,13 @@
-pub struct FilesystemValueProvider {
-    root: PathBuf,
+struct FilesystemObjectReader {
     objects_dir: PathBuf,
     lock_path: PathBuf,
     limits: Limits,
     process_lock: Mutex<()>,
+}
+
+pub struct FilesystemValueProvider {
+    root: PathBuf,
+    service: ValueService<FilesystemObjectReader>,
 }
 
 impl fmt::Debug for FilesystemValueProvider {
@@ -11,7 +15,7 @@ impl fmt::Debug for FilesystemValueProvider {
         formatter
             .debug_struct("FilesystemValueProvider")
             .field("root", &self.root)
-            .field("limits", &self.limits)
+            .field("limits", &self.service.limits())
             .finish_non_exhaustive()
     }
 }
@@ -30,12 +34,15 @@ impl FilesystemValueProvider {
         )?;
         let lock_path = root.join(LOCK_FILE);
         require_regular_file(&lock_path, "value-provider-lock-invalid")?;
-        Ok(Self {
-            root,
+        let reader = FilesystemObjectReader {
             objects_dir,
             lock_path,
             limits,
             process_lock: Mutex::new(()),
+        };
+        Ok(Self {
+            root,
+            service: ValueService::new(reader, limits)?,
         })
     }
 
@@ -44,7 +51,7 @@ impl FilesystemValueProvider {
     }
 
     pub const fn limits(&self) -> Limits {
-        self.limits
+        self.service.limits()
     }
 
     /// Executes one canonical host-provider call. Invalid host arguments are
@@ -52,53 +59,16 @@ impl FilesystemValueProvider {
     /// selected its digest is normalized into a closed `hoplite.value-result/1`
     /// value containing only a stable `hoplite.value/*` code.
     pub fn execute(&self, operation: &str, arguments_hta: &[u8]) -> Result<Vec<u8>, Error> {
-        let document = Document::parse(arguments_hta)?;
-        let arguments = document.root();
-        if arguments.kind() != Kind::Vector || arguments.len()? != 1 {
-            return Err(Error::InvalidRequest(
-                "host arguments must be a vector containing one request map",
-            ));
-        }
-        let request = arguments.get(0)?;
-        exact_fields(request, REQUEST_FIELDS)?;
-        let request_operation = request_text(request, "operation")?;
-        if operation != request_operation {
-            return Err(Error::OperationMismatch {
-                call: operation.to_owned(),
-                request: request_operation.to_owned(),
-            });
-        }
-        if operation != OPERATION {
-            return Err(Error::InvalidRequest("operation is not supported"));
-        }
-        if request_text(request, "protocol")? != REQUEST_PROTOCOL {
-            return Err(Error::InvalidRequest("request protocol is not supported"));
-        }
-        let digest_text = request_text(request, "digest")?;
-        let digest = Digest::parse(digest_text)
-            .map_err(|_| Error::InvalidRequest("digest must be canonical lowercase SHA-256"))?;
-        let max_bytes = request_usize(request, "max-bytes", true)?;
-        if max_bytes > hara_hta::MAX_FRAME_BYTES {
-            return Err(Error::InvalidRequest(
-                "max-bytes exceeds Hara's fixed HTA frame ceiling",
-            ));
-        }
-
-        if max_bytes > self.limits.max_frame_bytes {
-            return failure_result(digest_text, MAXIMUM_EXCEEDED);
-        }
-
-        let bytes = match self.read_object(digest, max_bytes) {
-            Ok(bytes) => bytes,
-            Err(failure) => return failure_result(digest_text, failure.code()),
-        };
-        match hara_hta::decode_canonical(&bytes, max_bytes) {
-            Ok(_) => success_result(digest_text, &bytes),
-            Err(message) => failure_result(digest_text, classify_hta_error(&message)),
-        }
+        self.service.execute(operation, arguments_hta)
     }
+}
 
-    fn read_object(&self, digest: Digest, max_bytes: usize) -> Result<Vec<u8>, Failure> {
+impl ImmutableObjectReader for FilesystemObjectReader {
+    fn read_verified(
+        &self,
+        digest: Digest,
+        max_bytes: usize,
+    ) -> Result<VerifiedObject, Failure> {
         let _guard = self.exclusive().map_err(|_| Failure::Provider)?;
         let (metadata_path, data_path) = self.object_paths(digest);
         let object_directory = metadata_path.parent().ok_or(Failure::Provider)?;
@@ -143,9 +113,11 @@ impl FilesystemValueProvider {
         if &actual_bytes != digest.bytes() {
             return Err(Failure::Digest);
         }
-        Ok(bytes)
+        Ok(VerifiedObject::new(digest, bytes))
     }
+}
 
+impl FilesystemObjectReader {
     fn exclusive(&self) -> Result<OperationGuard<'_>, Error> {
         let process = self.process_lock.lock().map_err(|_| Error::Poisoned)?;
         require_regular_file(&self.lock_path, "value-provider-lock-invalid")?;
