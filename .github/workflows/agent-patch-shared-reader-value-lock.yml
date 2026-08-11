@@ -1,4 +1,4 @@
-name: Generate shared reader value lock
+name: Publish validated shared reader source patch
 
 on:
   push:
@@ -11,9 +11,9 @@ permissions:
   contents: write
 
 jobs:
-  generate:
+  publish:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v5
         with:
@@ -29,31 +29,108 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.78.0
-      - name: Generate and commit only the value-provider lock
+          components: rustfmt,clippy
+
+      - name: Reproduce the validated source patch
         working-directory: hoplite
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          path = Path('core/abi/blob-store-filesystem/Cargo.toml')
-          text = path.read_text()
-          old = 'fs2 = "0.4"\nhoplite-blob-store = { path = "../blob-store" }\n'
-          new = (
-              'fs2 = "0.4"\n'
-              'hoplite-blob-filesystem-reader = { path = "../blob-filesystem-reader" }\n'
-              'hoplite-blob-store = { path = "../blob-store" }\n'
+          workflow = Path('.github/workflows/agent-blob-store-shared-reader.yml').read_text()
+          start_marker = "          python3 - <<'PY'\n"
+          end_marker = "          PY\n\n          cargo generate-lockfile"
+          start = workflow.index(start_marker) + len(start_marker)
+          end = workflow.index(end_marker, start)
+          script = workflow[start:end]
+          lines = script.splitlines()
+          unindented = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in lines
           )
-          if text.count(old) != 1:
-              raise SystemExit('blob filesystem dependency block changed')
-          path.write_text(text.replace(old, new))
+          Path('/tmp/apply.py').write_text(unindented + "\n")
           PY
+          python3 /tmp/apply.py
 
           cargo generate-lockfile \
+            --manifest-path core/abi/blob-store-filesystem/Cargo.toml
+          cargo generate-lockfile \
             --manifest-path core/abi/value-provider-filesystem/Cargo.toml
-          git checkout -- core/abi/blob-store-filesystem/Cargo.toml
+          cargo generate-lockfile \
+            --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml
+          rustfmt --edition 2021 \
+            core/abi/blob-filesystem-reader/src/source.rs \
+            core/abi/blob-store-filesystem/src/lib.rs \
+            core/abi/blob-store-filesystem/src/tests.rs \
+            core/abi/blob-store-provider-ffi/src/lib.rs
+
+          # Workflow files are updated separately through the GitHub connector,
+          # whose token has the required workflow authority.
+          git checkout -- .github/workflows/blob-provider-artifact.yml
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add core/abi/value-provider-filesystem/Cargo.lock
-          git commit -m "Regenerate the value lock for shared blob reads"
+          git add \
+            core/abi/blob-filesystem-reader \
+            core/abi/blob-store-filesystem \
+            core/abi/blob-store-provider-ffi \
+            core/abi/value-provider-filesystem/Cargo.lock \
+            packaging/providers/blob/ARTIFACT.md \
+            packaging/scripts/build-blob-provider-artifact.sh \
+            packaging/scripts/verify-blob-provider-artifact.sh
+          git commit -m "Route filesystem blob reads through the shared backend"
+
+      - name: Validate reader, blob, value and FFI packages
+        working-directory: hoplite
+        run: |
+          cargo clippy \
+            --manifest-path core/abi/blob-filesystem-reader/Cargo.toml \
+            --all-targets --locked -- -D warnings
+          cargo test \
+            --manifest-path core/abi/blob-filesystem-reader/Cargo.toml \
+            --all-targets --locked
+
+          cargo clippy \
+            --manifest-path core/abi/blob-store-filesystem/Cargo.toml \
+            --all-targets --locked -- -D warnings
+          cargo test \
+            --manifest-path core/abi/blob-store-filesystem/Cargo.toml \
+            --all-targets --locked
+
+          cargo clippy \
+            --manifest-path core/abi/value-provider-filesystem/Cargo.toml \
+            --all-targets --locked -- -D warnings
+          cargo test \
+            --manifest-path core/abi/value-provider-filesystem/Cargo.toml \
+            --all-targets --locked
+
+          cargo clippy \
+            --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml \
+            --all-targets --locked -- -D warnings
+          cargo test \
+            --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml \
+            --all-targets --locked
+
+      - name: Build and verify the deterministic 0.1.1 source artifact
+        working-directory: hoplite
+        run: |
+          revision=$(git rev-parse HEAD)
+          artifact="$RUNNER_TEMP/hoplite-blob-provider-0.1.1.tar.gz"
+          extracted="$RUNNER_TEMP/extracted"
+
+          bash packaging/scripts/build-blob-provider-artifact.sh \
+            0.1.1 "$revision" "$artifact"
+          digest=$(awk '{print $1}' "$artifact.sha256")
+          bash packaging/scripts/verify-blob-provider-artifact.sh \
+            "$artifact" "$digest" "$extracted"
+
+          package="$extracted/hoplite-blob-provider-0.1.1"
+          test -f "$package/abi/blob-filesystem-reader/Cargo.toml"
+          cargo test \
+            --manifest-path "$package/abi/blob-store-provider-ffi/Cargo.toml" \
+            --locked
+
+      - name: Push the validated source-only commit
+        working-directory: hoplite
+        run: |
           git push origin HEAD:agent/blob-store-shared-reader-91
