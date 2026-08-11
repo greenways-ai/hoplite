@@ -9,7 +9,8 @@ generic Hoplite executable, Nginx module or production image.
 The artifact contains only:
 
 - the application-neutral blob-store contract;
-- the filesystem driver;
+- the shared verified filesystem object reader;
+- the filesystem staging and immutable-installation driver;
 - the canonical `hoplite.blob` protocol adapter;
 - the work-scoped C provider boundary;
 - the canonical provider HTA dependency;
@@ -48,7 +49,7 @@ After extraction, `hoplite-provider-manifest` validates the portable contract,
 ABI and driver declarations. The package is tested with Rust 1.78 and built
 independently from the Hoplite core workspace.
 
-## Published package `0.1.0`
+## Current pinned production package `0.1.0`
 
 ```text
 release tag      hoplite-blob-provider-v0.1.0
@@ -56,6 +57,10 @@ source revision  5d5b98b379bee49db54f79492441d83bd192930b
 archive           hoplite-blob-provider-0.1.0.tar.gz
 archive SHA-256  5a8b3735e7b8c147b2879647455db7d1769f26964e4f8c78432935adb040e362
 ```
+
+The source build workflow now emits `0.1.1`, which adds the shared reader to
+the closed artifact. A follow-up pin PR will bind its published digest and
+source revision before production composition moves from `0.1.0`.
 
 The source-tree `provider-manifest.json` keeps `artifact.digest` null because an
 artifact cannot contain its own byte digest. The external

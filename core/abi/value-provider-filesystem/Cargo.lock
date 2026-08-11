@@ -95,6 +95,7 @@ name = "hoplite-blob-store-filesystem"
 version = "0.1.0"
 dependencies = [
  "fs2",
+ "hoplite-blob-filesystem-reader",
  "hoplite-blob-store",
  "sha2",
 ]

@@ -51,6 +51,7 @@ mkdir -p "$source_tree" "$package_root/abi"
 payload_paths=(
   LICENSE
   core/abi/blob-store
+  core/abi/blob-filesystem-reader
   core/abi/blob-store-filesystem
   core/abi/blob-store-provider
   core/abi/blob-store-provider-ffi
@@ -66,6 +67,7 @@ cp "$source_tree/packaging/providers/blob/provider-manifest.json" \
   "$package_root/provider-manifest.json"
 for crate in \
   blob-store \
+  blob-filesystem-reader \
   blob-store-filesystem \
   blob-store-provider \
   blob-store-provider-ffi \

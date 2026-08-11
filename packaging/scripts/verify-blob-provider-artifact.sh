@@ -113,6 +113,7 @@ required_files=(
   SOURCE_REVISION
   provider-manifest.json
   abi/blob-store/Cargo.toml
+  abi/blob-filesystem-reader/Cargo.toml
   abi/blob-store-filesystem/Cargo.toml
   abi/blob-store-provider/Cargo.toml
   abi/blob-store-provider-ffi/Cargo.toml

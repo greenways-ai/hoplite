@@ -2,12 +2,13 @@ name: Blob provider source artifact
 
 env:
   HARA_REF: d310105d54954399da0b0289b7d43c7d1bf9d984
-  PROVIDER_VERSION: 0.1.0
+  PROVIDER_VERSION: 0.1.1
 
 on:
   push:
     paths:
       - core/abi/blob-store/**
+      - core/abi/blob-filesystem-reader/**
       - core/abi/blob-store-filesystem/**
       - core/abi/blob-store-provider/**
       - core/abi/blob-store-provider-ffi/**
@@ -20,6 +21,7 @@ on:
   pull_request:
     paths:
       - core/abi/blob-store/**
+      - core/abi/blob-filesystem-reader/**
       - core/abi/blob-store-filesystem/**
       - core/abi/blob-store-provider/**
       - core/abi/blob-store-provider-ffi/**

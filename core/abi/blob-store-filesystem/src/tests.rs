@@ -1,4 +1,5 @@
 use super::*;
+use hoplite_blob_store::ResponseSource;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_ROOT: AtomicU64 = AtomicU64::new(1);

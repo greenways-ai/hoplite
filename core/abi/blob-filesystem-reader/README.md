@@ -46,9 +46,10 @@ closed request validation
   -> closed hoplite.value-result/1
 ```
 
-The filesystem blob driver remains responsible for staging, installation and
-response-source mechanics. A follow-up under Hoplite #91 will route its immutable
-read verification through this package as well, leaving one authoritative
+The filesystem blob driver remains responsible for staging and immutable
+installation. Its `object/open-source` path delegates whole-object verification
+and bounded range-source construction to this package. `hoplite.value` delegates
+bounded value materialization to the same backend, leaving one authoritative
 filesystem object-read implementation.
 
 ## Failure boundary

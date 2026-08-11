@@ -19,6 +19,7 @@ struct ResolvedObject {
     data_path: PathBuf,
 }
 
+#[derive(Debug)]
 pub struct FilesystemResponseSource {
     file: File,
     declared: u64,
