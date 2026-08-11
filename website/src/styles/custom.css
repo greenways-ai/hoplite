@@ -24,6 +24,7 @@
   --sl-color-bg-sidebar: #071119;
   --sl-color-hairline: rgba(153, 234, 242, .16);
   --sl-content-width: 54rem;
+  --hoplite-layout-width: 1440px;
   --sl-text-5xl: clamp(3rem, 7vw, 6.5rem);
   --hoplite-cyan: #48d8e7;
   --hoplite-cyan-soft: #92edf4;
@@ -165,7 +166,7 @@ h1, h2, h3, .site-title {
 :root[data-theme="light"] .action--primary:hover { color: #f5fafb; background: #066d7c; }
 
 .hoplite-hero {
-  width: min(100% - 3rem, 1280px);
+  width: min(100% - 3rem, var(--hoplite-layout-width));
   min-height: min(760px, calc(100svh - 3.5rem));
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(280px, .65fr);
@@ -229,7 +230,7 @@ h1, h2, h3, .site-title {
 }
 
 .home-section {
-  width: min(100% - 3rem, 1280px);
+  width: min(100% - 3rem, var(--hoplite-layout-width));
   margin: 0 auto;
   padding: 7rem 0;
 }
@@ -457,7 +458,7 @@ h1, h2, h3, .site-title {
 :root[data-theme="light"] .technical-index strong { color: #11252c; }
 
 .status-feature {
-  width: min(100% - 3rem, 1280px);
+  width: min(100% - 3rem, var(--hoplite-layout-width));
   display: grid;
   grid-template-columns: 1.35fr .65fr;
   gap: clamp(2rem, 6vw, 6rem);
