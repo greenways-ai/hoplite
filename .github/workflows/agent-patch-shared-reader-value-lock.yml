@@ -1,4 +1,4 @@
-name: Patch shared reader value lock generation
+name: Generate shared reader value lock
 
 on:
   push:
@@ -11,42 +11,49 @@ permissions:
   contents: write
 
 jobs:
-  patch:
+  generate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
         with:
           ref: agent/blob-store-shared-reader-91
+          path: hoplite
           fetch-depth: 0
-      - name: Add the value-provider lock regeneration and remove this workflow
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: d2a2e376917131cfb8954ac156db3a5e174f2c1a
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.78.0
+      - name: Generate and commit only the value-provider lock
+        working-directory: hoplite
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          path = Path('.github/workflows/agent-blob-store-shared-reader.yml')
+          path = Path('core/abi/blob-store-filesystem/Cargo.toml')
           text = path.read_text()
-          old = (
-              '          cargo generate-lockfile \\\n'
-              '            --manifest-path core/abi/blob-store-filesystem/Cargo.toml\n'
-              '          cargo generate-lockfile \\\n'
-              '            --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml\n'
-          )
+          old = 'fs2 = "0.4"\nhoplite-blob-store = { path = "../blob-store" }\n'
           new = (
-              '          cargo generate-lockfile \\\n'
-              '            --manifest-path core/abi/blob-store-filesystem/Cargo.toml\n'
-              '          cargo generate-lockfile \\\n'
-              '            --manifest-path core/abi/value-provider-filesystem/Cargo.toml\n'
-              '          cargo generate-lockfile \\\n'
-              '            --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml\n'
+              'fs2 = "0.4"\n'
+              'hoplite-blob-filesystem-reader = { path = "../blob-filesystem-reader" }\n'
+              'hoplite-blob-store = { path = "../blob-store" }\n'
           )
           if text.count(old) != 1:
-              raise SystemExit('shared-reader lock generation block changed')
+              raise SystemExit('blob filesystem dependency block changed')
           path.write_text(text.replace(old, new))
           PY
-          rm .github/workflows/agent-patch-shared-reader-value-lock.yml
+
+          cargo generate-lockfile \
+            --manifest-path core/abi/value-provider-filesystem/Cargo.toml
+          git checkout -- core/abi/blob-store-filesystem/Cargo.toml
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add core/abi/value-provider-filesystem/Cargo.lock
           git commit -m "Regenerate the value lock for shared blob reads"
           git push origin HEAD:agent/blob-store-shared-reader-91
