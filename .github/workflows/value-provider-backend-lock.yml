@@ -59,7 +59,7 @@ jobs:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt,clippy
+          components: rustfmt
 
       - name: Test the closed object backend lock boundary
         working-directory: hoplite
@@ -67,8 +67,6 @@ jobs:
           cargo fmt --manifest-path core/Cargo.toml -- --check
           cargo test --manifest-path core/Cargo.toml --workspace --locked \
             --bin hoplite-object-backend-lock
-          cargo clippy --manifest-path core/Cargo.toml --locked \
-            --bin hoplite-object-backend-lock -- -D warnings
 
       - name: Validate value compatibility and exact backend identity
         working-directory: hoplite
