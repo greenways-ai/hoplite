@@ -31,7 +31,6 @@ jobs:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.78.0
           components: rustfmt,clippy
       - name: Export and test the closed parser
         working-directory: hoplite
