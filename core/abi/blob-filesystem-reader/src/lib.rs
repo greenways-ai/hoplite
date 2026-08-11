@@ -1,19 +1,19 @@
 #![forbid(unsafe_code)]
 
-//! Read-only verified access to the immutable filesystem object layout used by
-//! Hoplite blob providers.
+//! Verified access to the immutable filesystem object layout used by Hoplite
+//! blob providers.
 //!
 //! This package owns the physical `objects/sha256` layout, `HBO1` metadata,
-//! shared `store.lock` coordination, bounded actual reads and SHA-256
-//! verification. It does not stage, install, stream, decode or interpret an
-//! object value.
+//! shared `store.lock` coordination, bounded actual reads, streaming range
+//! sources and SHA-256 verification. It does not stage, install, decode or
+//! interpret an object value.
 
 use fs2::FileExt;
-use hoplite_blob_store::Digest;
+use hoplite_blob_store::{Digest, Error as BlobError, ObjectRange, ResponseSource};
 use sha2::{Digest as Sha2Digest, Sha256};
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read};
+use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
@@ -180,42 +180,13 @@ impl FilesystemObjectReader {
             return Err(Failure::Maximum);
         }
         let _guard = self.shared().map_err(|_| Failure::Provider)?;
-        let (metadata_path, data_path) = self.object_paths(digest);
-        let object_directory = metadata_path.parent().ok_or(Failure::Provider)?;
-        match fs::symlink_metadata(object_directory) {
-            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
-                return Err(Failure::Provider);
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return Err(Failure::Missing);
-            }
-            Err(_) => return Err(Failure::Provider),
-        }
-
-        let metadata_exists = regular_file_exists(&metadata_path).map_err(|_| Failure::Provider)?;
-        let data_exists = regular_file_exists(&data_path).map_err(|_| Failure::Provider)?;
-        match (metadata_exists, data_exists) {
-            (false, false) => return Err(Failure::Missing),
-            (false, true) | (true, false) => return Err(Failure::Provider),
-            (true, true) => {}
-        }
-
-        let metadata = self
-            .read_object_metadata(&metadata_path)
-            .map_err(|_| Failure::Provider)?;
-        if metadata.digest != digest {
-            return Err(Failure::Digest);
-        }
-        if metadata.size == 0 {
-            return Err(Failure::Provider);
-        }
-        if metadata.size > max_bytes as u64 {
+        let resolved = self.resolve_object_locked(digest).map_err(value_failure)?;
+        if resolved.metadata.size > max_bytes as u64 {
             return Err(Failure::Maximum);
         }
 
-        let bytes = read_bounded_file(&data_path, max_bytes, self.limits.io_chunk_bytes)?;
-        if bytes.len() as u64 != metadata.size {
+        let bytes = read_bounded_file(&resolved.data_path, max_bytes, self.limits.io_chunk_bytes)?;
+        if bytes.len() as u64 != resolved.metadata.size {
             return Err(Failure::Provider);
         }
         let actual = Sha256::digest(&bytes);
@@ -551,6 +522,8 @@ fn validate_media_type(bytes: &[u8]) -> Result<(), Error> {
 fn io_error(code: &'static str, error: io::Error) -> Error {
     Error::installation(code, error.to_string())
 }
+
+include!("source.rs");
 
 #[cfg(test)]
 mod tests;
