@@ -7,13 +7,13 @@ rust-version = "1.78"
 description = "Bounded filesystem-backed provider core for Hara canonical values"
 
 [dependencies]
-fs2 = "0.4"
 hara-hta = { path = "../../../../hara/core/rust/hta-codec" }
+hoplite-blob-filesystem-reader = { path = "../blob-filesystem-reader" }
 hoplite-blob-store = { path = "../blob-store" }
 hoplite-provider-hta = { path = "../provider-hta" }
-sha2 = "0.10"
 
 [dev-dependencies]
 hoplite-blob-store-filesystem = { path = "../blob-store-filesystem" }
+sha2 = "0.10"
 
 [workspace]

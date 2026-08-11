@@ -1,4 +1,4 @@
-name: Filesystem hoplite.value provider core
+name: Filesystem object reader and hoplite.value
 
 env:
   # Merge revision of hara-lang/hara#464. The installed-host registration slice
@@ -10,6 +10,7 @@ on:
     paths:
       - core/abi/blob-store/**
       - core/abi/blob-store-filesystem/**
+      - core/abi/blob-filesystem-reader/**
       - core/abi/provider-hta/**
       - core/abi/value-provider-filesystem/**
       - .github/workflows/value-provider-filesystem.yml
@@ -18,6 +19,7 @@ on:
     paths:
       - core/abi/blob-store/**
       - core/abi/blob-store-filesystem/**
+      - core/abi/blob-filesystem-reader/**
       - core/abi/provider-hta/**
       - core/abi/value-provider-filesystem/**
       - .github/workflows/value-provider-filesystem.yml
@@ -50,18 +52,28 @@ jobs:
       - name: Check formatting
         run: |
           rustfmt --edition 2021 --check \
+            hoplite/core/abi/blob-filesystem-reader/src/lib.rs \
+            hoplite/core/abi/blob-filesystem-reader/src/tests.rs \
             hoplite/core/abi/value-provider-filesystem/src/lib.rs \
             hoplite/core/abi/value-provider-filesystem/src/reader.rs \
             hoplite/core/abi/value-provider-filesystem/src/provider.rs \
-            hoplite/core/abi/value-provider-filesystem/src/metadata.rs \
             hoplite/core/abi/value-provider-filesystem/src/hta.rs \
-            hoplite/core/abi/value-provider-filesystem/src/filesystem.rs \
             hoplite/core/abi/value-provider-filesystem/src/tests.rs \
             hoplite/core/abi/value-provider-filesystem/src/reader_cases.rs \
             hoplite/core/abi/value-provider-filesystem/src/verification_cases.rs \
             hoplite/core/abi/value-provider-filesystem/src/integrity_cases.rs \
             hoplite/core/abi/value-provider-filesystem/src/restart_cases.rs
-      - name: Reject warnings
+      - name: Reject reader warnings
+        run: |
+          cargo clippy \
+            --manifest-path hoplite/core/abi/blob-filesystem-reader/Cargo.toml \
+            --all-targets --locked -- -D warnings
+      - name: Run bounded filesystem reader conformance
+        run: |
+          cargo test \
+            --manifest-path hoplite/core/abi/blob-filesystem-reader/Cargo.toml \
+            --all-targets --locked
+      - name: Reject value adapter warnings
         run: |
           cargo clippy \
             --manifest-path hoplite/core/abi/value-provider-filesystem/Cargo.toml \
