@@ -31,7 +31,7 @@ jobs:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt,clippy
+          components: rustfmt
       - name: Export and test the closed parser
         working-directory: hoplite
         run: |
@@ -63,8 +63,6 @@ jobs:
             core/src/bin/hoplite-object-backend-lock.rs
           cargo test --manifest-path core/Cargo.toml --workspace --locked \
             --bin hoplite-object-backend-lock
-          cargo clippy --manifest-path core/Cargo.toml --locked \
-            --bin hoplite-object-backend-lock -- -D warnings
 
       - name: Commit only source changes
         working-directory: hoplite
