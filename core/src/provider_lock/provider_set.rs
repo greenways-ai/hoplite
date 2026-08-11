@@ -168,12 +168,7 @@ pub fn validate(
     let set_binding = exact_object(
         &bindings[0],
         "provider set binding",
-        &[
-            "backend",
-            "consumer",
-            "package",
-            "package-version",
-        ],
+        &["backend", "consumer", "package", "package-version"],
     )?;
     require_exact(
         set_binding,
@@ -311,15 +306,28 @@ mod tests {
   ]
 }"#;
 
-    fn lock(source: &str, provider: &'static str, version: &'static str, digest: &str) -> super::super::ValidatedLock {
+    fn lock(
+        source: &str,
+        provider: &'static str,
+        version: &'static str,
+        digest: &str,
+    ) -> super::super::ValidatedLock {
         super::super::validate(
             source.as_bytes(),
             super::super::Expected {
                 provider,
                 version,
                 repository: "greenways-ai/hoplite",
-                tag: if provider == "hoplite.blob" { "blob-v0.1.1" } else { "value-v0.1.0" },
-                asset: if provider == "hoplite.blob" { "blob.tar.gz" } else { "value.tar.gz" },
+                tag: if provider == "hoplite.blob" {
+                    "blob-v0.1.1"
+                } else {
+                    "value-v0.1.0"
+                },
+                asset: if provider == "hoplite.blob" {
+                    "blob.tar.gz"
+                } else {
+                    "value.tar.gz"
+                },
                 media_type: "application/gzip",
             },
             digest,
@@ -380,23 +388,29 @@ mod tests {
         let missing = mutate(|value| {
             value["providers"].as_array_mut().unwrap().pop();
         });
-        assert!(validate(&missing, expected(), &backend, &consumer, &binding)
-            .unwrap_err()
-            .contains("exactly 2 providers"));
+        assert!(
+            validate(&missing, expected(), &backend, &consumer, &binding)
+                .unwrap_err()
+                .contains("exactly 2 providers")
+        );
 
         let duplicate = mutate(|value| {
-            value["providers"][1] = value["providers"][0].clone();
+            value["providers"][1]["provider"] = Value::String("hoplite.blob".into());
         });
-        assert!(validate(&duplicate, expected(), &backend, &consumer, &binding)
-            .unwrap_err()
-            .contains("duplicate provider"));
+        assert!(
+            validate(&duplicate, expected(), &backend, &consumer, &binding)
+                .unwrap_err()
+                .contains("duplicate provider")
+        );
 
         let unknown = mutate(|value| {
             value["providers"][1]["provider"] = Value::String("hoplite.store".into());
         });
-        assert!(validate(&unknown, expected(), &backend, &consumer, &binding)
-            .unwrap_err()
-            .contains("unknown provider"));
+        assert!(
+            validate(&unknown, expected(), &backend, &consumer, &binding)
+                .unwrap_err()
+                .contains("unknown provider")
+        );
     }
 
     #[test]
@@ -412,8 +426,10 @@ mod tests {
         let package = mutate(|value| {
             value["bindings"][0]["package"] = Value::String("other-reader".into());
         });
-        assert!(validate(&package, expected(), &backend, &consumer, &binding)
-            .unwrap_err()
-            .contains("incompatible"));
+        assert!(
+            validate(&package, expected(), &backend, &consumer, &binding)
+                .unwrap_err()
+                .contains("incompatible")
+        );
     }
 }

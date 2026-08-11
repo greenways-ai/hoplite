@@ -3,9 +3,7 @@ mod provider_lock;
 #[path = "../provider_manifest.rs"]
 mod provider_manifest;
 
-use provider_lock::{
-    Expected as LockExpected, ObjectBackendExpected, ProviderSetExpected,
-};
+use provider_lock::{Expected as LockExpected, ObjectBackendExpected, ProviderSetExpected};
 use provider_manifest::{ArtifactPolicy, Expected as ManifestExpected};
 use std::env;
 use std::fs;
@@ -19,7 +17,10 @@ fn main() {
 }
 
 fn run(arguments: Vec<String>) -> Result<(), String> {
-    if matches!(arguments.first().map(String::as_str), Some("help" | "--help" | "-h")) {
+    if matches!(
+        arguments.first().map(String::as_str),
+        Some("help" | "--help" | "-h")
+    ) {
         usage();
         return Ok(());
     }
