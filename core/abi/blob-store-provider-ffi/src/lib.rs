@@ -8,12 +8,13 @@
 //! are registered under positive handles that are usable only by their owning
 //! request and work.
 
+use hoplite_blob_filesystem_reader::FilesystemResponseSource;
 use hoplite_blob_store::{
     AppendReceipt, BlobStore, ByteSource, DigestVerifier, Error as BlobError, InMemoryBlobStore,
     Limits, MemoryResponseSource, ObjectDescriptor, ObjectRange, ResponseSource, StagingAppend,
     StagingCommit, StagingKey, StagingOpen, StagingStatus,
 };
-use hoplite_blob_store_filesystem::{FilesystemBlobStore, FilesystemResponseSource};
+use hoplite_blob_store_filesystem::FilesystemBlobStore;
 use hoplite_blob_store_provider::{
     Provider as CanonicalProvider, RequestSourceResolver, ResponseSourceRegistrar,
 };
@@ -413,7 +414,7 @@ impl ResponseSource for ProviderResponseSource {
 
 enum InstalledBlobStore {
     Memory(InMemoryBlobStore<Sha256Verifier>),
-    Filesystem(FilesystemBlobStore),
+    Filesystem(Box<FilesystemBlobStore>),
 }
 
 impl BlobStore for InstalledBlobStore {
@@ -627,6 +628,7 @@ pub unsafe extern "C" fn hoplite_blob_store_provider_open_filesystem_v1(
     };
     catch_unwind(AssertUnwindSafe(|| {
         let store = FilesystemBlobStore::open(Path::new(root), limits)
+            .map(Box::new)
             .map(InstalledBlobStore::Filesystem)
             .map_err(|_| ())?;
         let provider = build_provider(store, limits)?;

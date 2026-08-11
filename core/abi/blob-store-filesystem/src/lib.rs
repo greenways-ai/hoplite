@@ -3,16 +3,19 @@
 //! Restart-safe trusted-root filesystem implementation of Hoplite's generic
 //! `hoplite.blob` mechanics.
 //!
-//! The driver owns byte movement, incremental SHA-256 verification, fsync,
-//! restart recovery and digest-derived object paths. It does not understand
+//! The driver owns staging, immutable installation, fsync and restart
+//! recovery. Verified immutable reads and response ranges are delegated to
+//! the shared filesystem object reader. It does not understand
 //! Tahto uploads, applications, namespaces, quotas, graphs, manifests,
 //! authorization, receipts or merge policy.
 
 use fs2::FileExt;
+use hoplite_blob_filesystem_reader::{
+    FilesystemObjectReader, FilesystemResponseSource, Limits as ReaderLimits,
+};
 use hoplite_blob_store::{
     AppendReceipt, BlobStore, ByteSource, Digest, Error, Limits, MediaType, ObjectDescriptor,
-    ObjectRange, ResponseSource, StagingAppend, StagingCommit, StagingKey, StagingOpen,
-    StagingStatus,
+    ObjectRange, StagingAppend, StagingCommit, StagingKey, StagingOpen, StagingStatus,
 };
 use sha2::{Digest as Sha2Digest, Sha256};
 use std::ffi::OsStr;
@@ -37,6 +40,7 @@ pub struct FilesystemBlobStore {
     objects_dir: PathBuf,
     lock_path: PathBuf,
     limits: Limits,
+    reader: FilesystemObjectReader,
     process_lock: Mutex<()>,
 }
 
@@ -75,12 +79,25 @@ impl FilesystemBlobStore {
         drop(lock);
         sync_directory(&root)?;
 
+        let reader_max_object_bytes = usize::try_from(limits.max_object_bytes)
+            .map_err(|_| Error::InvalidLimits("max_object_bytes exceeds the host usize range"))?;
+        let reader = FilesystemObjectReader::open(
+            &root,
+            ReaderLimits {
+                max_object_bytes: reader_max_object_bytes,
+                max_media_type_bytes: limits.max_media_type_bytes,
+                io_chunk_bytes: IO_CHUNK_BYTES.min(reader_max_object_bytes),
+            },
+        )
+        .map_err(|error| Error::driver(error.code(), error.to_string()))?;
+
         let store = Self {
             root,
             staging_dir,
             objects_dir,
             lock_path,
             limits,
+            reader,
             process_lock: Mutex::new(()),
         };
         {
@@ -642,108 +659,7 @@ impl BlobStore for FilesystemBlobStore {
     }
 
     fn object_open_source(&self, request: ObjectRange) -> Result<Self::Source, Error> {
-        let request = ObjectRange::new(request.digest, request.offset, request.length)?;
-        let _guard = self.exclusive()?;
-        let descriptor = match self.inspect_object_locked(request.digest)? {
-            ObjectPresence::Complete(descriptor) => descriptor,
-            ObjectPresence::Missing => {
-                return Err(Error::ObjectMissing {
-                    digest: request.digest,
-                });
-            }
-            ObjectPresence::DataOnly => {
-                return Err(corrupt(
-                    "blob-filesystem-object-incomplete",
-                    "object bytes exist without authoritative metadata",
-                ));
-            }
-        };
-        let end = request
-            .offset
-            .checked_add(request.length)
-            .ok_or(Error::InvalidRange {
-                offset: request.offset,
-                length: request.length,
-                size: Some(descriptor.size),
-            })?;
-        if end > descriptor.size {
-            return Err(Error::InvalidRange {
-                offset: request.offset,
-                length: request.length,
-                size: Some(descriptor.size),
-            });
-        }
-        let (_, data_path) = self.object_paths(request.digest);
-        let mut file = OpenOptions::new()
-            .read(true)
-            .open(data_path)
-            .map_err(|error| io_error("blob-filesystem-object-source-open", error))?;
-        file.seek(SeekFrom::Start(request.offset))
-            .map_err(|error| io_error("blob-filesystem-object-source-seek", error))?;
-        Ok(FilesystemResponseSource {
-            file,
-            declared: request.length,
-            remaining: request.length,
-            closed: false,
-        })
-    }
-}
-
-pub struct FilesystemResponseSource {
-    file: File,
-    declared: u64,
-    remaining: u64,
-    closed: bool,
-}
-
-impl fmt::Debug for FilesystemResponseSource {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("FilesystemResponseSource")
-            .field("declared", &self.declared)
-            .field("remaining", &self.remaining)
-            .field("closed", &self.closed)
-            .finish_non_exhaustive()
-    }
-}
-
-impl ResponseSource for FilesystemResponseSource {
-    fn declared_length(&self) -> u64 {
-        self.declared
-    }
-
-    fn read(&mut self, output: &mut [u8]) -> Result<usize, Error> {
-        if self.closed {
-            return Err(Error::SourceClosed);
-        }
-        if output.is_empty() || self.remaining == 0 {
-            return Ok(0);
-        }
-        let capacity = usize::try_from(self.remaining.min(output.len() as u64)).map_err(|_| {
-            Error::SourceProtocol {
-                detail: "response source length does not fit usize",
-            }
-        })?;
-        let read = self
-            .file
-            .read(&mut output[..capacity])
-            .map_err(|error| io_error("blob-filesystem-object-source-read", error))?;
-        if read == 0 {
-            return Err(Error::driver(
-                "blob-filesystem-object-source-short",
-                "immutable object source reached EOF before its declared length",
-            ));
-        }
-        self.remaining -= read as u64;
-        Ok(read)
-    }
-
-    fn close(&mut self) -> Result<(), Error> {
-        if self.closed {
-            return Err(Error::SourceClosed);
-        }
-        self.closed = true;
-        Ok(())
+        self.reader.open_source(request)
     }
 }
 

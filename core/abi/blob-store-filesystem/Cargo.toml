@@ -8,6 +8,7 @@ description = "Restart-safe trusted-root filesystem driver for Hoplite's generic
 
 [dependencies]
 fs2 = "0.4"
+hoplite-blob-filesystem-reader = { path = "../blob-filesystem-reader" }
 hoplite-blob-store = { path = "../blob-store" }
 sha2 = "0.10"
 
