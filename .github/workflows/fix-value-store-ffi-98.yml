@@ -1,0 +1,64 @@
+name: Fix value store FFI 98
+
+on:
+  push:
+    branches:
+      - agent/store-only-host-lifecycle-45
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.78.0
+          components: rustfmt,clippy
+      - name: Repair and materialize the standalone FFI
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("core/abi/value-store-provider-ffi/src/lib.rs")
+          source = path.read_text(encoding="utf-8")
+          old = '''    match catch_unwind(AssertUnwindSafe(|| {
+              let store = SqliteValueStore::open(PathBuf::from(path), limits)
+                  .map_err(|_| STATUS_OPEN_ERROR)?;
+              let inner = Provider::new(store, Sha256Verifier, limits).map_err(|_| STATUS_OPEN_ERROR)?;
+              Ok::<_, i32>(Box::new(HopliteValueStoreProvider { inner }))
+          })) {
+          '''.replace("          ", "")
+          new = '''    let opening = catch_unwind(AssertUnwindSafe(|| {
+              let store = SqliteValueStore::open(PathBuf::from(path), limits)
+                  .map_err(|_| STATUS_OPEN_ERROR)?;
+              let inner = Provider::new(store, Sha256Verifier, limits).map_err(|_| STATUS_OPEN_ERROR)?;
+              Ok::<_, i32>(Box::new(HopliteValueStoreProvider { inner }))
+          }));
+          match opening {
+          '''.replace("          ", "")
+          if source.count(old) != 1:
+              raise SystemExit(f"expected one FFI open fragment, found {source.count(old)}")
+          path.write_text(source.replace(old, new), encoding="utf-8")
+          PY
+          cargo generate-lockfile --manifest-path core/abi/value-store-provider-ffi/Cargo.toml
+          cargo fmt --manifest-path core/abi/value-store-provider-ffi/Cargo.toml --all
+          cargo clippy --manifest-path core/abi/value-store-provider-ffi/Cargo.toml \
+            --all-targets --locked -- -D warnings
+          cargo test --manifest-path core/abi/value-store-provider-ffi/Cargo.toml \
+            --all-targets --locked
+      - name: Commit validated FFI source and lock
+        run: |
+          git add core/abi/value-store-provider-ffi/src/lib.rs \
+            core/abi/value-store-provider-ffi/Cargo.lock
+          git diff --cached --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "Materialize the hoplite.store provider FFI"
+          git push origin HEAD:${GITHUB_REF_NAME}
