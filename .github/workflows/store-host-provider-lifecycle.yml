@@ -1,0 +1,146 @@
+name: Store-only provider lifecycle
+
+env:
+  HARA_REF: d310105d54954399da0b0289b7d43c7d1bf9d984
+  NGINX_VERSION: 1.30.4
+
+on:
+  push:
+    paths:
+      - core/abi/provider-hta/**
+      - core/abi/value-store/**
+      - core/abi/value-store-provider/**
+      - core/abi/value-store-provider-ffi/**
+      - core/abi/value-store-sqlite/**
+      - core/nginx/hoplite_host_provider.*
+      - core/nginx/hoplite_store_host_provider.*
+      - core/nginx/hoplite_value_host_provider.*
+      - core/nginx/hoplite_value_store_host_provider.*
+      - packaging/providers/store/nginx/**
+      - packaging/providers/store/tests/**
+      - .github/workflows/store-host-provider-lifecycle.yml
+  pull_request:
+    paths:
+      - core/abi/provider-hta/**
+      - core/abi/value-store/**
+      - core/abi/value-store-provider/**
+      - core/abi/value-store-provider-ffi/**
+      - core/abi/value-store-sqlite/**
+      - core/nginx/hoplite_host_provider.*
+      - core/nginx/hoplite_store_host_provider.*
+      - core/nginx/hoplite_value_host_provider.*
+      - core/nginx/hoplite_value_store_host_provider.*
+      - packaging/providers/store/nginx/**
+      - packaging/providers/store/tests/**
+      - .github/workflows/store-host-provider-lifecycle.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: store-host-provider-lifecycle-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lifecycle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ env.HARA_REF }}
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.78.0
+          components: rustfmt,clippy
+      - name: Build and test the standalone SQLite provider
+        run: |
+          cargo fmt \
+            --manifest-path hoplite/core/abi/value-store-provider-ffi/Cargo.toml \
+            --all -- --check
+          cargo clippy \
+            --manifest-path hoplite/core/abi/value-store-provider-ffi/Cargo.toml \
+            --all-targets --locked -- -D warnings
+          cargo test \
+            --manifest-path hoplite/core/abi/value-store-provider-ffi/Cargo.toml \
+            --all-targets --locked
+          cargo build \
+            --manifest-path hoplite/core/abi/value-store-provider-ffi/Cargo.toml \
+            --release --locked
+      - name: Exercise disabled, invalid and ready worker lifecycles
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror \
+            -Ihoplite/core/nginx \
+            -Ihoplite/core/abi/value-store-provider-ffi/include \
+            hoplite/packaging/providers/store/tests/store_lifecycle.c \
+            hoplite/core/nginx/hoplite_store_host_provider.c \
+            hoplite/core/abi/value-store-provider-ffi/target/release/libhoplite_value_store_provider_ffi.a \
+            -ldl -lpthread -lm \
+            -o /tmp/hoplite-store-lifecycle
+
+          env -u HOPLITE_STORE_PATH \
+            -u HOPLITE_STORE_MAX_VALUE_BYTES \
+            -u HOPLITE_STORE_MAX_RECEIPT_BYTES \
+            /tmp/hoplite-store-lifecycle disabled
+
+          HOPLITE_STORE_PATH=/tmp/hoplite-store-invalid.db \
+          HOPLITE_STORE_MAX_VALUE_BYTES=0 \
+          HOPLITE_STORE_MAX_RECEIPT_BYTES=1024 \
+            /tmp/hoplite-store-lifecycle invalid
+
+          HOPLITE_STORE_PATH=/tmp/hoplite-store-ready.db \
+          HOPLITE_STORE_MAX_VALUE_BYTES=4096 \
+          HOPLITE_STORE_MAX_RECEIPT_BYTES=1024 \
+            /tmp/hoplite-store-lifecycle ready
+      - name: Preserve the combined store and value compatibility boundary
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror \
+            -Ihoplite/core/nginx \
+            -Ihoplite/core/abi/value-provider-filesystem-ffi/include \
+            -Ihoplite/core/abi/value-store-provider-ffi/include \
+            -c hoplite/core/nginx/hoplite_store_host_provider.c \
+            -o /tmp/hoplite_store_host_provider.o
+          cc -std=c11 -Wall -Wextra -Werror \
+            -Ihoplite/core/nginx \
+            -Ihoplite/core/abi/value-provider-filesystem-ffi/include \
+            -Ihoplite/core/abi/value-store-provider-ffi/include \
+            -c hoplite/core/nginx/hoplite_value_store_host_provider.c \
+            -o /tmp/hoplite_value_store_host_provider.o
+          grep -F 'hoplite_store_host_provider_init_process_v1' \
+            hoplite/core/nginx/hoplite_value_store_host_provider.c
+          grep -F 'hoplite_value_host_provider_init_process_v1' \
+            hoplite/core/nginx/hoplite_value_store_host_provider.c
+      - name: Build a store-only Nginx distribution link
+        run: |
+          make -C hoplite/core runtime nginx-source
+          cd "hoplite/core/target/sources/nginx-${NGINX_VERSION}"
+          HOPLITE_RUNTIME_DIR="$GITHUB_WORKSPACE/hoplite/core/target/release" \
+          HOPLITE_CORE_NGINX_DIR="$GITHUB_WORKSPACE/hoplite/core/nginx" \
+          HOPLITE_STORE_PROVIDER_FFI_DIR="$GITHUB_WORKSPACE/hoplite/core/abi/value-store-provider-ffi" \
+          HOPLITE_STORE_PROVIDER_LIB_DIR="$GITHUB_WORKSPACE/hoplite/core/abi/value-store-provider-ffi/target/release" \
+            ./configure \
+              --prefix="$GITHUB_WORKSPACE/hoplite/core/target/nginx-store" \
+              --with-http_ssl_module --with-threads \
+              --add-module="$GITHUB_WORKSPACE/hoplite/core/nginx" \
+              --add-module="$GITHUB_WORKSPACE/hoplite/packaging/providers/store/nginx"
+          make -j"$(nproc)"
+          make install
+          "$GITHUB_WORKSPACE/hoplite/core/target/nginx-store/sbin/nginx" -V
+      - name: Audit the store-only link and generic exclusion
+        run: |
+          binary=hoplite/core/target/nginx-store/sbin/nginx
+          nm -g "$binary" | grep -F 'hoplite_store_host_provider_init_process_v1'
+          nm -g "$binary" | grep -F 'hoplite_value_store_provider_open_sqlite_v1'
+          ! nm -g "$binary" | grep -F 'hoplite_value_host_provider_init_process_v1'
+          ! nm -g "$binary" | grep -F 'hoplite_value_store_host_provider_init_process_v1'
+          ! grep -F 'hoplite_value_host_provider' \
+            hoplite/packaging/providers/store/nginx/config \
+            hoplite/packaging/providers/store/nginx/ngx_http_hoplite_store_provider_module.c
+          ! grep -F 'hoplite_store_host_provider.c' hoplite/core/nginx/config
+          ! grep -F 'libhoplite_value_store_provider_ffi.a' hoplite/core/nginx/config
