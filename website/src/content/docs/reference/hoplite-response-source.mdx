@@ -4,7 +4,7 @@ description: Portable descriptors for provider-owned bounded response bodies.
 ---
 
 `hoplite.response-source` constructs and validates exact
-`hoplite.response-source/1` response-body descriptors.
+`hoplite.response-source/0-alpha` response-body descriptors.
 
 ```clojure
 (ns example.download
@@ -13,7 +13,7 @@ description: Portable descriptors for provider-owned bounded response bodies.
 (def body (source/response-source "hoplite.blob" 17 4096 65536))
 
 body
-;; => {:protocol "hoplite.response-source/1"
+;; => {:protocol "hoplite.response-source/0-alpha"
 ;;     :service "hoplite.blob"
 ;;     :source-handle 17
 ;;     :offset 4096

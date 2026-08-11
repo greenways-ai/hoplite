@@ -3,7 +3,7 @@ title: Native provider protocols
 description: Versioned portable request and result boundaries for Hoplite storage providers.
 ---
 
-Native providers receive an operation name plus one canonical HTA1 argument
+Native providers receive an operation name plus one canonical HTA0 argument
 vector containing an exact closed request map. The host operation and request
 operation must agree. Unknown and extra fields, malformed identifiers,
 non-canonical digests, invalid ranges, and zero handles fail before driver
@@ -11,8 +11,8 @@ execution.
 
 ## `hoplite.blob`
 
-Contract versions are `hoplite.blob-request/1` and
-`hoplite.blob-result/1`. Supported operations are:
+Contract versions are `hoplite.blob-request/0-alpha` and
+`hoplite.blob-result/0-alpha`. Supported operations are:
 
 | Operation | Mechanical purpose |
 | --- | --- |
@@ -32,8 +32,8 @@ offset, length, and positive provider-owned source handle.
 
 ## `hoplite.store`
 
-Contract versions are `hoplite.store-request/1` and
-`hoplite.store-result/1`. Supported operations are:
+Contract versions are `hoplite.store-request/0-alpha` and
+`hoplite.store-result/0-alpha`. Supported operations are:
 
 | Operation | Mechanical purpose |
 | --- | --- |
@@ -50,10 +50,10 @@ result is a semantic success.
 
 ## `hoplite.value`
 
-`object/verify-hta` accepts `hoplite.value-request/1` and returns
-`hoplite.value-result/1`. It reads one immutable object selected by digest,
+`object/verify-hta` accepts `hoplite.value-request/0-alpha` and returns
+`hoplite.value-result/0-alpha`. It reads one immutable object selected by digest,
 enforces the request maximum, verifies actual bytes and SHA-256, and decodes one
-canonical portable `hara.hta/1` value. See
+canonical portable `hara.hta/0-alpha` value. See
 [`hoplite.value`](/reference/hoplite-value/) for the HAL validators.
 
 ## Ownership and failures

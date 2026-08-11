@@ -49,7 +49,7 @@ ngx_int_t hoplite_hta_decode(ngx_pool_t *pool,
                              size_t len,
                              hoplite_hta_value_t **value);
 
-/* Copy one decoded value into its exact standalone HTA1 frame. */
+/* Copy one decoded value into its exact standalone HTA0 frame. */
 ngx_int_t hoplite_hta_copy_frame(ngx_pool_t *pool,
                                  const hoplite_hta_value_t *value,
                                  ngx_str_t *output);

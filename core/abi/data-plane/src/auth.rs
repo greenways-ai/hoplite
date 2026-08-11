@@ -3,12 +3,12 @@ use std::fmt;
 use std::num::NonZeroU64;
 
 /// The pre-production profile retained only for migration documentation.
-pub const LEGACY_SIGNED_DEVICE_PROFILE: &str = "hoplite-signed-device/1";
+pub const LEGACY_SIGNED_DEVICE_PROFILE: &str = "hoplite-signed-device/0-alpha";
 /// The closed production profile. Version 2 binds application coordinates and
 /// an idempotency key in addition to the original HTTP request fields.
-pub const SIGNED_DEVICE_PROFILE: &str = "hoplite-signed-device/2";
-pub const APPLICATION_IDENTITY_PROFILE: &str = "hoplite-application-identity/1";
-pub const VERIFIED_APPLICATION_REQUEST_PROFILE: &str = "hoplite-verified-application-request/1";
+pub const SIGNED_DEVICE_PROFILE: &str = "hoplite-signed-device/0-alpha";
+pub const APPLICATION_IDENTITY_PROFILE: &str = "hoplite-application-identity/0-alpha";
+pub const VERIFIED_APPLICATION_REQUEST_PROFILE: &str = "hoplite-verified-application-request/0-alpha";
 
 const MAX_METHOD_BYTES: usize = 32;
 const MAX_TARGET_BYTES: usize = 8 * 1024;

@@ -22,9 +22,9 @@ use std::path::{Path, PathBuf};
 
 pub const SERVICE: &str = "hoplite.value";
 pub const OPERATION: &str = "object/verify-hta";
-pub const REQUEST_PROTOCOL: &str = "hoplite.value-request/1";
-pub const RESULT_PROTOCOL: &str = "hoplite.value-result/1";
-pub const PROFILE: &str = "hara.hta/1";
+pub const REQUEST_PROTOCOL: &str = "hoplite.value-request/0-alpha";
+pub const RESULT_PROTOCOL: &str = "hoplite.value-result/0-alpha";
+pub const PROFILE: &str = "hara.hta/0-alpha";
 
 pub const OBJECT_MISSING: &str = "hoplite.value/object-missing";
 pub const MAXIMUM_EXCEEDED: &str = "hoplite.value/maximum-exceeded";
@@ -34,7 +34,7 @@ pub const HTA_NONCANONICAL: &str = "hoplite.value/hta-noncanonical";
 pub const VALUE_UNSUPPORTED: &str = "hoplite.value/value-unsupported";
 pub const PROVIDER_FAILURE: &str = "hoplite.value/provider-failure";
 
-const MAGIC: &[u8; 4] = b"HTA1";
+const MAGIC: &[u8; 4] = b"HTA0";
 const FALSE: u8 = 1;
 const TRUE: u8 = 2;
 const I64: u8 = 3;

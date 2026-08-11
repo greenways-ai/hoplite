@@ -25,7 +25,7 @@
 
 (defn response-source-descriptor
   [source-handle offset length]
-  {:protocol "hoplite.response-source/1"
+  {:protocol "hoplite.response-source/0-alpha"
    :service "hoplite.blob"
    :source-handle source-handle
    :offset offset
@@ -117,7 +117,7 @@
         (std.native.Host/call
          "hoplite.blob"
          "staging/open"
-         [{:protocol "hoplite.blob-request/1"
+         [{:protocol "hoplite.blob-request/0-alpha"
            :operation "staging/open"
            :staging-key response-source-fixture-staging-key
            :expected-digest response-source-fixture-digest
@@ -127,7 +127,7 @@
         (std.native.Host/call
          "hoplite.blob"
          "staging/append-from-source"
-         [{:protocol "hoplite.blob-request/1"
+         [{:protocol "hoplite.blob-request/0-alpha"
            :operation "staging/append-from-source"
            :staging-key response-source-fixture-staging-key
            :offset 0
@@ -137,7 +137,7 @@
         (std.native.Host/call
          "hoplite.blob"
          "staging/verify-commit"
-         [{:protocol "hoplite.blob-request/1"
+         [{:protocol "hoplite.blob-request/0-alpha"
            :operation "staging/verify-commit"
            :staging-key response-source-fixture-staging-key
            :expected-digest response-source-fixture-digest
@@ -147,7 +147,7 @@
               (std.native.Host/call
                "hoplite.blob"
                "object/open-source"
-               [{:protocol "hoplite.blob-request/1"
+               [{:protocol "hoplite.blob-request/0-alpha"
                  :operation "object/open-source"
                  :digest response-source-fixture-digest
                  :offset 0
@@ -164,7 +164,7 @@
          (std.native.Host/call
           "hoplite.blob"
           "object/open-source"
-          [{:protocol "hoplite.blob-request/1"
+          [{:protocol "hoplite.blob-request/0-alpha"
             :operation "object/open-source"
             :digest response-source-fixture-digest
             :offset 0
@@ -178,7 +178,7 @@
          (std.native.Host/call
           "hoplite.blob"
           "object/open-source"
-          [{:protocol "hoplite.blob-request/1"
+          [{:protocol "hoplite.blob-request/0-alpha"
             :operation "object/open-source"
             :digest response-source-fixture-digest
             :offset response-source-range-offset
@@ -190,7 +190,7 @@
   (std.foundation.coroutine/await
    (std.native.Host/call "nginx" "sleep" [1]))
   {:status 200
-   :body {:protocol "hoplite.response-source/1"
+   :body {:protocol "hoplite.response-source/0-alpha"
           :service "hoplite.blob"
           :source-handle 1
           :offset 0

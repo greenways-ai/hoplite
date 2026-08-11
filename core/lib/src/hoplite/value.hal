@@ -17,13 +17,13 @@
   "object/verify-hta")
 
 (def request-protocol
-  "hoplite.value-request/1")
+  "hoplite.value-request/0-alpha")
 
 (def result-protocol
-  "hoplite.value-result/1")
+  "hoplite.value-result/0-alpha")
 
 (def profile
-  "hara.hta/1")
+  "hara.hta/0-alpha")
 
 (def max-frame-bytes
   67108864)

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const MAGIC: &[u8; 4] = b"HTA1";
+const MAGIC: &[u8; 4] = b"HTA0";
 const NIL: u8 = 0;
 const I64: u8 = 3;
 const STRING: u8 = 4;

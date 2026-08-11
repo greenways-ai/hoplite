@@ -69,8 +69,8 @@ jobs:
             --tag hoplite-blob-provider-v0.1.1
             --asset hoplite-blob-provider-0.1.1.tar.gz
             --media-type application/gzip
-            --request hoplite.blob-request/1
-            --result hoplite.blob-result/1
+            --request hoplite.blob-request/0-alpha
+            --result hoplite.blob-result/0-alpha
             --abi hoplite.blob-provider-ffi
             --abi-version 1
             --driver filesystem

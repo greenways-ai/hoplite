@@ -31,7 +31,7 @@ capabilities that require operating-system or cryptographic access.
 ```
 
 `hash` currently accepts only `"sha256"`. `canonical-value-digest` hashes the
-exact canonical standalone HTA1 frame, not a printed representation.
+exact canonical standalone HTA0 frame, not a printed representation.
 
 ## Signature verification
 
@@ -63,7 +63,7 @@ installed.
 
 `random-bytes` accepts 1–4096 bytes and `hash` currently accepts only
 `"sha256"`. `canonical-value-digest` returns the lowercase SHA-256 identity of
-the exact canonical standalone HTA1 frame and rejects frames above 8 MiB.
+the exact canonical standalone HTA0 frame and rejects frames above 8 MiB.
 
 Base64url decoding requires unpadded input. Hex is canonical lowercase, and
 both codecs are bounded to 1 MiB of decoded bytes. `p256-jwk-sec1` accepts a

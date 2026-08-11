@@ -56,8 +56,8 @@ jobs:
           )
           compatibility=(
             --provider hoplite.blob
-            --request hoplite.blob-request/1
-            --result hoplite.blob-result/1
+            --request hoplite.blob-request/0-alpha
+            --result hoplite.blob-result/0-alpha
             --abi hoplite.blob-provider-ffi
             --abi-version 1
             --driver filesystem
@@ -76,7 +76,7 @@ jobs:
           fi
 
           cp packaging/providers/blob/provider-manifest.json /tmp/incompatible.json
-          sed -i 's|hoplite.blob-result/1|hoplite.blob-result/2|' /tmp/incompatible.json
+          sed -i 's|hoplite.blob-result/0-alpha|hoplite.blob-result/0-alpha|' /tmp/incompatible.json
           if "${verifier[@]}" /tmp/incompatible.json "${compatibility[@]}"; then
             echo "incompatible result contract unexpectedly passed" >&2
             exit 1

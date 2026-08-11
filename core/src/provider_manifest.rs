@@ -1,7 +1,7 @@
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 
-pub const FORMAT: &str = "hoplite.provider-manifest/v1";
+pub const FORMAT: &str = "hoplite.provider-manifest/0-alpha";
 const MAX_MANIFEST_BYTES: usize = 16 * 1024;
 const MAX_TEXT_BYTES: usize = 256;
 const MAX_JSON_DEPTH: usize = 16;
@@ -457,11 +457,11 @@ mod tests {
     use super::*;
 
     const SOURCE_MANIFEST: &str = r#"{
-  "format": "hoplite.provider-manifest/v1",
+  "format": "hoplite.provider-manifest/0-alpha",
   "provider": "hoplite.blob",
   "contract": {
-    "request": "hoplite.blob-request/1",
-    "result": "hoplite.blob-result/1"
+    "request": "hoplite.blob-request/0-alpha",
+    "result": "hoplite.blob-result/0-alpha"
   },
   "abi": {
     "name": "hoplite.blob-provider-ffi",
@@ -483,8 +483,8 @@ mod tests {
     fn expected() -> Expected<'static> {
         Expected {
             provider: "hoplite.blob",
-            request: "hoplite.blob-request/1",
-            result: "hoplite.blob-result/1",
+            request: "hoplite.blob-request/0-alpha",
+            result: "hoplite.blob-result/0-alpha",
             abi_name: "hoplite.blob-provider-ffi",
             abi_version: "1",
             driver_name: "filesystem",
@@ -567,10 +567,10 @@ mod tests {
         for source in [
             mutate(|value| value["provider"] = Value::String("hoplite.store".into())),
             mutate(|value| {
-                value["contract"]["request"] = Value::String("hoplite.blob-request/2".into())
+                value["contract"]["request"] = Value::String("hoplite.blob-request/0-alpha".into())
             }),
             mutate(|value| {
-                value["contract"]["result"] = Value::String("hoplite.blob-result/2".into())
+                value["contract"]["result"] = Value::String("hoplite.blob-result/0-alpha".into())
             }),
             mutate(|value| value["abi"]["version"] = Value::String("2".into())),
             mutate(|value| value["driver"]["version"] = Value::String("2".into())),

@@ -1,11 +1,11 @@
-//! Dependency-free model for the `hoplite-auth-store/1` HTA ABI.
+//! Dependency-free model for the `hoplite-auth-store/0-alpha` HTA ABI.
 
 use std::collections::BTreeMap;
 
 pub const ABI_ID: &str = "hoplite/auth-store";
-pub const ABI_VERSION: &str = "1.0.0";
+pub const ABI_VERSION: &str = "0.0.0-alpha";
 pub const TRANSPORT: &str = "hta.v1";
-pub const NATIVE_ABI: &str = "hoplite-auth-store/1";
+pub const NATIVE_ABI: &str = "hoplite-auth-store/0-alpha";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -420,12 +420,12 @@ fn validate_id(id: &str, label: &'static str) -> Result<(), Error> {
 }
 
 fn validate_hta(payload: &[u8]) -> Result<(), Error> {
-    if payload.starts_with(b"HTA1") {
+    if payload.starts_with(b"HTA0") {
         Ok(())
     } else {
         Err(Error::new(
             "payload-not-hta",
-            "payload must be an HTA1 frame",
+            "payload must be an HTA0 frame",
         ))
     }
 }
@@ -495,7 +495,7 @@ mod tests {
 
     #[test]
     fn requests_and_transactions_enforce_the_wire_boundary() {
-        let mutation = Request::new("req-1", "auth/user-create", b"HTA1payload".to_vec()).unwrap();
+        let mutation = Request::new("req-1", "auth/user-create", b"HTA0payload".to_vec()).unwrap();
         assert_eq!(
             Transaction::new("txn-1", vec![mutation])
                 .unwrap()
@@ -504,7 +504,7 @@ mod tests {
             1
         );
 
-        let query = Request::new("req-2", "auth/user-find", b"HTA1payload".to_vec()).unwrap();
+        let query = Request::new("req-2", "auth/user-find", b"HTA0payload".to_vec()).unwrap();
         assert_eq!(
             Transaction::new("txn-2", vec![query]).unwrap_err().code,
             "transaction-query"
@@ -519,9 +519,9 @@ mod tests {
 
     #[test]
     fn responses_preserve_request_and_transaction_identity() {
-        let request = Request::new("req-1", "auth/user-create", b"HTA1input".to_vec()).unwrap();
+        let request = Request::new("req-1", "auth/user-create", b"HTA0input".to_vec()).unwrap();
         let transaction = Transaction::new("txn-1", vec![request]).unwrap();
-        let response = Response::success("req-1", b"HTA1output".to_vec()).unwrap();
+        let response = Response::success("req-1", b"HTA0output".to_vec()).unwrap();
         assert_eq!(
             TransactionResponse::new(&transaction, vec![response])
                 .unwrap()

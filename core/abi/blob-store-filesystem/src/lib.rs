@@ -26,8 +26,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
-const STAGING_MAGIC: &[u8; 4] = b"HBS1";
-const OBJECT_MAGIC: &[u8; 4] = b"HBO1";
+const STAGING_MAGIC: &[u8; 4] = b"HBS0";
+const OBJECT_MAGIC: &[u8; 4] = b"HBO0";
 const TEMP_PREFIX: &str = ".hoplite-tmp-";
 const LOCK_FILE: &str = "store.lock";
 const IO_CHUNK_BYTES: usize = 64 * 1024;

@@ -316,5 +316,5 @@ assert_full_response 'Post-recreation full response-source retrieval'
 assert_range_response 'Post-recreation non-zero response-source range'
 assert_head_response "$base/response-source" 200 "$expected_size"
 
-printf 'Validated persistent bounded hoplite.response-source/1 streaming through %s on port %s.\n' \
+printf 'Validated persistent bounded hoplite.response-source/0-alpha streaming through %s on port %s.\n' \
   "$image" "$port"

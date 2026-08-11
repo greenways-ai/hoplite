@@ -1033,7 +1033,7 @@ ngx_http_hoplite_send_result(ngx_http_hoplite_ctx_t *ctx,
         {
             ngx_str_set(
                 &body,
-                "Hoplite response source must be an exact hoplite.response-source/1 map\n");
+                "Hoplite response source must be an exact hoplite.response-source/0-alpha map\n");
             ngx_http_hoplite_send(
                 ctx, NGX_HTTP_INTERNAL_SERVER_ERROR, &body, NULL);
             return;
@@ -1916,7 +1916,7 @@ ngx_http_hoplite_bootstrap(ngx_cycle_t *cycle, const ngx_str_t *path)
     {
         ngx_free(source.data);
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
-                      "hoplite HBB2 bootstrap loading failed");
+                      "hoplite HBX0 bootstrap loading failed");
         return NGX_ERROR;
     }
     ngx_free(source.data);

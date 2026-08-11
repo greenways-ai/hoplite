@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define HOPLITE_BLOB_STORE_PROVIDER_ABI_VERSION 1u
+#define HOPLITE_BLOB_STORE_PROVIDER_ABI_VERSION 0u
 
 #define HOPLITE_BLOB_STORE_PROVIDER_OK 0
 #define HOPLITE_BLOB_STORE_PROVIDER_INVALID 1
@@ -80,7 +80,7 @@ int32_t hoplite_blob_store_provider_open_filesystem_v1(
     hoplite_blob_store_provider_t **provider);
 
 /*
- * Execute one exact hoplite.blob operation over a standalone canonical HTA1
+ * Execute one exact hoplite.blob operation over a standalone canonical HTA0
  * argument frame. Request source callbacks are already bound by the host to
  * the exact request and work. The provider returns an owned canonical result
  * frame or a closed stable error-code string.

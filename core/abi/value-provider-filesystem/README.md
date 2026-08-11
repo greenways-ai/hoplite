@@ -9,7 +9,7 @@ operation  object/verify-hta
 ```
 
 It does not implement another object store or filesystem read law. Immutable
-object lookup, `HBO1` metadata validation, lock coordination, bounded reads and
+object lookup, `HBO0` metadata validation, lock coordination, bounded reads and
 actual SHA-256 verification are supplied by the shared
 `hoplite-blob-filesystem-reader` package over the object root owned by
 `hoplite.blob`.
@@ -17,17 +17,17 @@ actual SHA-256 verification are supplied by the shared
 ## Verification path
 
 ```text
-closed hoplite.value-request/1
+closed hoplite.value-request/0-alpha
   -> shared verified object reader
   -> exact digest and maximum agreement
   -> hara_hta::decode_canonical(bytes, max-bytes)
-  -> closed hoplite.value-result/1
+  -> closed hoplite.value-result/0-alpha
 ```
 
 The request can contain only:
 
 ```clojure
-{:protocol "hoplite.value-request/1"
+{:protocol "hoplite.value-request/0-alpha"
  :operation "object/verify-hta"
  :digest "sha256:..."
  :max-bytes 1048576}
@@ -38,7 +38,7 @@ decoder, application, namespace, schema, package or command.
 
 ## Authority boundary
 
-Hara owns the request/result profiles, portable `hara.hta/1` value model,
+Hara owns the request/result profiles, portable `hara.hta/0-alpha` value model,
 canonical decoder and stable generic value-verification failure codes.
 
 The shared blob filesystem reader owns:
@@ -46,17 +46,17 @@ The shared blob filesystem reader owns:
 - the installation-selected immutable object root;
 - digest-derived lookup under `objects/sha256`;
 - the shared `store.lock` read boundary;
-- exact `HBO1` metadata validation;
+- exact `HBO0` metadata validation;
 - bounded actual reads and short/excess-read detection;
 - actual-byte SHA-256 verification.
 
 This adapter owns only:
 
-- exact `hoplite.value-request/1` validation;
+- exact `hoplite.value-request/0-alpha` validation;
 - mandatory request and installation ceilings;
 - translation of mechanical reader failures into `hoplite.value/*` results;
 - canonical HTA decoding and portable-value classification;
-- exact `hoplite.value-result/1` construction.
+- exact `hoplite.value-result/0-alpha` construction.
 
 Tahto remains responsible for namespace authorization before dispatch, expected
 object-size agreement, exact schema-reference binding, installed specification
@@ -67,12 +67,12 @@ validation and all semantic mutation.
 A verified object returns the decoded portable value:
 
 ```clojure
-{:protocol "hoplite.value-result/1"
+{:protocol "hoplite.value-result/0-alpha"
  :operation "object/verify-hta"
  :verified true
  :digest "sha256:..."
  :byte-length 512
- :profile "hara.hta/1"
+ :profile "hara.hta/0-alpha"
  :value decoded-portable-value}
 ```
 

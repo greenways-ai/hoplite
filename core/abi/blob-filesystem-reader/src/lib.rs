@@ -3,7 +3,7 @@
 //! Verified access to the immutable filesystem object layout used by Hoplite
 //! blob providers.
 //!
-//! This package owns the physical `objects/sha256` layout, `HBO1` metadata,
+//! This package owns the physical `objects/sha256` layout, `HBO0` metadata,
 //! shared `store.lock` coordination, bounded actual reads, streaming range
 //! sources and SHA-256 verification. It does not stage, install, decode or
 //! interpret an object value.
@@ -17,7 +17,7 @@ use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
-const OBJECT_MAGIC: &[u8; 4] = b"HBO1";
+const OBJECT_MAGIC: &[u8; 4] = b"HBO0";
 const LOCK_FILE: &str = "store.lock";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

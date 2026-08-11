@@ -28,7 +28,7 @@ fails closed.
 Portable Hara requests contain only:
 
 ```clojure
-{:protocol "hoplite.value-request/1"
+{:protocol "hoplite.value-request/0-alpha"
  :operation "object/verify-hta"
  :digest "sha256:..."
  :max-bytes 1048576}
@@ -60,15 +60,15 @@ registered hoplite.value call
   -> shared blob filesystem reader
        -> digest-derived provider-owned path
        -> shared store.lock
-       -> exact HBO1 metadata
+       -> exact HBO0 metadata
        -> bounded actual read
        -> actual size and SHA-256 verification
   -> Hara canonical HTA decoding
-  -> closed hoplite.value-result/1
+  -> closed hoplite.value-result/0-alpha
 ```
 
 The reader never treats metadata size as proof of the bytes. The value adapter
-contains no `objects/sha256`, `HBO1`, lock, filesystem or SHA-256 implementation
+contains no `objects/sha256`, `HBO0`, lock, filesystem or SHA-256 implementation
 and never exposes operating-system, path or provider details in portable
 results.
 
@@ -106,7 +106,7 @@ built and linted with its Rust 1.78 compatibility toolchain and exact pinned Har
 canonical decoder. This split does not change either portable contract.
 
 The backend lock and all compatibility expectations are trusted distribution
-inputs. They are not available through `hoplite.value-request/1`, cannot be
+inputs. They are not available through `hoplite.value-request/0-alpha`, cannot be
 selected by application HAL and do not change namespace authorization.
 
 This boundary proves backend identity but does not yet publish a complete

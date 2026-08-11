@@ -109,7 +109,7 @@ jobs:
             hoplite/core/abi/value-provider-filesystem/src/reader.rs \
             hoplite/core/abi/value-provider-filesystem/src/provider.rs \
             hoplite/core/abi/value-provider-filesystem/src/hta.rs
-          ! grep -F 'HBO1' \
+          ! grep -F 'HBO0' \
             hoplite/core/abi/value-provider-filesystem/src/lib.rs \
             hoplite/core/abi/value-provider-filesystem/src/reader.rs \
             hoplite/core/abi/value-provider-filesystem/src/provider.rs \

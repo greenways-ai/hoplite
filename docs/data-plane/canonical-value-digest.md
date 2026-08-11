@@ -1,7 +1,7 @@
 # Canonical value digests
 
 `hoplite.host/canonical-value-digest` hashes the exact canonical standalone
-HTA1 encoding of one portable Hara value and returns a lowercase
+HTA0 encoding of one portable Hara value and returns a lowercase
 `sha256:<hex>` digest.
 
 This operation lets an application prepare a generic `hoplite.store`

@@ -1,5 +1,5 @@
 {
-  "format": "hoplite.provider-set-lock/v1",
+  "format": "hoplite.provider-set-lock/0-alpha",
   "profile": "hoplite.blob+value/1",
   "providers": [
     {

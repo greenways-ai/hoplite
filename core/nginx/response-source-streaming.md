@@ -1,9 +1,9 @@
-# Nginx `hoplite.response-source/1` transport
+# Nginx `hoplite.response-source/0-alpha` transport
 
 Hoplite recognizes one closed portable response body:
 
 ```clojure
-{:protocol "hoplite.response-source/1"
+{:protocol "hoplite.response-source/0-alpha"
  :service "hoplite.blob"
  :source-handle 17
  :offset 4

@@ -126,7 +126,7 @@ for path in "${required_files[@]}"; do
   fi
 done
 
-if [[ $(<"$package_root/PACKAGE_FORMAT") != hoplite.provider-source/v1 ]]; then
+if [[ $(<"$package_root/PACKAGE_FORMAT") != hoplite.provider-source/0-alpha ]]; then
   echo "provider artifact format is incompatible" >&2
   exit 1
 fi

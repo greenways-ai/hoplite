@@ -5,7 +5,7 @@
 > core workspace and is not linked into published release builds. Current
 > applications authenticate and authorize inside HAL handlers.
 
-The retained implementation binds the closed `hoplite-signed-device/2` request to a trusted
+The retained implementation binds the closed `hoplite-signed-device/0-alpha` request to a trusted
 Hoplite route, verifies it with the installed Ed25519 key set, atomically
 admits its nonce and idempotency key, and returns one bounded application
 identity projection.
@@ -23,7 +23,7 @@ HOPLITE_SIGNED_DEVICE_KEYS_PATH
 HOPLITE_SIGNED_DEVICE_REPLAY_PATH
 ```
 
-The key document is `hoplite-signed-device-keys/1`. It contains public keys,
+The key document is `hoplite-signed-device-keys/0-alpha`. It contains public keys,
 key lifecycle windows, freshness limits, and allowlisted application claims.
 It cannot contain private keys, database paths, provider names, or application
 state.

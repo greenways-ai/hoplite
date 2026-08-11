@@ -1,6 +1,6 @@
 use super::*;
 
-pub const FORMAT: &str = "hoplite.provider-set-lock/v1";
+pub const FORMAT: &str = "hoplite.provider-set-lock/0-alpha";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Expected<'a> {
@@ -270,7 +270,7 @@ mod tests {
     const CONSUMER_DIGEST: &str =
         "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const BACKEND_LOCK: &str = r#"{
-  "format": "hoplite.provider-lock/v1",
+  "format": "hoplite.provider-lock/0-alpha",
   "provider": "hoplite.blob",
   "version": "0.1.1",
   "source_revision": "0123456789abcdef0123456789abcdef01234567",
@@ -278,7 +278,7 @@ mod tests {
   "artifact": {"name": "blob.tar.gz", "media_type": "application/gzip", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 }"#;
     const CONSUMER_LOCK: &str = r#"{
-  "format": "hoplite.provider-lock/v1",
+  "format": "hoplite.provider-lock/0-alpha",
   "provider": "hoplite.value",
   "version": "0.1.0",
   "source_revision": "fedcba9876543210fedcba9876543210fedcba98",
@@ -286,7 +286,7 @@ mod tests {
   "artifact": {"name": "value.tar.gz", "media_type": "application/gzip", "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
 }"#;
     const OBJECT_BINDING: &str = r#"{
-  "format": "hoplite.object-backend-lock/v1",
+  "format": "hoplite.object-backend-lock/0-alpha",
   "consumer": "hoplite.value",
   "backend": {
     "package": "hoplite-blob-filesystem-reader",
@@ -295,7 +295,7 @@ mod tests {
   }
 }"#;
     const SET: &str = r#"{
-  "format": "hoplite.provider-set-lock/v1",
+  "format": "hoplite.provider-set-lock/0-alpha",
   "profile": "hoplite.blob+value/1",
   "providers": [
     {"provider": "hoplite.blob", "version": "0.1.1", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},

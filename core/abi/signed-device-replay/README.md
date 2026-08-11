@@ -7,7 +7,7 @@
 This crate supplies the application-neutral durable admission law used after a
 Hoplite signed application request has been cryptographically verified.
 
-It binds one exact `hoplite-signed-device/2` signing input to:
+It binds one exact `hoplite-signed-device/0-alpha` signing input to:
 
 - the verified application subject, device and key;
 - the application, namespace, collection and operation;

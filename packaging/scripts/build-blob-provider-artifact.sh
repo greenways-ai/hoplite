@@ -75,7 +75,7 @@ for crate in \
   cp -R "$source_tree/core/abi/$crate" "$package_root/abi/$crate"
 done
 
-printf '%s\n' 'hoplite.provider-source/v1' > "$package_root/PACKAGE_FORMAT"
+printf '%s\n' 'hoplite.provider-source/0-alpha' > "$package_root/PACKAGE_FORMAT"
 printf '%s\n' "$version" > "$package_root/PACKAGE_VERSION"
 printf '%s\n' "$commit" > "$package_root/SOURCE_REVISION"
 cat > "$package_root/README.md" <<EOF

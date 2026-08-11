@@ -178,7 +178,7 @@ equivalent runtime transport. Both are produced from the selected profile in
 `project.edn`.
 
 `app.hbc` is the production startup artifact: a deterministic, checksummed
-HBB2 bundle of eager HBC5 modules. Nginx worker startup passes those bytes
+HBX0 bundle of eager HBC0 modules. Nginx worker startup passes those bytes
 through Hoplite runtime ABI V4, validates every module before mutation, and
 loads the bundle transactionally. `app.hal` remains inspectable build output;
 workers do not parse or compile it.
@@ -279,9 +279,9 @@ The bytecode loading benchmark compares HAL compilation, HBC decoding, and
 already-decoded execution for `hoplite.core`, `hoplite.internal`, and
 `hoplite.dev`. It also performs a paired cold-start comparison using a fresh
 runtime for every sample: complete `.hal` module evaluation versus validated,
-transactional HBB2 loading of its eager HBC5 module. Production startup uses
-that same shared HBC5/HBB2 loader. The Make target runs with `--check` and fails
-if either HBC decoding does not beat HAL compilation or HBB2 module loading does
+transactional HBX0 loading of its eager HBC0 module. Production startup uses
+that same shared HBC0/HBX0 loader. The Make target runs with `--check` and fails
+if either HBC decoding does not beat HAL compilation or HBX0 module loading does
 not beat HAL module loading for every library. This startup gate is independent
 of the VM execution-throughput comparisons in `hara-benchmarks`.
 

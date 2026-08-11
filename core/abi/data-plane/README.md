@@ -46,7 +46,7 @@ upstream URL.
 `SignedDeviceRequest` fixes the exact production signing fields:
 
 ```text
-hoplite-signed-device/2
+hoplite-signed-device/0-alpha
 method
 target
 authority
@@ -63,7 +63,7 @@ key id
 
 The encoded signature is carried beside those fields and is never part of the
 signing input. Version 2 is necessary because the earlier
-`hoplite-signed-device/1` profile did not bind the application operation,
+`hoplite-signed-device/0-alpha` profile did not bind the application operation,
 coordinates, or idempotency key. Production providers must not accept version
 1 as an alias for version 2.
 
@@ -75,7 +75,7 @@ reject whitespace or delimiter ambiguity before a provider is invoked.
 HTTP exchange and selected route. `authenticate_application_request` compares
 every signed transport and application field against those facts before
 calling a provider. It then projects only a closed application identity and
-returns `hoplite-verified-application-request/1` evidence.
+returns `hoplite-verified-application-request/0-alpha` evidence.
 
 `SignedDeviceProvider` is application-neutral. An installed provider owns key
 lookup, clock policy, signature verification and revocation checks. Durable

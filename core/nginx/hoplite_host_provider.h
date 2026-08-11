@@ -6,7 +6,7 @@
 
 #include "hoplite_host_registry.h"
 
-#define HOPLITE_HOST_PROVIDER_ABI_VERSION 1u
+#define HOPLITE_HOST_PROVIDER_ABI_VERSION 0u
 
 #define HOPLITE_HOST_PROVIDER_OK 0
 #define HOPLITE_HOST_PROVIDER_PENDING 1
@@ -41,7 +41,7 @@ typedef struct {
     uint64_t work;
     uint64_t call;
     hoplite_host_service_t operation;
-    /* Exact standalone HTA1 frame for the Hara call arguments. */
+    /* Exact standalone HTA0 frame for the Hara call arguments. */
     hoplite_host_service_t arguments_hta;
     hoplite_host_completer_v1_t completer;
 } hoplite_host_call_v1_t;

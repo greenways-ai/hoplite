@@ -145,7 +145,7 @@ fn expectation<'a>(target: &'a str) -> ApplicationRequestExpectation<'a> {
 
 #[test]
 fn signed_device_v2_binds_application_coordinates_and_idempotency() {
-    let mut unsigned = request("/tahto/v1/objects", "");
+    let mut unsigned = request("/tahto/0-alpha/objects", "");
     let input = unsigned.signing_input().unwrap();
     assert!(matches!(
         unsigned.validate(),
@@ -156,9 +156,9 @@ fn signed_device_v2_binds_application_coordinates_and_idempotency() {
     assert_eq!(
         input,
         concat!(
-            "hoplite-signed-device/2\n",
+            "hoplite-signed-device/0-alpha\n",
             "PUT\n",
-            "/tahto/v1/objects\n",
+            "/tahto/0-alpha/objects\n",
             "tahto.local\n",
             "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
             "object.upload\n",
@@ -175,7 +175,7 @@ fn signed_device_v2_binds_application_coordinates_and_idempotency() {
 
 #[test]
 fn signed_request_debug_output_redacts_the_signature() {
-    let request = request("/tahto/v1/objects", "secret-signature-1");
+    let request = request("/tahto/0-alpha/objects", "secret-signature-1");
     let debug = format!("{request:?}");
     assert!(debug.contains("<redacted>"));
     assert!(!debug.contains("secret-signature-1"));
@@ -183,14 +183,14 @@ fn signed_request_debug_output_redacts_the_signature() {
 
 #[test]
 fn signed_device_input_rejects_absolute_or_path_like_authority() {
-    assert!(request("/tahto/v1/objects", "0123456789abcdef")
+    assert!(request("/tahto/0-alpha/objects", "0123456789abcdef")
         .signing_input()
         .is_ok());
     assert!(matches!(
         request("https://evil.example/object", "0123456789abcdef").validate(),
         Err(SignedDeviceError::InvalidTarget)
     ));
-    let mut invalid = request("/tahto/v1/objects", "0123456789abcdef");
+    let mut invalid = request("/tahto/0-alpha/objects", "0123456789abcdef");
     invalid.authority = "user@tahto.local/path";
     assert!(matches!(
         invalid.validate(),
@@ -200,13 +200,13 @@ fn signed_device_input_rejects_absolute_or_path_like_authority() {
 
 #[test]
 fn signed_device_input_rejects_unbound_or_ambiguous_application_fields() {
-    let mut invalid = request("/tahto/v1/objects", "0123456789abcdef");
+    let mut invalid = request("/tahto/0-alpha/objects", "0123456789abcdef");
     invalid.operation = "Object Upload";
     assert!(matches!(
         invalid.validate(),
         Err(SignedDeviceError::InvalidOperation)
     ));
-    invalid = request("/tahto/v1/objects", "0123456789abcdef");
+    invalid = request("/tahto/0-alpha/objects", "0123456789abcdef");
     invalid.idempotency_key = "short";
     assert!(matches!(
         invalid.validate(),
@@ -284,11 +284,11 @@ fn application_authentication_returns_only_closed_verified_evidence() {
         principal: application_principal("application"),
         calls: 0,
     };
-    let request = request("/tahto/v1/objects", "valid-signature-1");
+    let request = request("/tahto/0-alpha/objects", "valid-signature-1");
     let verified = authenticate_application_request(
         &mut provider,
         &request,
-        &expectation("/tahto/v1/objects"),
+        &expectation("/tahto/0-alpha/objects"),
     )
     .unwrap();
     assert_eq!(provider.calls, 1);
@@ -310,8 +310,8 @@ fn trusted_request_mismatch_fails_before_signature_provider_access() {
         principal: application_principal("application"),
         calls: 0,
     };
-    let request = request("/tahto/v1/objects", "valid-signature-1");
-    let mut expected = expectation("/tahto/v1/objects");
+    let request = request("/tahto/0-alpha/objects", "valid-signature-1");
+    let mut expected = expectation("/tahto/0-alpha/objects");
     expected.content_digest =
         "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
     let error = authenticate_application_request(&mut provider, &request, &expected).unwrap_err();
@@ -325,7 +325,7 @@ fn trusted_request_mismatch_fails_before_signature_provider_access() {
 
 #[test]
 fn management_identity_and_unlisted_operations_fail_closed() {
-    let request = request("/tahto/v1/objects", "valid-signature-1");
+    let request = request("/tahto/0-alpha/objects", "valid-signature-1");
     let mut management = FixtureProvider {
         principal: application_principal("management"),
         calls: 0,
@@ -334,7 +334,7 @@ fn management_identity_and_unlisted_operations_fail_closed() {
         authenticate_application_request(
             &mut management,
             &request,
-            &expectation("/tahto/v1/objects")
+            &expectation("/tahto/0-alpha/objects")
         )
         .unwrap_err(),
         ApplicationAuthenticationError::WrongRealm
@@ -352,7 +352,7 @@ fn management_identity_and_unlisted_operations_fail_closed() {
         authenticate_application_request(
             &mut provider,
             &request,
-            &expectation("/tahto/v1/objects")
+            &expectation("/tahto/0-alpha/objects")
         )
         .unwrap_err(),
         ApplicationAuthenticationError::OperationNotAllowed
@@ -371,11 +371,11 @@ fn provider_details_are_collapsed_to_stable_rejection_codes() {
         }
     }
 
-    let request = request("/tahto/v1/objects", "valid-signature-1");
+    let request = request("/tahto/0-alpha/objects", "valid-signature-1");
     let error = authenticate_application_request(
         &mut FailingProvider,
         &request,
-        &expectation("/tahto/v1/objects"),
+        &expectation("/tahto/0-alpha/objects"),
     )
     .unwrap_err();
     assert_eq!(error.code(), "hoplite.signed-device/provider-failed");

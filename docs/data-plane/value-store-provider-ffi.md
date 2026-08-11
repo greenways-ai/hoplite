@@ -12,9 +12,9 @@ These values are not accepted from Hara calls.
 
 ## Execution
 
-The caller supplies one UTF-8 operation name and one standalone canonical `HTA1` argument frame. Normal protocol execution always returns an owned frame:
+The caller supplies one UTF-8 operation name and one standalone canonical `HTA0` argument frame. Normal protocol execution always returns an owned frame:
 
-- `HOPLITE_VALUE_STORE_RESULT_SUCCESS` contains a canonical `hoplite.store-result/1` frame or nil;
+- `HOPLITE_VALUE_STORE_RESULT_SUCCESS` contains a canonical `hoplite.store-result/0-alpha` frame or nil;
 - `HOPLITE_VALUE_STORE_RESULT_FAILURE` contains one HTA string with only the stable application-neutral error code.
 
 Storage paths, SQL text, credentials and opaque application values are not copied into failure frames.

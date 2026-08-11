@@ -12,7 +12,7 @@ This crate is the first concrete provider for the application-neutral
 It owns only trusted host mechanics:
 
 - configured Ed25519 public-key lookup;
-- exact `hoplite-signed-device/2` verification;
+- exact `hoplite-signed-device/0-alpha` verification;
 - bounded past/future timestamp policy;
 - key activation, expiry and revocation checks; and
 - construction of an internal signed-device principal.

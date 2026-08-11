@@ -23,7 +23,7 @@ invoke(const hoplite_host_call_v1_t *call)
     assert(call->operation.len == 4);
     assert(memcmp(call->operation.data, "load", 4) == 0);
     assert(call->arguments_hta.len == 5);
-    assert(memcmp(call->arguments_hta.data, "HTA1\0", 5) == 0);
+    assert(memcmp(call->arguments_hta.data, "HTA0\0", 5) == 0);
     return call->completer.succeed(
         call->completer.context,
         call->arguments_hta.data,
@@ -68,7 +68,7 @@ main(void)
         7,
         11,
         {(const uint8_t *) "load", sizeof("load") - 1},
-        {(const uint8_t *) "HTA1\0", 5},
+        {(const uint8_t *) "HTA0\0", 5},
         {&completed, complete, complete}
     };
 

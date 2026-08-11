@@ -3,7 +3,7 @@
 //! Portable synchronous C boundary for the generic `hoplite.store` provider.
 //!
 //! Trusted startup code selects the SQLite path and fixed span limits. Hara
-//! supplies only an operation and one canonical standalone HTA1 argument frame.
+//! supplies only an operation and one canonical standalone HTA0 argument frame.
 //! Protocol failures are returned as a closed HTA string containing the stable
 //! application-neutral error code; paths, SQL text and opaque values are never
 //! included in failure frames.
@@ -16,7 +16,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::{ptr, slice, str};
 
-const ABI_VERSION: u32 = 1;
+const ABI_VERSION: u32 = 0;
 const STATUS_OK: i32 = 0;
 const STATUS_INVALID: i32 = 1;
 const STATUS_OPEN_ERROR: i32 = 2;
@@ -25,7 +25,7 @@ const STATUS_PANIC: i32 = 3;
 const RESULT_SUCCESS: u32 = 0;
 const RESULT_FAILURE: u32 = 1;
 
-const MAGIC: &[u8; 4] = b"HTA1";
+const MAGIC: &[u8; 4] = b"HTA0";
 const HTA_STRING: u8 = 4;
 
 #[repr(C)]

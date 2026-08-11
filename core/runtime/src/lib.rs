@@ -16,7 +16,7 @@ use std::ptr;
 use std::rc::Rc;
 use std::{ffi::c_void, slice, str};
 
-const ABI_VERSION: u32 = 4;
+const ABI_VERSION: u32 = 0;
 const MAX_CHILD_DRIVE_PASSES: usize = 64;
 type HostCall = (u64, Promise, String, String, Vec<Value>);
 
@@ -2322,7 +2322,7 @@ mod tests {
         let mut compiler = hara_wasm::Runtime::new();
         let successful = bytecode_module(&mut compiler, "example.bytecode", "(defn answer [] 42)");
         let bundle = vm::encode_bytecode_bundle(&[successful]).unwrap();
-        assert_eq!(&bundle[..4], b"HBB2");
+        assert_eq!(&bundle[..4], b"HBX0");
         let mut runtime = HopliteRuntime::new();
         runtime.bootstrap_bytecode(&bundle).unwrap();
         assert!(runtime

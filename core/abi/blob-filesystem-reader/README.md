@@ -10,7 +10,7 @@ single reusable implementation of the installed filesystem read law:
 canonical digest + positive maximum
   -> trusted objects/sha256 lookup
   -> shared store.lock
-  -> exact HBO1 metadata
+  -> exact HBO0 metadata
   -> bounded actual read
   -> actual byte-length agreement
   -> actual SHA-256 verification
@@ -43,7 +43,7 @@ application coordinate or decoded value.
 ```text
 closed request validation
   -> canonical HTA decoding
-  -> closed hoplite.value-result/1
+  -> closed hoplite.value-result/0-alpha
 ```
 
 The filesystem blob driver remains responsible for staging and immutable

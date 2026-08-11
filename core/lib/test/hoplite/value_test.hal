@@ -30,7 +30,7 @@
  [(test/check
    "constructs one closed application-neutral verification request"
    request
-   {:protocol "hoplite.value-request/1"
+   {:protocol "hoplite.value-request/0-alpha"
     :operation "object/verify-hta"
     :digest digest-a
     :max-bytes 1024})
@@ -129,6 +129,6 @@
     (has? request :url)
     (has? request :credentials)
     (has? request :source-handle)]
-   ["hoplite.value-request/1"
+   ["hoplite.value-request/0-alpha"
     "object/verify-hta"
     false false false false false false])])

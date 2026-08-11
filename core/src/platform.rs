@@ -198,8 +198,8 @@ fn bind_lock(project: &Project, config: &mut Config) -> Result<(), String> {
     })?;
     let form = parse(&source).map_err(|error| format!("{}: {error}", path.display()))?;
     let lock = form_map(&form, "project.lock.edn must be an EDN map")?;
-    if !matches!(lookup(lock, "lock/format"), Some(Form::Number(1))) {
-        return Err("project.lock.edn requires :lock/format 1".into());
+    if !matches!(lookup(lock, "lock/format"), Some(Form::String(version)) if version == "0.0.0-alpha") {
+        return Err("project.lock.edn requires :lock/format \"0.0.0-alpha\"".into());
     }
     let packages = form_map(
         required(lock, "packages", "project.lock.edn")?,
@@ -911,7 +911,7 @@ mod tests {
         assert!(readable.contains(":auth/principal-contract \"1.0.0\""));
         assert!(readable.contains(":principal/session-id"));
         assert!(readable.contains(":session/rotate-refresh-tokens true"));
-        assert!(super::manifest(&config).unwrap().starts_with(b"HTA1"));
+        assert!(super::manifest(&config).unwrap().starts_with(b"HTA0"));
     }
 
     #[test]
@@ -980,7 +980,7 @@ mod tests {
         fs::write(
             root.join("project.lock.edn"),
             format!(
-                "{{:lock/format 1 :packages {{\"gh:greenways-ai:hoplite\" {{:version \"0.1.0\" :archive-sha256 \"{core_digest}\"}} \"gh:greenways-ai:hoplite-store-sqlite\" {{:version \"0.1.0\" :archive-sha256 \"{store_digest}\"}}}}}}"
+                "{{:lock/format \"0.0.0-alpha\" :packages {{\"gh:greenways-ai:hoplite\" {{:version \"0.1.0\" :archive-sha256 \"{core_digest}\"}} \"gh:greenways-ai:hoplite-store-sqlite\" {{:version \"0.1.0\" :archive-sha256 \"{store_digest}\"}}}}}}"
             ),
         )
         .unwrap();
@@ -999,7 +999,7 @@ mod tests {
 
         fs::write(
             root.join("project.lock.edn"),
-            "{:lock/format 1 :packages {}}",
+            "{:lock/format \"0.0.0-alpha\" :packages {}}",
         )
         .unwrap();
         assert!(load(&project, None)

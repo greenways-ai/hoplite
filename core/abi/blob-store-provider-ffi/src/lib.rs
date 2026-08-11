@@ -28,7 +28,7 @@ use std::slice;
 use std::str;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 0;
 pub const STATUS_OK: i32 = 0;
 pub const STATUS_INVALID: i32 = 1;
 pub const STATUS_FAILURE: i32 = 2;
@@ -36,7 +36,7 @@ pub const STATUS_RESOURCE_ERROR: i32 = 3;
 pub const RESULT_SUCCESS: u32 = 1;
 pub const RESULT_FAILURE: u32 = 2;
 
-const HTA_MAGIC: &[u8; 4] = b"HTA1";
+const HTA_MAGIC: &[u8; 4] = b"HTA0";
 const HTA_STRING: u8 = 4;
 const MAX_HANDLE: u64 = i64::MAX as u64;
 
@@ -1065,7 +1065,7 @@ mod tests {
             ("expected-size", bare_i64(bytes.len() as u64)),
             ("media-type", bare_string("application/octet-stream")),
             ("operation", bare_string("staging/open")),
-            ("protocol", bare_string("hoplite.blob-request/1")),
+            ("protocol", bare_string("hoplite.blob-request/0-alpha")),
             ("staging-key", bare_string(key)),
         ]))
     }
@@ -1075,7 +1075,7 @@ mod tests {
             ("length", bare_i64(bytes.len() as u64)),
             ("offset", bare_i64(0)),
             ("operation", bare_string("staging/append-from-source")),
-            ("protocol", bare_string("hoplite.blob-request/1")),
+            ("protocol", bare_string("hoplite.blob-request/0-alpha")),
             ("source-handle", bare_i64(handle)),
             ("staging-key", bare_string(key)),
         ]))
@@ -1086,7 +1086,7 @@ mod tests {
             ("expected-digest", bare_string(&digest(bytes))),
             ("expected-size", bare_i64(bytes.len() as u64)),
             ("operation", bare_string("staging/verify-commit")),
-            ("protocol", bare_string("hoplite.blob-request/1")),
+            ("protocol", bare_string("hoplite.blob-request/0-alpha")),
             ("staging-key", bare_string(key)),
         ]))
     }
@@ -1097,7 +1097,7 @@ mod tests {
             ("length", bare_i64(length)),
             ("offset", bare_i64(offset)),
             ("operation", bare_string("object/open-source")),
-            ("protocol", bare_string("hoplite.blob-request/1")),
+            ("protocol", bare_string("hoplite.blob-request/0-alpha")),
         ]))
     }
 

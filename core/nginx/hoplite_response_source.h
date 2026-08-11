@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define HOPLITE_RESPONSE_SOURCE_PROTOCOL "hoplite.response-source/1"
+#define HOPLITE_RESPONSE_SOURCE_PROTOCOL "hoplite.response-source/0-alpha"
 #define HOPLITE_RESPONSE_SOURCE_SAFE_INTEGER_MAX UINT64_C(9007199254740991)
 
 #define HOPLITE_RESPONSE_SOURCE_OK 0

@@ -15,7 +15,7 @@ use std::collections::{btree_map::Entry, BTreeMap};
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const PROVIDER_ID: &str = "hoplite.signed-device.ed25519/1";
+pub const PROVIDER_ID: &str = "hoplite.signed-device.ed25519/0-alpha";
 const MAX_CONFIG_TEXT_BYTES: usize = 256;
 const MAX_CLAIMS: usize = 64;
 const MAX_CLAIM_NAME_BYTES: usize = 128;

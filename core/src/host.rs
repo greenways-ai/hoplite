@@ -329,7 +329,7 @@ mod tests {
     #[test]
     fn verifies_browser_compatible_p256_p1363_signatures() {
         let signing_key = SigningKey::from_bytes((&[7_u8; 32]).into()).expect("fixed test key");
-        let message = b"tahto.device-request/1\nsha256:fixture";
+        let message = b"tahto.device-request/0-alpha\nsha256:fixture";
         let signature: Signature = signing_key.sign(message);
         let public_key = signing_key.verifying_key().to_encoded_point(false);
         let verified = dispatch(

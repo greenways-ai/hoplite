@@ -99,8 +99,8 @@ jobs:
             --bin hoplite-provider-manifest -- \
             packaging/providers/value/provider-manifest.json \
             --provider hoplite.value \
-            --request hoplite.value-request/1 \
-            --result hoplite.value-result/1 \
+            --request hoplite.value-request/0-alpha \
+            --result hoplite.value-result/0-alpha \
             --abi hoplite.value-provider-ffi \
             --abi-version 1 \
             --driver filesystem \
@@ -113,8 +113,8 @@ jobs:
             packaging/providers/blob/provider-lock.json \
             packaging/providers/blob/provider-manifest.published.json \
             --consumer hoplite.value \
-            --consumer-request hoplite.value-request/1 \
-            --consumer-result hoplite.value-result/1 \
+            --consumer-request hoplite.value-request/0-alpha \
+            --consumer-result hoplite.value-result/0-alpha \
             --consumer-abi hoplite.value-provider-ffi \
             --consumer-abi-version 1 \
             --consumer-driver filesystem \
@@ -127,8 +127,8 @@ jobs:
             --backend-tag "hoplite-blob-provider-v${BACKEND_VERSION}" \
             --backend-asset "hoplite-blob-provider-${BACKEND_VERSION}.tar.gz" \
             --backend-media-type application/gzip \
-            --backend-request hoplite.blob-request/1 \
-            --backend-result hoplite.blob-result/1 \
+            --backend-request hoplite.blob-request/0-alpha \
+            --backend-result hoplite.blob-result/0-alpha \
             --backend-abi hoplite.blob-provider-ffi \
             --backend-abi-version 1 \
             --backend-driver filesystem \
@@ -213,8 +213,8 @@ jobs:
             --bin hoplite-provider-manifest -- \
             "$package/provider-manifest.json" \
             --provider hoplite.value \
-            --request hoplite.value-request/1 \
-            --result hoplite.value-result/1 \
+            --request hoplite.value-request/0-alpha \
+            --result hoplite.value-result/0-alpha \
             --abi hoplite.value-provider-ffi \
             --abi-version 1 \
             --driver filesystem \
@@ -227,8 +227,8 @@ jobs:
             "$package/backend/provider-lock.json" \
             "$package/backend/provider-manifest.published.json" \
             --consumer hoplite.value \
-            --consumer-request hoplite.value-request/1 \
-            --consumer-result hoplite.value-result/1 \
+            --consumer-request hoplite.value-request/0-alpha \
+            --consumer-result hoplite.value-result/0-alpha \
             --consumer-abi hoplite.value-provider-ffi \
             --consumer-abi-version 1 \
             --consumer-driver filesystem \
@@ -241,8 +241,8 @@ jobs:
             --backend-tag "hoplite-blob-provider-v${BACKEND_VERSION}" \
             --backend-asset "hoplite-blob-provider-${BACKEND_VERSION}.tar.gz" \
             --backend-media-type application/gzip \
-            --backend-request hoplite.blob-request/1 \
-            --backend-result hoplite.blob-result/1 \
+            --backend-request hoplite.blob-request/0-alpha \
+            --backend-result hoplite.blob-result/0-alpha \
             --backend-abi hoplite.blob-provider-ffi \
             --backend-abi-version 1 \
             --backend-driver filesystem \
@@ -340,8 +340,8 @@ jobs:
           - Hara decoder revision: \`${HARA_REVISION}\`
           - object backend artifact: \`sha256:${BACKEND_SHA256}\`
           - artifact digest: \`sha256:${DIGEST}\`
-          - portable contracts: \`hoplite.value-request/1\`, \`hoplite.value-result/1\`
-          - native ABI: \`hoplite.value-provider-ffi/1\`
+          - portable contracts: \`hoplite.value-request/0-alpha\`, \`hoplite.value-result/0-alpha\`
+          - native ABI: \`hoplite.value-provider-ffi/0-alpha\`
           - driver: \`filesystem/1\`
 
           Consumers must verify the exact SHA-256 digest before extraction or compilation.

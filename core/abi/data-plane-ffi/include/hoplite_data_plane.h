@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define HOPLITE_DATA_PLANE_ABI_VERSION 1u
+#define HOPLITE_DATA_PLANE_ABI_VERSION 0u
 #define HOPLITE_CALLBACK_OK 0
 
 /*

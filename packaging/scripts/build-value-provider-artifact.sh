@@ -117,7 +117,7 @@ cp -R "$hara_source/core/rust/abi" "$package_root/hara/core/rust/abi"
 cp -R "$hara_source/core/rust/hta-codec" \
   "$package_root/hara/core/rust/hta-codec"
 
-printf '%s\n' 'hoplite.provider-source/v1' > "$package_root/PACKAGE_FORMAT"
+printf '%s\n' 'hoplite.provider-source/0-alpha' > "$package_root/PACKAGE_FORMAT"
 printf '%s\n' "$version" > "$package_root/PACKAGE_VERSION"
 printf '%s\n' "$hoplite_commit" > "$package_root/SOURCE_REVISION"
 printf '%s\n' "$hara_commit" > "$package_root/HARA_REVISION"

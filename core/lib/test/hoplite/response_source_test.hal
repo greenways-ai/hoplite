@@ -9,7 +9,7 @@
  [(test/check
    "constructs one closed portable response source"
    valid
-   {:protocol "hoplite.response-source/1"
+   {:protocol "hoplite.response-source/0-alpha"
     :service "hoplite.blob"
     :source-handle 17
     :offset 4
@@ -18,7 +18,7 @@
   (test/check
    "the short constructor starts at offset zero"
    (source/response-source "hoplite.blob" 19 7)
-   {:protocol "hoplite.response-source/1"
+   {:protocol "hoplite.response-source/0-alpha"
     :service "hoplite.blob"
     :source-handle 19
     :offset 0
@@ -92,7 +92,7 @@
      (catch Throwable error
        [(ex-message error)
         (ex-data error)]))
-   ["invalid hoplite.response-source/1"
+   ["invalid hoplite.response-source/0-alpha"
     {:phase :response-source/invalid
      :reason :descriptor}])
 

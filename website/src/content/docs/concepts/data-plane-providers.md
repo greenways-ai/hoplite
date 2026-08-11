@@ -14,7 +14,7 @@ install implementations of four related boundaries:
 | `hoplite.response-source` | Describe an already-open bounded response body | A path, provider choice, credential, or portable handle |
 
 Applications communicate with provider services through exact operation names
-and standalone canonical HTA1 argument frames. Provider-specific results are
+and standalone canonical HTA0 argument frames. Provider-specific results are
 returned as closed portable contracts or stable failure codes; filesystem
 paths, SQL, credentials, native pointers, and operating-system errors do not
 cross into HAL.
@@ -57,7 +57,7 @@ one read-only implementation that:
 canonical SHA-256 digest
   -> trusted objects/sha256 path
   -> shared store.lock
-  -> exact HBO1 metadata
+  -> exact HBO0 metadata
   -> bounded actual read
   -> byte-length and SHA-256 verification
 ```

@@ -14,8 +14,8 @@ use std::str::FromStr;
 use std::sync::{Mutex, MutexGuard};
 
 pub const SERVICE: &str = "hoplite.store";
-pub const REQUEST_PROTOCOL: &str = "hoplite.store-request/1";
-pub const RESULT_PROTOCOL: &str = "hoplite.store-result/1";
+pub const REQUEST_PROTOCOL: &str = "hoplite.store-request/0-alpha";
+pub const RESULT_PROTOCOL: &str = "hoplite.store-result/0-alpha";
 pub const MAX_REVISION: u64 = i64::MAX as u64;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -699,8 +699,8 @@ mod tests {
     #[test]
     fn constants_match_the_hal_profile() {
         assert_eq!(SERVICE, "hoplite.store");
-        assert_eq!(REQUEST_PROTOCOL, "hoplite.store-request/1");
-        assert_eq!(RESULT_PROTOCOL, "hoplite.store-result/1");
+        assert_eq!(REQUEST_PROTOCOL, "hoplite.store-request/0-alpha");
+        assert_eq!(RESULT_PROTOCOL, "hoplite.store-result/0-alpha");
         assert_eq!(ApplyStatus::Applied.name(), "applied");
         assert_eq!(ApplyStatus::Replayed.name(), "replayed");
     }

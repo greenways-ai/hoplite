@@ -3,7 +3,7 @@
 //! Application-neutral replay admission for verified signed-device requests.
 //!
 //! This crate persists only bounded request identity and a SHA-256 fingerprint
-//! of the exact `hoplite-signed-device/2` signing input. Signature bytes,
+//! of the exact `hoplite-signed-device/0-alpha` signing input. Signature bytes,
 //! credentials, native handles, paths and application state remain outside the
 //! replay ledger.
 
@@ -23,8 +23,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
-pub const REPLAY_EVIDENCE_PROFILE: &str = "hoplite-replay-evidence/1";
-pub const REPLAY_RECEIPT_PROFILE: &str = "hoplite-replay-receipt/1";
+pub const REPLAY_EVIDENCE_PROFILE: &str = "hoplite-replay-evidence/0-alpha";
+pub const REPLAY_RECEIPT_PROFILE: &str = "hoplite-replay-receipt/0-alpha";
 pub const SCHEMA_VERSION: i64 = 1;
 pub const DEFAULT_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 

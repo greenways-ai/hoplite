@@ -10,7 +10,7 @@
   (:require [std.foundation :refer :all]))
 
 (def protocol
-  "hoplite.response-source/1")
+  "hoplite.response-source/0-alpha")
 
 (def safe-integer-min
   -9007199254740991)
@@ -50,7 +50,7 @@
    (has? value :length)))
 
 (defn response-source?
-  "Returns true for one closed hoplite.response-source/1 descriptor."
+  "Returns true for one closed hoplite.response-source/0-alpha descriptor."
   [value]
   (and
    (exact-fields? value)
@@ -67,7 +67,7 @@
   [reason]
   (throw
    (ex-info
-    "invalid hoplite.response-source/1"
+    "invalid hoplite.response-source/0-alpha"
     {:phase :response-source/invalid
      :reason reason})))
 

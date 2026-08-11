@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-//! Dependency-free exact-span reader for canonical `HTA1` provider frames.
+//! Dependency-free exact-span reader for canonical `HTA0` provider frames.
 //!
 //! The reader validates a complete frame and records the byte span of every
 //! nested value. Generic native providers can inspect closed request fields
@@ -10,7 +10,7 @@ use std::fmt;
 use std::ops::Range;
 use std::str;
 
-const MAGIC: &[u8; 4] = b"HTA1";
+const MAGIC: &[u8; 4] = b"HTA0";
 
 const NIL: u8 = 0;
 const FALSE: u8 = 1;
@@ -176,7 +176,7 @@ impl fmt::Display for Error {
             Self::FrameTooLarge { limit, actual } => {
                 write!(formatter, "HTA frame is {actual} bytes with limit {limit}")
             }
-            Self::InvalidHeader => formatter.write_str("invalid HTA1 header"),
+            Self::InvalidHeader => formatter.write_str("invalid HTA0 header"),
             Self::UnexpectedEof { offset, needed } => {
                 write!(
                     formatter,
@@ -823,7 +823,7 @@ mod tests {
         let request = map(vec![
             (
                 text(KEYWORD, "protocol"),
-                text(STRING, "hoplite.store-request/1"),
+                text(STRING, "hoplite.store-request/0-alpha"),
             ),
             (text(KEYWORD, "operation"), text(STRING, "compare-and-swap")),
             (text(KEYWORD, "value"), opaque_value.clone()),

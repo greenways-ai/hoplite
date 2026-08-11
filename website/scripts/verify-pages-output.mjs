@@ -43,8 +43,8 @@ const expectedArchitectureCopy = [
   "Data-plane providers",
   "Provider distributions",
   "Native provider protocols",
-  "hoplite.response-source/1",
-  "hoplite.value-request/1",
+  "hoplite.response-source/0-alpha",
+  "hoplite.value-request/0-alpha",
   "hoplite-blob-provider-v0.1.1",
 ];
 const retiredArchitectureClaims = [

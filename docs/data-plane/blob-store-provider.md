@@ -2,7 +2,7 @@
 
 `hoplite-blob-store-provider` is the application-neutral boundary between one Hara host call and a generic `BlobStore` driver.
 
-It accepts one canonical argument vector containing one closed `hoplite.blob-request/1` map and supports:
+It accepts one canonical argument vector containing one closed `hoplite.blob-request/0-alpha` map and supports:
 
 ```text
 staging/open
@@ -38,10 +38,10 @@ Nginx reads bounded chunks directly from the provider-owned source, resumes thro
 
 The C boundary:
 
-- receives only the copied operation and one standalone canonical `HTA1` argument frame;
+- receives only the copied operation and one standalone canonical `HTA0` argument frame;
 - resolves request sources through the existing request-and-work-scoped request-body callbacks;
 - registers immutable response sources in a provider-owned request-and-work-scoped registry;
-- returns either a canonical `hoplite.blob-result/1` frame or one closed stable error-code string;
+- returns either a canonical `hoplite.blob-result/0-alpha` frame or one closed stable error-code string;
 - declares request-body and response-body transport capability, but no path, bucket, credential, metadata, network, process, or driver-selection authority; and
 - releases result frames immediately after the Hoplite completer accepts or rejects them.
 

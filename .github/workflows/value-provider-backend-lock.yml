@@ -78,8 +78,8 @@ jobs:
           "${manifest_verifier[@]}" \
             packaging/providers/value/provider-manifest.json \
             --provider hoplite.value \
-            --request hoplite.value-request/1 \
-            --result hoplite.value-result/1 \
+            --request hoplite.value-request/0-alpha \
+            --result hoplite.value-result/0-alpha \
             --abi hoplite.value-provider-ffi \
             --abi-version 1 \
             --driver filesystem \
@@ -91,8 +91,8 @@ jobs:
           )
           compatibility=(
             --consumer hoplite.value
-            --consumer-request hoplite.value-request/1
-            --consumer-result hoplite.value-result/1
+            --consumer-request hoplite.value-request/0-alpha
+            --consumer-result hoplite.value-result/0-alpha
             --consumer-abi hoplite.value-provider-ffi
             --consumer-abi-version 1
             --consumer-driver filesystem
@@ -105,8 +105,8 @@ jobs:
             --backend-tag hoplite-blob-provider-v0.1.1
             --backend-asset hoplite-blob-provider-0.1.1.tar.gz
             --backend-media-type application/gzip
-            --backend-request hoplite.blob-request/1
-            --backend-result hoplite.blob-result/1
+            --backend-request hoplite.blob-request/0-alpha
+            --backend-result hoplite.blob-result/0-alpha
             --backend-abi hoplite.blob-provider-ffi
             --backend-abi-version 1
             --backend-driver filesystem

@@ -36,7 +36,7 @@ profile accepts an uncompressed SEC1 public key and a 64-byte P1363 signature;
 signatures return `false`; malformed keys, values, or unsupported algorithms
 fail the host call.
 
-`canonical-value-digest` hashes the canonical standalone HTA1 frame, not JSON
+`canonical-value-digest` hashes the canonical standalone HTA0 frame, not JSON
 or printed EDN. Use it when a portable store protocol binds an opaque value to
 its exact digest.
 

@@ -93,8 +93,8 @@ jobs:
             --tag "hoplite-value-provider-v${VALUE_VERSION}"
             --asset "hoplite-value-provider-${VALUE_VERSION}.tar.gz"
             --media-type application/gzip
-            --request hoplite.value-request/1
-            --result hoplite.value-result/1
+            --request hoplite.value-request/0-alpha
+            --result hoplite.value-result/0-alpha
             --abi hoplite.value-provider-ffi
             --abi-version 1
             --driver filesystem
@@ -156,8 +156,8 @@ jobs:
             --bin hoplite-provider-manifest -- \
             "$package/provider-manifest.json" \
             --provider hoplite.value \
-            --request hoplite.value-request/1 \
-            --result hoplite.value-result/1 \
+            --request hoplite.value-request/0-alpha \
+            --result hoplite.value-result/0-alpha \
             --abi hoplite.value-provider-ffi \
             --abi-version 1 \
             --driver filesystem \
@@ -170,8 +170,8 @@ jobs:
             "$package/backend/provider-lock.json" \
             "$package/backend/provider-manifest.published.json" \
             --consumer hoplite.value \
-            --consumer-request hoplite.value-request/1 \
-            --consumer-result hoplite.value-result/1 \
+            --consumer-request hoplite.value-request/0-alpha \
+            --consumer-result hoplite.value-result/0-alpha \
             --consumer-abi hoplite.value-provider-ffi \
             --consumer-abi-version 1 \
             --consumer-driver filesystem \
@@ -184,8 +184,8 @@ jobs:
             --backend-tag "hoplite-blob-provider-v${BACKEND_VERSION}" \
             --backend-asset "hoplite-blob-provider-${BACKEND_VERSION}.tar.gz" \
             --backend-media-type application/gzip \
-            --backend-request hoplite.blob-request/1 \
-            --backend-result hoplite.blob-result/1 \
+            --backend-request hoplite.blob-request/0-alpha \
+            --backend-result hoplite.blob-result/0-alpha \
             --backend-abi hoplite.blob-provider-ffi \
             --backend-abi-version 1 \
             --backend-driver filesystem \

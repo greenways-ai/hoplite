@@ -14,7 +14,7 @@ use hoplite_value_store::{
 };
 use std::fmt;
 
-const MAGIC: &[u8; 4] = b"HTA1";
+const MAGIC: &[u8; 4] = b"HTA0";
 const NIL: u8 = 0;
 const I64: u8 = 3;
 const STRING: u8 = 4;
@@ -359,7 +359,7 @@ fn bare_i64(value: u64) -> Result<Vec<u8>, Error> {
 fn bare_from_frame(frame: &[u8]) -> Result<Vec<u8>, Error> {
     if !frame.starts_with(MAGIC) || frame.len() <= MAGIC.len() {
         return Err(Error::InvalidRequest(
-            "opaque value is not a complete HTA1 frame",
+            "opaque value is not a complete HTA0 frame",
         ));
     }
     Document::parse(frame)?;

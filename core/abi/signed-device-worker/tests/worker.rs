@@ -48,7 +48,7 @@ fn write_config(root: &std::path::Path, key: &SigningKey, revoked_at: Option<i64
         &path,
         format!(
             r#"{{
-  "profile": "hoplite-signed-device-keys/1",
+  "profile": "hoplite-signed-device-keys/0-alpha",
   "freshness": {{
     "max-past-seconds": 300,
     "max-future-seconds": 30

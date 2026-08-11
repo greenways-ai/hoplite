@@ -1,6 +1,6 @@
 use super::*;
 
-pub const FORMAT: &str = "hoplite.object-backend-lock/v1";
+pub const FORMAT: &str = "hoplite.object-backend-lock/0-alpha";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Expected<'a> {
@@ -147,7 +147,7 @@ mod tests {
 
     const DIGEST: &str = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const PROVIDER_LOCK: &str = r#"{
-  "format": "hoplite.provider-lock/v1",
+  "format": "hoplite.provider-lock/0-alpha",
   "provider": "hoplite.blob",
   "version": "0.1.1",
   "source_revision": "0123456789abcdef0123456789abcdef01234567",
@@ -162,7 +162,7 @@ mod tests {
   }
 }"#;
     const BINDING: &str = r#"{
-  "format": "hoplite.object-backend-lock/v1",
+  "format": "hoplite.object-backend-lock/0-alpha",
   "consumer": "hoplite.value",
   "backend": {
     "package": "hoplite-blob-filesystem-reader",

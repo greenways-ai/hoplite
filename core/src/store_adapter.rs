@@ -84,7 +84,7 @@ pub fn native_link_plan(
             .ok_or("default authentication backend is not linked")?;
         return Ok(NativeLinkPlan {
             manifest_edn: format!(
-                "{{:native/format 1 :native/adapters [{{:package/id {:?} :package/version {:?} :adapter/export :{} :native/crate {:?} :native/abi {:?} :native/source :bundled}}]}}\n",
+                "{{:native/format \"0.0.0-alpha\" :native/adapters [{{:package/id {:?} :package/version {:?} :adapter/export :{} :native/crate {:?} :native/abi {:?} :native/source :bundled}}]}}\n",
                 composition.store_package,
                 composition.store_version.to_string(),
                 composition.store_export,
@@ -115,7 +115,7 @@ pub fn native_link_plan(
     let cargo_path = toml_string(&crate_root.to_string_lossy());
     Ok(NativeLinkPlan {
         manifest_edn: format!(
-            "{{:native/format 1 :native/adapters [{{:package/id {:?} :package/version {:?} :package/archive-sha256 {:?} :adapter/export :{} :native/crate {:?} :native/abi {:?} :native/source :harp}}]}}\n",
+            "{{:native/format \"0.0.0-alpha\" :native/adapters [{{:package/id {:?} :package/version {:?} :package/archive-sha256 {:?} :adapter/export :{} :native/crate {:?} :native/abi {:?} :native/source :harp}}]}}\n",
             composition.store_package,
             composition.store_version.to_string(),
             composition.store_archive_sha256,
@@ -196,7 +196,7 @@ mod tests {
         .unwrap();
         fs::write(
             root.join("src/hoplite/store/sqlite.hal"),
-            "(ns hoplite.store.sqlite (:require [hoplite.core :as h])) (def adapter (h/adapter {:adapter/export :hoplite/store :adapter/implements {:hoplite/auth-store \"1.0.0\"} :adapter/operations #{:auth/user-create :auth/user-find :auth/device-put :auth/challenge-put :auth/challenge-consume :auth/session-put :auth/refresh-rotate :auth/session-revoke :auth/audit-append} :adapter/native {:crate \"hoplite-store-sqlite\" :abi \"hoplite-auth-store/1\"}}))",
+            "(ns hoplite.store.sqlite (:require [hoplite.core :as h])) (def adapter (h/adapter {:adapter/export :hoplite/store :adapter/implements {:hoplite/auth-store \"1.0.0\"} :adapter/operations #{:auth/user-create :auth/user-find :auth/device-put :auth/challenge-put :auth/challenge-consume :auth/session-put :auth/refresh-rotate :auth/session-revoke :auth/audit-append} :adapter/native {:crate \"hoplite-store-sqlite\" :abi \"hoplite-auth-store/0-alpha\"}}))",
         )
         .unwrap();
         let composition = crate::platform::AuthComposition {
@@ -214,7 +214,7 @@ mod tests {
 
         fs::write(
             root.join("src/hoplite/store/sqlite.hal"),
-            "(ns hoplite.store.sqlite (:require [hoplite.core :as h])) (def adapter (h/adapter {:adapter/export :hoplite/store :adapter/implements {:hoplite/auth-store \"2.0.0\"} :adapter/operations #{:auth/user-create :auth/user-find :auth/device-put :auth/challenge-put :auth/challenge-consume :auth/session-put :auth/refresh-rotate :auth/session-revoke :auth/audit-append} :adapter/native {:crate \"hoplite-store-sqlite\" :abi \"hoplite-auth-store/1\"}}))",
+            "(ns hoplite.store.sqlite (:require [hoplite.core :as h])) (def adapter (h/adapter {:adapter/export :hoplite/store :adapter/implements {:hoplite/auth-store \"2.0.0\"} :adapter/operations #{:auth/user-create :auth/user-find :auth/device-put :auth/challenge-put :auth/challenge-consume :auth/session-put :auth/refresh-rotate :auth/session-revoke :auth/audit-append} :adapter/native {:crate \"hoplite-store-sqlite\" :abi \"hoplite-auth-store/0-alpha\"}}))",
         )
         .unwrap();
         assert!(validate_root(&composition, &root)
@@ -232,12 +232,12 @@ mod tests {
 
         fs::write(
             root.join("src/hoplite/store/sqlite.hal"),
-            "(ns hoplite.store.sqlite (:require [hoplite.core :as h])) (def adapter (h/adapter {:adapter/export :hoplite/store :adapter/implements {:hoplite/auth-store \"1.0.0\"} :adapter/operations #{:auth/user-create :auth/user-find :auth/device-put :auth/challenge-put :auth/challenge-consume :auth/session-put :auth/refresh-rotate :auth/session-revoke :auth/audit-append} :adapter/native {:crate \"hoplite-store-sqlite\" :abi \"hoplite-auth-store/2\"}}))",
+            "(ns hoplite.store.sqlite (:require [hoplite.core :as h])) (def adapter (h/adapter {:adapter/export :hoplite/store :adapter/implements {:hoplite/auth-store \"1.0.0\"} :adapter/operations #{:auth/user-create :auth/user-find :auth/device-put :auth/challenge-put :auth/challenge-consume :auth/session-put :auth/refresh-rotate :auth/session-revoke :auth/audit-append} :adapter/native {:crate \"hoplite-store-sqlite\" :abi \"hoplite-auth-store/0-alpha\"}}))",
         )
         .unwrap();
         assert!(validate_root(&composition, &root)
             .unwrap_err()
-            .contains(":abi must be \"hoplite-auth-store/1\""));
+            .contains(":abi must be \"hoplite-auth-store/0-alpha\""));
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -268,7 +268,7 @@ mod tests {
             .unwrap();
         let plan = native_link_plan(&composition).unwrap();
         assert!(plan.manifest_edn.contains(":native/source :bundled"));
-        assert!(plan.manifest_edn.contains("hoplite-auth-store/1"));
+        assert!(plan.manifest_edn.contains("hoplite-auth-store/0-alpha"));
         assert!(plan.cargo_toml.contains("No external native adapters"));
         let mut adapter = open_native(Path::new(":memory:"), &composition).unwrap();
         let request = hoplite_auth_store_abi::NativeRequest {

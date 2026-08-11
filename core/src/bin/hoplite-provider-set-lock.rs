@@ -35,8 +35,8 @@ fn run(arguments: Vec<String>) -> Result<(), String> {
         &blob_manifest_source,
         ManifestExpected {
             provider: "hoplite.blob",
-            request: "hoplite.blob-request/1",
-            result: "hoplite.blob-result/1",
+            request: "hoplite.blob-request/0-alpha",
+            result: "hoplite.blob-result/0-alpha",
             abi_name: "hoplite.blob-provider-ffi",
             abi_version: "1",
             driver_name: "filesystem",
@@ -48,8 +48,8 @@ fn run(arguments: Vec<String>) -> Result<(), String> {
         &value_manifest_source,
         ManifestExpected {
             provider: "hoplite.value",
-            request: "hoplite.value-request/1",
-            result: "hoplite.value-result/1",
+            request: "hoplite.value-request/0-alpha",
+            result: "hoplite.value-result/0-alpha",
             abi_name: "hoplite.value-provider-ffi",
             abi_version: "1",
             driver_name: "filesystem",

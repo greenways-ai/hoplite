@@ -203,7 +203,7 @@ fn verify_root(root: &Path, coordinate: &str, version: &Version) -> Result<(), S
             manifest_path.display()
         ));
     };
-    if !matches!(field(&manifest, "harp/format"), Some(Form::Number(1))) {
+    if !matches!(field(&manifest, "harp/format"), Some(Form::String(version)) if version == "0.0.0-alpha") {
         return Err(format!(
             "{} has an unsupported HARP format",
             manifest_path.display()
@@ -374,7 +374,7 @@ mod tests {
         fs::write(
             root.join("package.edn"),
             format!(
-                "{{:harp/format 1 :package {{:identity \"gh:greenways-ai/test\" :version \"1.0.0\"}} :files {{\"project.edn\" {{:sha256 \"sha256:{project_hash}\" :size {}}} \"src/value.txt\" {{:sha256 \"sha256:{value_hash}\" :size 7}}}}}}",
+                "{{:harp/format \"0.0.0-alpha\" :package {{:identity \"gh:greenways-ai/test\" :version \"1.0.0\"}} :files {{\"project.edn\" {{:sha256 \"sha256:{project_hash}\" :size {}}} \"src/value.txt\" {{:sha256 \"sha256:{value_hash}\" :size 7}}}}}}",
                 project.len()
             ),
         )

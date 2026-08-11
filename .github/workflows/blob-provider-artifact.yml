@@ -105,8 +105,8 @@ jobs:
             --bin hoplite-provider-manifest -- \
             "$package/provider-manifest.json" \
             --provider hoplite.blob \
-            --request hoplite.blob-request/1 \
-            --result hoplite.blob-result/1 \
+            --request hoplite.blob-request/0-alpha \
+            --result hoplite.blob-result/0-alpha \
             --abi hoplite.blob-provider-ffi \
             --abi-version 1 \
             --driver filesystem \
@@ -199,8 +199,8 @@ jobs:
           - provider version: \`${PROVIDER_VERSION}\`
           - source revision: \`${REVISION}\`
           - artifact digest: \`sha256:${DIGEST}\`
-          - portable contracts: \`hoplite.blob-request/1\`, \`hoplite.blob-result/1\`
-          - native ABI: \`hoplite.blob-provider-ffi/1\`
+          - portable contracts: \`hoplite.blob-request/0-alpha\`, \`hoplite.blob-result/0-alpha\`
+          - native ABI: \`hoplite.blob-provider-ffi/0-alpha\`
           - driver: \`filesystem/1\`
 
           Consumers must verify the exact SHA-256 digest before extraction or compilation.

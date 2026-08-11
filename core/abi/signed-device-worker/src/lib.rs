@@ -18,9 +18,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const KEYS_PROFILE: &str = "hoplite-signed-device-keys/1";
+pub const KEYS_PROFILE: &str = "hoplite-signed-device-keys/0-alpha";
 pub const REQUEST_PROFILE: &str = SIGNED_DEVICE_PROFILE;
-pub const PROJECTED_IDENTITY_PROFILE: &str = "hoplite-application-ingress/1";
+pub const PROJECTED_IDENTITY_PROFILE: &str = "hoplite-application-ingress/0-alpha";
 pub const KEYS_PATH_ENV: &str = "HOPLITE_SIGNED_DEVICE_KEYS_PATH";
 pub const REPLAY_PATH_ENV: &str = "HOPLITE_SIGNED_DEVICE_REPLAY_PATH";
 

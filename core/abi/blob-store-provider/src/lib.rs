@@ -15,7 +15,7 @@ use hoplite_blob_store::{
 use hoplite_provider_hta::{Document, Error as HtaError, Kind, Node};
 use std::fmt;
 
-const MAGIC: &[u8; 4] = b"HTA1";
+const MAGIC: &[u8; 4] = b"HTA0";
 const FALSE: u8 = 1;
 const TRUE: u8 = 2;
 const I64: u8 = 3;

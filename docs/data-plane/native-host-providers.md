@@ -50,7 +50,7 @@ opaque owning-request context
 work ID
 call ID
 operation name
-exact standalone HTA1 argument frame
+exact standalone HTA0 argument frame
 success and failure completers
 ```
 
@@ -85,7 +85,7 @@ HOPLITE_HOST_PROVIDER_ERROR
   The native boundary could not continue and no completion is pending.
 ```
 
-Completers accept an exact standalone HTA1 result or error frame. An empty
+Completers accept an exact standalone HTA0 result or error frame. An empty
 successful result retains the existing Hoplite `nil` completion behavior.
 Completers feed the result into the owning Hara call and reject duplicate or
 post-cleanup delivery.
@@ -143,7 +143,7 @@ The initial built-in `nginx` provider declares neither capability.
 - registry capacity is fixed at compile time;
 - registered descriptors and service bytes outlive the worker;
 - lookup is allocation-free;
-- provider-specific arguments cross the boundary as exact HTA1 frames;
+- provider-specific arguments cross the boundary as exact HTA0 frames;
 - one synchronous call completes before `invoke` returns;
 - one pending call completes later on the owning worker event loop;
 - cancellation precedes work-scope closure;
@@ -160,7 +160,7 @@ tahto.metadata
 ```
 
 It will decode TAHTO-8's closed `load`, `initialize`, `compare-and-swap` and
-`receipt` requests, invoke the installed `tahto-metadata-store/1` provider and
+`receipt` requests, invoke the installed `tahto-metadata-store/0-alpha` provider and
 return closed snapshot or receipt HTA frames through the completer.
 
 The database path and provider package must come from trusted installation

@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define HOPLITE_VALUE_STORE_PROVIDER_ABI_VERSION 1u
+#define HOPLITE_VALUE_STORE_PROVIDER_ABI_VERSION 0u
 
 #define HOPLITE_VALUE_STORE_PROVIDER_OK 0
 #define HOPLITE_VALUE_STORE_PROVIDER_INVALID 1
@@ -40,7 +40,7 @@ int32_t hoplite_value_store_provider_open_sqlite_v1(
     hoplite_value_store_provider_t **provider);
 
 /*
- * Execute one exact hoplite.store operation and standalone HTA1 argument frame.
+ * Execute one exact hoplite.store operation and standalone HTA0 argument frame.
  *
  * A valid protocol request always returns HOPLITE_VALUE_STORE_PROVIDER_OK and
  * one owned result frame. kind distinguishes a successful hoplite.store result

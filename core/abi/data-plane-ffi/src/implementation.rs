@@ -14,7 +14,7 @@ use std::fmt;
 use std::io;
 use std::ptr;
 
-pub const HOPLITE_DATA_PLANE_ABI_VERSION: u32 = 1;
+pub const HOPLITE_DATA_PLANE_ABI_VERSION: u32 = 0;
 pub const HOPLITE_CALLBACK_OK: i32 = 0;
 
 pub type HopliteReadV1 = unsafe extern "C" fn(

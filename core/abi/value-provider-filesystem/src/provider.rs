@@ -43,7 +43,7 @@ impl FilesystemValueProvider {
 
     /// Executes one canonical host-provider call. Invalid host arguments are
     /// returned as provider errors. Every failure after a valid request has
-    /// selected its digest is normalized into a closed `hoplite.value-result/1`
+    /// selected its digest is normalized into a closed `hoplite.value-result/0-alpha`
     /// value containing only a stable `hoplite.value/*` code.
     pub fn execute(&self, operation: &str, arguments_hta: &[u8]) -> Result<Vec<u8>, Error> {
         self.service.execute(operation, arguments_hta)

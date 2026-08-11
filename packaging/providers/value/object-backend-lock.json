@@ -1,5 +1,5 @@
 {
-  "format": "hoplite.object-backend-lock/v1",
+  "format": "hoplite.object-backend-lock/0-alpha",
   "consumer": "hoplite.value",
   "backend": {
     "package": "hoplite-blob-filesystem-reader",

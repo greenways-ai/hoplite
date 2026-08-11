@@ -13,8 +13,8 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 pub const SERVICE: &str = "hoplite.blob";
-pub const REQUEST_PROTOCOL: &str = "hoplite.blob-request/1";
-pub const RESULT_PROTOCOL: &str = "hoplite.blob-result/1";
+pub const REQUEST_PROTOCOL: &str = "hoplite.blob-request/0-alpha";
+pub const RESULT_PROTOCOL: &str = "hoplite.blob-result/0-alpha";
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Digest([u8; 32]);

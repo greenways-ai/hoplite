@@ -115,12 +115,12 @@ fn main() -> Result<(), String> {
         for (name, (decode_speedup, bundle_speedup)) in measurements {
             if decode_speedup <= 1.0 {
                 return Err(format!(
-                    "{name}: HBC5 decode must be faster than HAL compilation; speedup={decode_speedup:.3}"
+                    "{name}: HBC0 decode must be faster than HAL compilation; speedup={decode_speedup:.3}"
                 ));
             }
             if bundle_speedup <= 1.0 {
                 return Err(format!(
-                    "{name}: transactional HBB2 loading must be faster than HAL module loading; speedup={bundle_speedup:.3}"
+                    "{name}: transactional HBX0 loading must be faster than HAL module loading; speedup={bundle_speedup:.3}"
                 ));
             }
         }

@@ -1,6 +1,6 @@
 # Exact-span HTA for native providers
 
-Generic native providers receive one standalone `HTA1` frame containing the Hara host-call argument vector. They must be able to inspect the closed request envelope without reconstructing opaque nested application values.
+Generic native providers receive one standalone `HTA0` frame containing the Hara host-call argument vector. They must be able to inspect the closed request envelope without reconstructing opaque nested application values.
 
 `hoplite-provider-hta` is the shared dependency-free reader for that boundary. It:
 
@@ -10,7 +10,7 @@ Generic native providers receive one standalone `HTA1` frame containing the Hara
 - rejects malformed UTF-8, duplicate keys and non-canonical map/set order;
 - records the exact encoded span of every nested value;
 - supports exact string/keyword map lookup and vector indexing; and
-- can copy one nested value into a standalone `HTA1` frame.
+- can copy one nested value into a standalone `HTA0` frame.
 
 This lets `hoplite.store` persist the exact `:value` and `:receipt` spans and lets `hoplite.blob` validate closed requests without introducing application-specific decoders.
 

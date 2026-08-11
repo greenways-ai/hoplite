@@ -73,7 +73,7 @@ fn record(
 fn unsigned_request<'a>(timestamp: i64, key_id: &'a str) -> SignedDeviceRequest<'a> {
     SignedDeviceRequest {
         method: "PUT",
-        target: "/tahto/v1/objects",
+        target: "/tahto/0-alpha/objects",
         authority: "tahto.local",
         content_digest: DIGEST,
         operation: "object.upload",
@@ -106,7 +106,7 @@ fn sign<'a>(
 fn expectation() -> ApplicationRequestExpectation<'static> {
     ApplicationRequestExpectation {
         method: "PUT",
-        target: "/tahto/v1/objects",
+        target: "/tahto/0-alpha/objects",
         authority: "tahto.local",
         content_digest: DIGEST,
         operation: "object.upload",

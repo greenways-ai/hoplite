@@ -1,5 +1,5 @@
 {
-  "format": "hoplite.provider-lock/v1",
+  "format": "hoplite.provider-lock/0-alpha",
   "provider": "hoplite.value",
   "version": "0.1.0",
   "source_revision": "bbc42008a44223a977a84ffedb8f2262ba06f1ba",

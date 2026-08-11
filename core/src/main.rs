@@ -1158,7 +1158,7 @@ mod tests {
             ),
         ];
         let bundle = compile_application_modules(&modules).unwrap();
-        assert_eq!(&bundle[..4], b"HBB2");
+        assert_eq!(&bundle[..4], b"HBX0");
     }
 
     #[test]

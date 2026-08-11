@@ -57,7 +57,7 @@ fn success_result(digest: &str, value_frame: &[u8]) -> Result<Vec<u8>, Error> {
     let value = value_frame
         .strip_prefix(MAGIC)
         .ok_or(Error::InvalidRequest(
-            "verified value frame does not contain HTA1 magic",
+            "verified value frame does not contain HTA0 magic",
         ))?;
     result_map(vec![
         ("byte-length", bare_usize(value_frame.len())?),

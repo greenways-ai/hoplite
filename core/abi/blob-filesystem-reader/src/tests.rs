@@ -97,7 +97,7 @@ fn read_all(source: &mut FilesystemResponseSource) -> Result<Vec<u8>, BlobError>
 #[test]
 fn reads_exact_verified_bytes_and_reopens() {
     let root = TestRoot::new("read-restart");
-    let bytes = b"HTA1fixture";
+    let bytes = b"HTA0fixture";
     let object_digest = install(&root, bytes);
 
     let reader = FilesystemObjectReader::open(root.path(), limits()).unwrap();

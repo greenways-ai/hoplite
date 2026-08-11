@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define HOPLITE_VALUE_PROVIDER_ABI_VERSION 1u
+#define HOPLITE_VALUE_PROVIDER_ABI_VERSION 0u
 
 #define HOPLITE_VALUE_PROVIDER_OK 0
 #define HOPLITE_VALUE_PROVIDER_INVALID 1
@@ -40,7 +40,7 @@ int32_t hoplite_value_provider_open_filesystem_v1(
     size_t io_chunk_bytes,
     hoplite_value_provider_t **provider);
 
-/* Execute one exact hoplite.value operation and standalone HTA1 argument frame. */
+/* Execute one exact hoplite.value operation and standalone HTA0 argument frame. */
 int32_t hoplite_value_provider_execute_v1(
     hoplite_value_provider_t *provider,
     const uint8_t *operation,

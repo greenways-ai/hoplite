@@ -15,7 +15,7 @@ pub use provider_set::{
     ValidatedSet as ValidatedProviderSet, FORMAT as PROVIDER_SET_FORMAT,
 };
 
-pub const FORMAT: &str = "hoplite.provider-lock/v1";
+pub const FORMAT: &str = "hoplite.provider-lock/0-alpha";
 const MAX_LOCK_BYTES: usize = 16 * 1024;
 const MAX_TEXT_BYTES: usize = 256;
 const MAX_JSON_DEPTH: usize = 16;
@@ -601,7 +601,7 @@ mod tests {
 
     const DIGEST: &str = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const LOCK: &str = r#"{
-  "format": "hoplite.provider-lock/v1",
+  "format": "hoplite.provider-lock/0-alpha",
   "provider": "hoplite.blob",
   "version": "0.1.0",
   "source_revision": "0123456789abcdef0123456789abcdef01234567",

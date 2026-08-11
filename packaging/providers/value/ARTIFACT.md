@@ -54,7 +54,7 @@ byte-for-byte archive and checksum identity.
 Before building, the workflow:
 
 1. validates the closed `hoplite.value` provider manifest;
-2. validates `hoplite.object-backend-lock/v1` against the published blob
+2. validates `hoplite.object-backend-lock/0-alpha` against the published blob
    provider lock;
 3. downloads `hoplite-blob-provider-v0.1.1`;
 4. verifies its exact archive SHA-256 and internal inventory;

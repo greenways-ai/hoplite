@@ -86,7 +86,7 @@ state and receipt schemas.
 ## Current bindings
 
 `hoplite-value-store-provider` decodes the closed
-`hoplite.store-request/1` protocol while preserving canonical nested spans.
+`hoplite.store-request/0-alpha` protocol while preserving canonical nested spans.
 The SQLite driver and in-memory implementation run through the same conformance
 contract. A store-enabled distribution registers the SQLite binding as
 `hoplite.store` through the store-only worker lifecycle; the combined

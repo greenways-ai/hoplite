@@ -2,14 +2,14 @@
 
 //! Stable synchronous C boundary for the installed filesystem `hoplite.value`
 //! provider. Trusted startup code owns the root and ceilings. Hara supplies
-//! only an operation and one standalone HTA1 argument frame.
+//! only an operation and one standalone HTA0 argument frame.
 
 use hoplite_value_provider_filesystem::{FilesystemValueProvider, Limits};
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::{ptr, slice, str};
 
-const ABI_VERSION: u32 = 1;
+const ABI_VERSION: u32 = 0;
 const STATUS_OK: i32 = 0;
 const STATUS_INVALID: i32 = 1;
 const STATUS_OPEN_ERROR: i32 = 2;
@@ -17,7 +17,7 @@ const STATUS_PANIC: i32 = 3;
 
 const RESULT_SUCCESS: u32 = 0;
 const RESULT_FAILURE: u32 = 1;
-const MAGIC: &[u8; 4] = b"HTA1";
+const MAGIC: &[u8; 4] = b"HTA0";
 const HTA_STRING: u8 = 4;
 
 #[repr(C)]
@@ -223,7 +223,7 @@ mod tests {
             fs::create_dir_all(&directory).unwrap();
             fs::write(directory.join(format!("{}.blob", &hex[2..])), &frame).unwrap();
             let media_type = b"application/vnd.hara.hta";
-            let mut metadata = b"HBO1".to_vec();
+            let mut metadata = b"HBO0".to_vec();
             metadata.extend_from_slice(&digest_bytes);
             metadata.extend_from_slice(&(frame.len() as u64).to_be_bytes());
             metadata.extend_from_slice(&(media_type.len() as u32).to_be_bytes());
@@ -241,7 +241,7 @@ mod tests {
                 ("digest", bare_string(&self.digest)),
                 ("max-bytes", bare_i64(self.frame.len() as i64)),
                 ("operation", bare_string("object/verify-hta")),
-                ("protocol", bare_string("hoplite.value-request/1")),
+                ("protocol", bare_string("hoplite.value-request/0-alpha")),
             ]);
             let mut frame = MAGIC.to_vec();
             frame.extend_from_slice(&bare_vector(&[request]));

@@ -373,7 +373,7 @@ mod tests {
     fn contract_is_canonical_hta() {
         let first = contract().unwrap();
         assert_eq!(first, contract().unwrap());
-        assert!(first.starts_with(b"HTA1"));
+        assert!(first.starts_with(b"HTA0"));
         assert_eq!(
             hara_wasm::hta::decode(&first).unwrap().display(),
             value().display()
