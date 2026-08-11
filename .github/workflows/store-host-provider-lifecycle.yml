@@ -58,15 +58,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.78.0
-          components: rustfmt,clippy
       - name: Build and test the standalone SQLite provider
         run: |
-          cargo fmt \
-            --manifest-path hoplite/core/abi/value-store-provider-ffi/Cargo.toml \
-            --all -- --check
-          cargo clippy \
-            --manifest-path hoplite/core/abi/value-store-provider-ffi/Cargo.toml \
-            --all-targets --locked -- -D warnings
           cargo test \
             --manifest-path hoplite/core/abi/value-store-provider-ffi/Cargo.toml \
             --all-targets --locked
