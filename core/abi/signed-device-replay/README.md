@@ -1,5 +1,9 @@
 # Hoplite signed-device replay admission
 
+> **Migration/conformance status:** this crate is excluded from the current
+> Hoplite core workspace and is not linked into published release builds. It
+> records a reviewed replay law, not an active default authentication service.
+
 This crate supplies the application-neutral durable admission law used after a
 Hoplite signed application request has been cryptographically verified.
 

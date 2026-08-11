@@ -7,6 +7,9 @@ description: Advanced multi-application host configuration.
 
 Internal interfaces are visible for advanced hosting and implementation inspection. They are not a compatibility commitment.
 
+Use `hoplite.core/app` for the normal single-application case. Use this namespace
+only when one generated Nginx configuration must host several declared apps.
+
 ## `config`
 
 ```clojure
@@ -16,14 +19,36 @@ Internal interfaces are visible for advanced hosting and implementation inspecti
 Defines an advanced single- or multi-application host configuration by associating `:hoplite/type :config` with the supplied map.
 
 ```clojure
+(ns example.host
+  (:require [example.api :as api]
+            [example.admin :as admin]
+            [hoplite.internal :as internal]))
+
+(def config
 (internal/config
   {:worker-processes 4
    :apps [{:id :api
            :app #'api/app
            :port 8080
-           :hostnames ["api.example.test"]}]})
+           :hostnames ["api.example.test"]}
+          {:id :admin
+           :app #'admin/app
+           :port 8081
+           :hostnames ["admin.example.test"]}]}))
+
+;; => the supplied map with :hoplite/type :config
 ```
 
-See [Multiple applications](/guides/multiple-applications/) for validation and instance fields.
+Point the selected profile's `:profile/main` at `example.host/config`, not at
+either child application.
+
+`config` itself only associates `:hoplite/type :config`; the build validates
+the consumed definition. Worker counts must be positive, app IDs and listener
+ownership must be unambiguous, app references must be Vars, ports must be valid,
+and hostnames must not create conflicting routes. Treat those build errors as
+configuration errors rather than attempting to resolve ownership at runtime.
+
+See [Multiple applications](/guides/multiple-applications/) for the complete
+instance fields and validation rules.
 
 **Source:** [`core/lib/src/hoplite/internal.hal`](https://github.com/greenways-ai/hoplite/blob/main/core/lib/src/hoplite/internal.hal)

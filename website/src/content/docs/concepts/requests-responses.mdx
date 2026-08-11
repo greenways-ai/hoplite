@@ -16,6 +16,30 @@ The request keys are `:method`, `:uri`, `:path`, `:query-string`,
 Use `:request+hta` when the handler or an adapter boundary requires an owned,
 portable HTA value.
 
+## Native request bodies
+
+An application may opt into one bounded native-body profile:
+
+```clojure
+(h/app
+  {:name "archive-service"
+   :request/body {:max-bytes 8388608
+                  :max-chunk-bytes 65536}
+   :resources [...]})
+```
+
+Both limits are positive; the chunk limit defaults to the smaller of 64 KiB
+and the total limit and cannot exceed it. Non-empty requests require an
+authoritative `Content-Length`. Unknown-length or chunked bodies fail with
+`411 Length Required`, and an oversized declared body fails with `413 Request
+Entity Too Large` before HAL execution.
+
+The request map contains `:body-handle`, not body bytes or a filesystem path.
+The positive opaque handle belongs to the exact request and work that created
+it. Only an installed provider declaring request-body capability can resolve
+it, and completion, cancellation, or request cleanup closes it. Native-body
+applications cannot contain `:request+hta` routes.
+
 ## Response maps
 
 A handler may return a response map directly:
@@ -35,7 +59,32 @@ A handler may return a response map directly:
 
 <span class="doc-badge doc-badge--success">Public</span> `response` returns a logical value; Nginx remains responsible for emitting the HTTP response.
 
-## Streams
+## Provider response sources
+
+An installed provider can return a bounded immutable source descriptor as the
+response body:
+
+```clojure
+{:protocol "hoplite.response-source/1"
+ :service "hoplite.blob"
+ :source-handle 17
+ :offset 4096
+ :length 65536}
+```
+
+Nginx validates the exact descriptor, resolves the handle under the current
+request and work, replaces any caller-supplied `content-length` with the
+authoritative source length, and reads bounded chunks under output
+backpressure. `HEAD` closes the source without reading it. Completion,
+cancellation, invalid descriptors, stale handles, and output errors all close
+the owned source.
+
+The service and handle identify already-authorized provider state. They cannot
+select a path, driver, bucket, credential, or remote URL. See
+[`hoplite.response-source`](/reference/hoplite-response-source/) and
+[Native provider protocols](/reference/data-plane-protocols/).
+
+## Logical streams
 
 <span class="doc-badge doc-badge--caution">Experimental</span>
 

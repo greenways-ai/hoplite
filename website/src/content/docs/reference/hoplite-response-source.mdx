@@ -1,0 +1,91 @@
+---
+title: hoplite.response-source
+description: Portable descriptors for provider-owned bounded response bodies.
+---
+
+`hoplite.response-source` constructs and validates exact
+`hoplite.response-source/1` response-body descriptors.
+
+```clojure
+(ns example.download
+  (:require [hoplite.response-source :as source]))
+
+(def body (source/response-source "hoplite.blob" 17 4096 65536))
+
+body
+;; => {:protocol "hoplite.response-source/1"
+;;     :service "hoplite.blob"
+;;     :source-handle 17
+;;     :offset 4096
+;;     :length 65536}
+
+[(source/source-service body)
+ (source/source-handle body)
+ (source/source-offset body)
+ (source/source-length body)
+ (source/source-end body)]
+;; => ["hoplite.blob" 17 4096 65536 69632]
+```
+
+The three-argument constructor defaults `:offset` to zero. A descriptor contains
+exactly five fields; adding provider, path, credential, or driver metadata makes
+it invalid.
+
+## Using a provider-owned body
+
+An installed `hoplite.blob` provider's `object/open-source` operation returns a
+validated digest, range, and request/work-scoped source handle. Application code
+turns that result into the response body after applying its own authorization:
+
+```clojure
+(defn download-response [open-result]
+  {:status 200
+   :headers {"content-type" "application/octet-stream"
+             "content-length" (str (get open-result :length))}
+   :body (source/response-source
+           "hoplite.blob"
+           (get open-result :source-handle)
+           (get open-result :offset)
+           (get open-result :length))})
+```
+
+The provider call may suspend, but constructing and validating the returned
+descriptor is pure HAL. Nginx owns HTTP flow control while the provider owns the
+source bytes.
+
+The service is non-empty, the handle and length are positive safe integers,
+the offset is non-negative, and offset plus length cannot exceed the portable
+safe-integer range. Extra fields are rejected.
+
+## Public functions
+
+```clojure
+(response-source? value)
+(require-response-source value)
+(response-source service handle length)
+(response-source service handle offset length)
+(source-service value)
+(source-handle value)
+(source-offset value)
+(source-length value)
+(source-end value)
+```
+
+The descriptor does not make its numeric handle portable. Nginx resolves it
+only under the exact request and work that own the provider source. Completion,
+cancellation, `HEAD`, or output failure closes that source.
+
+## Validation and failures
+
+The service must be non-empty, the handle and length must be positive safe
+integers, the offset must be a non-negative safe integer, and `offset + length`
+must not exceed `9007199254740991`. Predicates return `false`; constructors,
+`require-response-source`, and all accessors throw
+`{:phase :response-source/invalid :reason :descriptor}` for invalid input.
+
+```clojure
+(source/response-source? (assoc body :driver "filesystem")) ; => false
+(source/response-source "hoplite.blob" 0 1)                  ; throws
+```
+
+**Source:** [`core/lib/src/hoplite/response_source.hal`](https://github.com/greenways-ai/hoplite/blob/main/core/lib/src/hoplite/response_source.hal)

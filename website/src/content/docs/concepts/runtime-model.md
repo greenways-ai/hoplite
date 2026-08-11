@@ -7,7 +7,7 @@ Hoplite has two executable surfaces with deliberately different responsibilities
 
 ```text
 hoplite
-  build · check · REPL · packages · authentication · management
+  build · check · REPL · packages · service lifecycle
 
 hoplite-server
   Nginx · worker-local Hara runtime · prepared application handlers
@@ -18,6 +18,11 @@ surface. `hoplite-server` is the production data plane: it contains the embedded
 Nginx/Hara server, replaces itself with Nginx at startup, and does not retain the
 compiler, REPL, package tooling, authentication store, or management gateway in
 server memory.
+
+The core serving plane owns provider-neutral host and request/response
+transport. Storage, blob custody, canonical-value verification, secrets, and
+application authorization are installed by a distribution rather than bundled
+into the default executable.
 
 Build once, then run the production artifact:
 
@@ -43,6 +48,10 @@ There is one Hoplite runtime per Nginx worker. Runtime values do not cross worke
 │  └─ handles to explicitly installed hosts   │
 └──────────────────────────────────────────────┘
 ```
+
+Native providers are registered during trusted worker initialization. Each
+service has one exact name and immutable descriptor; application values cannot
+register providers or select their paths, drivers, or credentials.
 
 ## Startup
 

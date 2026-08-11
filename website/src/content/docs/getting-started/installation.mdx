@@ -7,7 +7,7 @@ description: Install the Hoplite control CLI and slim production server.
 
 Hoplite installations contain two commands:
 
-- `hoplite` provides the REPL, build, check, package, authentication, management, and service lifecycle commands.
+- `hoplite` provides the REPL, build, check, package, and service lifecycle commands.
 - `hoplite-server` runs a previously built application without retaining the control plane in production memory.
 
 ## Homebrew
@@ -67,8 +67,9 @@ hoplite-server .
 
 `hoplite-server` validates `.hoplite/conf/nginx.conf`, materializes its stripped
 embedded Nginx/Hara server when necessary, and replaces itself with Nginx. The
-compiler, REPL, package tools, authentication store, and management gateway are
-not retained in the production process tree.
+compiler, REPL, and package tools are not retained in the production process
+tree. Account, session, storage, blob, and application-authorization providers
+are separate distribution concerns rather than hidden parts of the server.
 
 ## Run the published container
 

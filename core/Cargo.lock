@@ -838,6 +838,7 @@ version = "0.1.0"
 [[package]]
 name = "hara-db-postgres"
 version = "0.1.0"
+source = "git+https://github.com/hara-lang/hara-extensions.git?rev=6e1aa7f#6e1aa7f23e0f8ad91b911ba56e135570947f4074"
 dependencies = [
  "bytes",
  "chrono",

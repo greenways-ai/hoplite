@@ -11,12 +11,10 @@ hoplite serve build --mode prod PROJECT
 hoplite serve foreground --mode prod PROJECT
 ```
 
-Production mode uses available CPU parallelism unless the selected profile or advanced host configuration specifies a worker count. It does not expose the development-only default OpenAPI route.
-
-Foreground operation also starts the Hoplite management gateway on
-`127.0.0.1:9090`. Set `HOPLITE_MANAGEMENT_LISTEN` to another loopback socket,
-or to `off` when a separate `hoplite auth serve` process owns management.
-Non-loopback values are rejected.
+Production mode uses available CPU parallelism unless the selected profile or
+advanced host configuration specifies a worker count. It does not expose the
+development-only default OpenAPI route and it does not start an account,
+session, application-authorization, or management service.
 
 ## Managed background process
 
@@ -39,6 +37,11 @@ hoplite serve uninstall PROJECT
 ## Logs and process files
 
 The built Nginx configuration places the PID, access log, and error log inside the project's `.hoplite/` directory. Use the development console's `dev/logs` when the application is owned by that console.
+
+Provider-enabled distributions may install `hoplite.blob`, `hoplite.store`, or
+`hoplite.value` during worker startup. Their paths, limits, and credentials are
+trusted process configuration and are not accepted from an application
+request. See [Provider distributions](/guides/provider-distributions/).
 
 :::note[External Nginx]
 Set `HOPLITE_NGINX` only when deliberately selecting an external development Nginx executable. The normal packaged executable embeds its Nginx host.

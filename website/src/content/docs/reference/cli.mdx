@@ -13,7 +13,6 @@ description: Every current Hoplite command, serve action, and option.
 | `hoplite version` | Print the Hoplite version |
 | `hoplite eval EXPR` | Evaluate one Hara expression |
 | `hoplite run FILE` | Run a HAL source file |
-| `hoplite auth …` | Initialize and inspect Hoplite-owned authentication |
 | `hoplite package …` | Build, inspect, and install deterministic `.harp` archives |
 | `hoplite serve …` | Check, build, or operate an application project |
 
@@ -51,32 +50,18 @@ With no explicit serve action, `hoplite serve` performs `start`.
 
 Unexpected arguments, missing option values, and modes other than `dev` or `prod` are rejected.
 
-## Authentication commands
-
-```text
-hoplite auth init [PROJECT]
-hoplite auth enroll BOOTSTRAP_TOKEN ED25519_PUBLIC_KEY_HEX [PROJECT]
-hoplite auth serve [--listen 127.0.0.1:9090] [PROJECT]
-hoplite auth status [PROJECT]
-```
-
-`init` creates the private SQLite control store and prints a single-use token
-that expires after 15 minutes. `enroll` binds the first management administrator
-to an Ed25519 device key. Once a management user exists, `init` does not issue
-another bootstrap token.
-
-`serve` exposes the management authentication API. It accepts loopback
-addresses only; attempts to bind a wildcard or non-loopback address are
-rejected before the socket is opened.
-
 ## Environment
 
 | Variable | Purpose |
 | --- | --- |
 | `HOPLITE_NGINX` | Select an external development Nginx executable instead of the embedded binary |
-| `HOPLITE_STATE_DIR` | Override the directory containing `control.db`; containers use `/var/lib/hoplite` |
-| `HOPLITE_MANAGEMENT_LISTEN` | Foreground management socket; defaults to `127.0.0.1:9090`, accepts loopback addresses or `off` |
+| `HOPLITE_SERVER_CACHE` | Select where `hoplite-server` materializes its embedded serving binary |
+| `HOPLITE_WORKERS` | Override the production worker count with `auto`, a positive integer, or an empty value to retain the build setting |
 
 Use `HOPLITE_NGINX` deliberately; normal installations should use the embedded host.
+
+`hoplite auth` and the management listener exist only behind the
+`legacy-management` migration feature. They are absent from release builds and
+are not part of the public CLI.
 
 **Source:** [`core/src/main.rs`](https://github.com/greenways-ai/hoplite/blob/main/core/src/main.rs)

@@ -68,6 +68,10 @@ void hoplite_runtime_free(hoplite_runtime_t *runtime);
 int hoplite_bootstrap_modules(hoplite_runtime_t *runtime,
                               const uint8_t *source,
                               size_t source_len);
+/* ABI V4: transactionally load a deterministic HBB2 application bundle. */
+int hoplite_bootstrap_bytecode(hoplite_runtime_t *runtime,
+                               const uint8_t *bundle,
+                               size_t bundle_len);
 
 uint64_t hoplite_handler_prepare(hoplite_runtime_t *runtime,
                                  const uint8_t *function,

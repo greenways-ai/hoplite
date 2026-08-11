@@ -51,6 +51,7 @@ export default defineConfig({
             { label: "Requests & responses", slug: "concepts/requests-responses" },
             { label: "Runtime model", slug: "concepts/runtime-model" },
             { label: "Host capabilities", slug: "concepts/host-capabilities" },
+            { label: "Data-plane providers", slug: "concepts/data-plane-providers" },
           ],
         },
         {
@@ -64,6 +65,7 @@ export default defineConfig({
             { label: "Authentication", slug: "guides/authentication" },
             { label: "OpenAPI output", slug: "guides/openapi" },
             { label: "Packaging", slug: "guides/packaging" },
+            { label: "Provider distributions", slug: "guides/provider-distributions" },
           ],
         },
         {
@@ -73,8 +75,10 @@ export default defineConfig({
             { label: "Project schema", slug: "reference/project-schema" },
             { label: "Build output", slug: "reference/build-output" },
             { label: "hoplite.core", slug: "reference/hoplite-core" },
-            { label: "hoplite.auth", slug: "reference/hoplite-auth" },
             { label: "hoplite.host", slug: "reference/hoplite-host" },
+            { label: "hoplite.value", slug: "reference/hoplite-value" },
+            { label: "hoplite.response-source", slug: "reference/hoplite-response-source" },
+            { label: "Native provider protocols", slug: "reference/data-plane-protocols" },
             { label: "hoplite.dev", slug: "reference/hoplite-dev" },
             { label: "hoplite.internal", slug: "reference/hoplite-internal" },
           ],

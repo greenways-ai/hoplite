@@ -1,5 +1,6 @@
 use hara_wasm::kernel::{parse_forms, Form};
 use hara_wasm::project::{self, Project};
+use hara_wasm::vm::{self, BytecodeBundleModule};
 use hara_wasm::Runtime;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -704,6 +705,9 @@ fn source_files(project: &Project) -> Result<Vec<PathBuf>, String> {
 }
 
 fn collect_hal(path: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
+    if path.file_name().and_then(|value| value.to_str()) == Some(".hoplite") {
+        return Ok(());
+    }
     if path.is_file() {
         if path.extension().and_then(|value| value.to_str()) == Some("hal") {
             files.push(path.to_path_buf());
@@ -859,32 +863,6 @@ fn runtime_application_modules(modules: &[ApplicationModule]) -> Result<String, 
         .map(|sources| sources.join("\n\n"))
 }
 
-fn put_bundle_bytes(output: &mut Vec<u8>, value: &[u8]) -> Result<(), String> {
-    let len =
-        u32::try_from(value.len()).map_err(|_| "Hoplite bytecode bundle exceeds u32 limits")?;
-    output.extend_from_slice(&len.to_le_bytes());
-    output.extend_from_slice(value);
-    Ok(())
-}
-
-fn encode_application_bundle(modules: &[(String, String, Vec<u8>)]) -> Result<Vec<u8>, String> {
-    let mut payload = Vec::new();
-    let count =
-        u32::try_from(modules.len()).map_err(|_| "Hoplite bytecode bundle exceeds u32 limits")?;
-    payload.extend_from_slice(&count.to_le_bytes());
-    for (namespace, declaration, artifact) in modules {
-        put_bundle_bytes(&mut payload, namespace.as_bytes())?;
-        put_bundle_bytes(&mut payload, declaration.as_bytes())?;
-        put_bundle_bytes(&mut payload, artifact)?;
-    }
-    let checksum = Sha256::digest(&payload);
-    let mut output = Vec::with_capacity(4 + checksum.len() + payload.len());
-    output.extend_from_slice(b"HBB1");
-    output.extend_from_slice(&checksum);
-    output.extend_from_slice(&payload);
-    Ok(output)
-}
-
 fn compile_application_modules(modules: &[ApplicationModule]) -> Result<Vec<u8>, String> {
     let mut runtime = Runtime::new();
     app::register_resources(&mut runtime);
@@ -921,9 +899,16 @@ fn compile_application_modules(modules: &[ApplicationModule]) -> Result<Vec<u8>,
         runtime
             .eval_bytecode_artifact(&artifact)
             .map_err(|error| format!("{namespace}: cannot load bytecode: {error}"))?;
-        artifacts.push((namespace, declaration, artifact));
+        artifacts.push(BytecodeBundleModule {
+            resource: namespace,
+            namespace_form: declaration,
+            source_digest: Sha256::digest(module.source.as_bytes()).into(),
+            dependencies: module.requires.clone(),
+            eager: true,
+            artifact,
+        });
     }
-    encode_application_bundle(&artifacts)
+    vm::encode_bytecode_bundle(&artifacts)
 }
 
 fn application_definition(form: &Form) -> bool {
@@ -1058,9 +1043,9 @@ fn nginx_proxy_location(proxy: &app::Proxy, trusted_ca: Option<&Path>) -> Result
 fn nginx_app_configuration(project: &Project, config: &app::Config) -> Result<String, String> {
     let bootstrap = project
         .root
-        .join(".hoplite/app.hal")
+        .join(".hoplite/app.hbc")
         .canonicalize()
-        .unwrap_or_else(|_| project.root.join(".hoplite/app.hal"));
+        .unwrap_or_else(|_| project.root.join(".hoplite/app.hbc"));
     let manifest = project
         .root
         .join(".hoplite/apps.hta")
@@ -1173,7 +1158,7 @@ mod tests {
             ),
         ];
         let bundle = compile_application_modules(&modules).unwrap();
-        assert_eq!(&bundle[..4], b"HBB1");
+        assert_eq!(&bundle[..4], b"HBB2");
     }
 
     #[test]

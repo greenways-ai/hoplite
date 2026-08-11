@@ -11,6 +11,26 @@ if (!homepage.includes("class=\"hoplite-hero\"")) {
   throw new Error("Homepage verification did not find the authored Hoplite hero");
 }
 
+for (const forbiddenShellMarker of [
+  "data-has-sidebar",
+  "sidebar-pane",
+  "right-sidebar-container",
+]) {
+  if (homepage.includes(forbiddenShellMarker)) {
+    throw new Error(`Splash homepage unexpectedly renders ${forbiddenShellMarker}`);
+  }
+}
+
+for (const requiredHeaderMarker of [
+  "data-gw-documentation-header",
+  "data-gw-documentation-search",
+  "data-gw-theme-button",
+]) {
+  if (!homepage.includes(requiredHeaderMarker)) {
+    throw new Error(`Splash homepage is missing ${requiredHeaderMarker}`);
+  }
+}
+
 const contentPanels = [...homepage.matchAll(/class="[^"]*\bcontent-panel\b[^"]*"/g)];
 if (contentPanels.length !== 1) {
   throw new Error(`Expected one homepage content panel; found ${contentPanels.length}`);
@@ -75,5 +95,5 @@ for (const requiredCopy of [
 }
 
 console.log(
-  `Verified the authored homepage remains inside its single visible content panel across ${stylesheetHrefs.length} stylesheets.`,
+  `Verified the sidebar-free authored homepage remains inside its single visible content panel across ${stylesheetHrefs.length} stylesheets.`,
 );

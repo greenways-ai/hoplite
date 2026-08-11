@@ -49,3 +49,9 @@ sha2 = "0.10"
 
 [patch."https://github.com/greenways-ai/hoplite"]
 hoplite-auth-store-abi = { path = "abi/auth-store" }
+
+# hara-db-postgres is distributed from hara-extensions but implements the ABI
+# owned by the locally integrated Hara runtime. Cargo ignores patches declared
+# by dependencies, so the embedding workspace must unify this trait identity.
+[patch."https://github.com/hara-lang/hara.git"]
+hara-abi = { path = "../../hara/core/rust/abi" }

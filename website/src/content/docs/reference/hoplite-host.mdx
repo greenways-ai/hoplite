@@ -10,20 +10,68 @@ capabilities that require operating-system or cryptographic access.
 <span class="doc-badge doc-badge--caution">Experimental</span>
 
 ```clojure
-(random-bytes size)
-(hash algorithm value)
-(verify-signature algorithm public-key message signature)
-(now)
-(secret reference)
+(ns example.crypto
+  (:require [hoplite.host :as host]))
 ```
 
-Every function delegates to the `hoplite.host` native service. A package must
-declare the capabilities it needs, and package configuration should contain
-secret references rather than secret values. The host resolves those references
-at execution time.
+## Digests and encoding
 
-The API is intentionally storage-neutral. SQLite and PGlite support belong in
-separate `.harp` adapters implementing module contracts such as
-`:hoplite/auth-store`.
+```clojure
+(def nonce (host/random-bytes 32))
+(def digest (host/hash "sha256" nonce)) ; 32-byte buffer
+
+(host/hex-encode (host/hex-decode "00ff10"))
+;; => "00ff10"
+
+(host/base64url-decode "SG9wbGl0ZQ")
+;; => byte buffer containing "Hoplite"
+
+(host/canonical-value-digest {:kind :example :enabled true})
+;; => "sha256:<64 lowercase hexadecimal digits>"
+```
+
+`hash` currently accepts only `"sha256"`. `canonical-value-digest` hashes the
+exact canonical standalone HTA1 frame, not a printed representation.
+
+## Signature verification
+
+```clojure
+(host/verify-signature "ed25519" public-key message signature)
+;; => true for a valid signature, false for a validly shaped mismatch
+
+(def sec1-key (host/p256-jwk-sec1 public-jwk-json))
+(host/verify-signature "p256-sha256" sec1-key message p1363-signature)
+```
+
+Ed25519 requires a 32-byte public key and 64-byte signature. P-256 requires a
+strict public verification JWK, a 65-byte uncompressed SEC1 key, and a 64-byte
+P1363 signature. Malformed keys, signatures, JWKs, or algorithm names fail the
+host call; only a well-formed signature mismatch returns `false`.
+
+## Time and secrets
+
+```clojure
+(host/now)                    ; current Unix time in milliseconds
+(host/secret "payments/key") ; resolved only by an installed provider
+```
+
+Packages should carry secret references in configuration, never secret values.
+`secret` fails closed in the stock runtime because no secret provider is
+installed.
+
+## Limits
+
+`random-bytes` accepts 1–4096 bytes and `hash` currently accepts only
+`"sha256"`. `canonical-value-digest` returns the lowercase SHA-256 identity of
+the exact canonical standalone HTA1 frame and rejects frames above 8 MiB.
+
+Base64url decoding requires unpadded input. Hex is canonical lowercase, and
+both codecs are bounded to 1 MiB of decoded bytes. `p256-jwk-sec1` accepts a
+strict public P-256 verification JWK and returns the 65-byte uncompressed SEC1
+point.
+
+Every function delegates to the `hoplite.host` native service. The API is
+storage-neutral; storage and value implementations are separate providers
+selected at trusted worker startup.
 
 **Source:** [`core/lib/src/hoplite/host.hal`](https://github.com/greenways-ai/hoplite/blob/main/core/lib/src/hoplite/host.hal)

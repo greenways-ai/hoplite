@@ -1,5 +1,11 @@
 # Hoplite signed-device Ed25519 provider
 
+> **Migration/conformance status:** this crate is excluded from the current
+> Hoplite core workspace and is not linked into published release builds.
+> Application authentication is currently owned by HAL policy using generic
+> host cryptography. Retained contracts must not be read as active route
+> configuration.
+
 This crate is the first concrete provider for the application-neutral
 `SignedDeviceProvider` contract in `hoplite-data-plane-abi`.
 

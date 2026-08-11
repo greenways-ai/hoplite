@@ -1,97 +1,71 @@
 ---
-title: Authentication
-description: Bootstrap management access and understand Hoplite realms, device keys, sessions, and provider packages.
+title: Application authentication
+description: Own authentication and authorization in HAL while using narrow native cryptographic capabilities.
 ---
 
-Hoplite authenticates both management users and application callers. Identity
-is therefore available before application modules run and cannot be replaced by
-a package loaded into the application.
+Hoplite's default release does not create accounts, sessions, management users,
+or application principals. It also does not accept `:hoplite/authentication` or
+`:route/auth` as transport configuration. Authentication and authorization are
+application policy and run explicitly in the HAL handler or a HAL package that
+the handler calls.
 
-## Bootstrap management access
+This keeps the transport boundary honest: selecting a route does not silently
+grant an identity, and installing a storage provider does not authorize an
+application operation.
 
-Install the native SQLite store addon pinned to its published bytes:
+## Native mechanics available to policy
 
-```sh
-hoplite package install gh:greenways-ai:hoplite-store-sqlite 0.4.1 \
-  --sha256 477476c827ef5185c7cdbc550cb537d6fc6b5c44c122b90b5768e972f4c2de53
+The `hoplite.host` namespace exposes bounded mechanics that are difficult or
+unsafe to reproduce in application code:
+
+```clojure
+(host/random-bytes size)
+(host/hash "sha256" value)
+(host/canonical-value-digest value)
+(host/base64url-decode value)
+(host/hex-decode value)
+(host/hex-encode value)
+(host/p256-jwk-sec1 jwk-json)
+(host/verify-signature algorithm public-key message signature)
+(host/now)
 ```
 
-Activate its `:hoplite/store` export in `project.edn` and bind the core auth
-module's `:auth/store` configuration to that module alias. Hoplite verifies the
-archive contents, HAL operation set, native crate name, and ABI before opening
-the control database.
+Signature verification supports `"ed25519"` and `"p256-sha256"`. The P-256
+profile accepts an uncompressed SEC1 public key and a 64-byte P1363 signature;
+`p256-jwk-sec1` converts only a strict public verification JWK. Invalid
+signatures return `false`; malformed keys, values, or unsupported algorithms
+fail the host call.
 
-Generate an Ed25519 key on the administrator device, then initialize the node:
+`canonical-value-digest` hashes the canonical standalone HTA1 frame, not JSON
+or printed EDN. Use it when a portable store protocol binds an opaque value to
+its exact digest.
 
-```sh
-hoplite auth init PROJECT
-hoplite auth enroll BOOTSTRAP_TOKEN ED25519_PUBLIC_KEY_HEX PROJECT
-```
+## Policy remains in HAL
 
-The bootstrap token is stored only as a SHA-256 digest, can be used once, and
-expires after 15 minutes. The SQLite control database and its containing
-directory are created with owner-only permissions on Unix systems.
+A handler should perform the complete application-specific sequence:
 
-For containers, persist the store separately from application data:
+1. Parse and validate the application's closed credential or signed-request envelope.
+2. Reconstruct the exact application-defined signing input.
+3. Resolve trusted public-key or secret material through an installed provider.
+4. Verify freshness, signature, nonce, idempotency, and revocation according to the application's protocol.
+5. Authorize the requested semantic operation before invoking storage or other effects.
 
-```sh
-docker run --rm -p 8080:8080 \
-  -v hoplite-control:/var/lib/hoplite \
-  ghcr.io/greenways-ai/hoplite:latest
-```
+Hoplite does not define those semantic fields or their precedence. In
+particular, a valid signature is not proof that a nonce was durably consumed,
+and a request-body or response-source handle is never an identity credential.
 
-## Realms and principals
+## Secrets and persistence
 
-Every profile declares separate `:management` and `:application` realms. The
-management realm is always protected. A successful request produces an
-immutable principal contract containing the subject, realm, session, device,
-and claims. Gateway integrations must discard caller-supplied identity headers
-before attaching that principal to the Hara request context.
+`hoplite.host/secret` fails closed in the default build because no secret
+provider is installed. A distribution may install a secret, key, or durable
+store provider, but its paths, credentials, limits, and driver choice must come
+from trusted startup configuration. Portable request values must not select
+them.
 
-## Session behavior
+The `legacy-management` Cargo feature remains only for migration validation. It
+is disabled in release builds and is not a supported account or session system
+for new applications.
 
-The built-in key provider sends a random, expiring challenge for the device to
-sign. A verified challenge produces opaque access and refresh tokens:
-
-- only token digests are stored in `control.db`;
-- access tokens are short lived and bound to one realm;
-- refresh tokens are single-use and rotated;
-- reuse outside the configured grace interval revokes the session;
-- logout and management revocation invalidate access immediately;
-- enrollments, sessions, rotations, reuse, and revocations create audit events.
-
-## Provider packages
-
-WebAuthn and GitHub/OIDC support belong in signed Hara packages declaring the
-privileged `:hoplite/auth-provider` capability. Providers prove or link an
-external credential, but Hoplite still creates sessions, emits principals, and
-enforces realm boundaries. Provider secrets use deployment-time secret
-references and must not be committed to `project.edn`.
-
-## Management API
-
-Start the loopback-only API from a configured Hoplite project:
-
-```sh
-hoplite auth serve --listen 127.0.0.1:9090 PROJECT
-```
-
-`hoplite serve foreground` starts the same gateway automatically. Its address
-defaults to `127.0.0.1:9090` and can be changed with
-`HOPLITE_MANAGEMENT_LISTEN`; set that variable to `off` to disable the embedded
-gateway when running a separate management process.
-
-| Method and path | Authentication | Purpose |
-| --- | --- | --- |
-| `GET /health` | Public, loopback only | Process health |
-| `POST /v1/auth/enroll` | Bootstrap token | Enroll the first management device |
-| `POST /v1/auth/challenges` | Enrolled public key | Create an Ed25519 challenge |
-| `POST /v1/auth/sessions` | Signed challenge | Issue a management session |
-| `POST /v1/auth/refresh` | Refresh token | Rotate a session token pair |
-| `GET /v1/auth/me` | Management bearer token | Inspect the current principal |
-| `POST /v1/auth/revoke` | Management bearer token | Revoke a session immediately |
-
-Requests and responses use JSON. Requests are limited to 64 KiB and responses
-include `Cache-Control: no-store`. The server refuses wildcard and non-loopback
-bindings; deliberate remote administration should be placed behind a separate
-authenticated transport such as an SSH tunnel.
+See [Host capabilities](/concepts/host-capabilities/),
+[Data-plane providers](/concepts/data-plane-providers/), and
+[`hoplite.host`](/reference/hoplite-host/) for the exact boundaries.

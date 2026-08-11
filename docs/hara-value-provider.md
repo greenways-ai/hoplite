@@ -1,6 +1,7 @@
 # Installed `hoplite.value` provider
 
-Hoplite installs one application-neutral canonical-value verification service:
+A provider-enabled distribution may install one application-neutral
+canonical-value verification service:
 
 ```text
 service    hoplite.value

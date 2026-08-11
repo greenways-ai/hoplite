@@ -5,7 +5,28 @@ description: Development-console functions for declared application Vars.
 
 <span class="doc-badge doc-badge--note">Development</span>
 
-All application arguments must be explicit Vars, such as `#'example.app/app`.
+`hoplite.dev` controls servers owned by the current interactive `hoplite`
+console. It is a development control plane, not an application runtime API.
+All application arguments must be explicit Vars.
+
+```clojure
+(ns user
+  (:require [example.app :as app]
+            [hoplite.dev :as dev]))
+
+(dev/start #'app/app {:project "." :profile :server})
+;; => {:app example.app/app
+;;     :project "/absolute/path/to/project"
+;;     :profile :server
+;;     :mode :dev
+;;     :status :running}
+
+(dev/status #'app/app)
+(dev/list-all)                 ; => [<the record above>]
+(dev/logs #'app/app {:bytes 4096})
+(dev/restart #'app/app)
+(dev/stop #'app/app)           ; => record with :status :stopped
+```
 
 ## `start`
 
@@ -14,7 +35,16 @@ All application arguments must be explicit Vars, such as `#'example.app/app`.
 (start app opts)
 ```
 
-Builds and starts the selected application in the current console. The options map may select `:project`, `:profile`, and `:mode`.
+Builds and starts the application selected by a project profile.
+
+| Option | Meaning | Default |
+| --- | --- | --- |
+| `:project` | Directory from which Hoplite discovers `project.edn` | Current directory |
+| `:profile` | Profile whose `:profile/main` must equal the supplied Var | Project default |
+| `:mode` | `:prod` enables production build settings; other values use development settings | `:dev` |
+
+The returned record always contains `:app`, absolute `:project`, `:profile`,
+`:mode`, and the observed `:status`.
 
 ## `stop`
 
@@ -31,7 +61,8 @@ Stops a server previously started by this console and removes its console record
 (restart app opts)
 ```
 
-Rebuilds and restarts a server while retaining its console identity.
+Rebuilds and restarts the server, replacing its console record with the selected
+options. Use this instead of `start` when the app is already running.
 
 ## `status`
 
@@ -39,7 +70,8 @@ Rebuilds and restarts a server while retaining its console identity.
 (status app)
 ```
 
-Returns the console record for an explicitly declared application.
+Returns the current record for an application managed by this console. The
+`:status` is derived from the project's `.hoplite/nginx.pid` process.
 
 ## `list-all`
 
@@ -56,6 +88,17 @@ Returns all servers managed by the current console.
 (logs app {:bytes 4096})
 ```
 
-Returns the tail of the application's Nginx error log.
+Returns a string containing the tail of `.hoplite/error.log`. `:bytes` defaults
+to 16384; negative values behave as zero. The tail is decoded lossily as UTF-8.
+
+## Common failures
+
+- Passing `app/app` instead of `#'app/app` fails because the console requires a Var.
+- `start` fails when the selected profile has no main, names a different main,
+  or the application is already running.
+- `status`, `stop`, and `logs` fail when the application is not managed by this
+  console. `logs` also fails if the error log cannot be read.
+- Options must be a map. Project discovery, builds, and Nginx control errors are
+  returned as console evaluation errors.
 
 **Source:** [`core/lib/src/hoplite/dev.hal`](https://github.com/greenways-ai/hoplite/blob/main/core/lib/src/hoplite/dev.hal)

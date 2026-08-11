@@ -146,11 +146,9 @@ The selected profile must use `:profile/language :hoplite`. Its options may set
 `:port` and `:workers`. Development mode defaults to one worker; production mode
 defaults to the available CPU parallelism.
 
-Authentication configuration is optional here. When it is omitted, Hoplite
-uses its safe platform defaults: user-owned keys for the application and
-management realms, with authentication required for management. See
-[Authentication](/guides/authentication/) before exposing the management
-surface.
+The default server does not add an authentication realm or management surface.
+Authentication and authorization are explicit application policy; see
+[Application authentication](/guides/authentication/).
 
 ## Check and run the service
 
@@ -160,12 +158,10 @@ From `hello-service/`, validate the project before starting it:
 hoplite serve check --mode dev --profile server .
 ```
 
-Run it in the foreground. Disabling the embedded management listener keeps this
-first example focused on the application port:
+Run it in the foreground:
 
 ```sh
-HOPLITE_MANAGEMENT_LISTEN=off \
-  hoplite serve foreground --mode dev --profile server .
+hoplite serve foreground --mode dev --profile server .
 ```
 
 In another terminal, call the routes:
@@ -207,11 +203,22 @@ Use `:uri` when the original URI is required, `:path` for routing-oriented
 logic, and `:query-string` when parsing query input. Header names and values are
 transported as strings.
 
-:::caution[Current request boundary]
-The request body is not yet included in the HTA request map. Hoplite can select
-`POST`, `PUT`, and `PATCH` operations, but payload-driven handlers require a
-future request-body host contract.
-:::
+An application that opts into bounded native bodies adds a closed profile to
+`h/app`:
+
+```clojure
+{:name "upload-service"
+ :request/body {:max-bytes 8388608
+                :max-chunk-bytes 65536}
+ :resources [...]}
+```
+
+For a non-empty declared request, the handler receives a positive
+`:body-handle`. The handle is opaque, belongs to the current request and work,
+and is usable only by an installed provider with request-body capability. It is
+not a path or transferable authority. Native-body applications cannot contain
+`:request+hta` routes. See [Requests and responses](/concepts/requests-responses/)
+for the transport rules.
 
 :::caution[Path parameters]
 Segments beginning with `:` are matched, but their values are not yet bound into
@@ -343,7 +350,7 @@ The generated application and platform plan live under `.hoplite/`:
     └── hello-service.json
 ```
 
-`platform.edn` is the inspectable module and authentication plan. The Hara
+`platform.edn` is the inspectable module plan. The Hara
 bytecode is generated and validated; the current Nginx startup path still uses
 the generated HAL bootstrap while bytecode bootstrap integration is completed.
 
@@ -373,12 +380,11 @@ hoplite serve stop .
 For a container or process supervisor, keep it in the foreground:
 
 ```sh
-HOPLITE_MANAGEMENT_LISTEN=off \
-  hoplite serve foreground --mode prod --profile server .
+hoplite serve foreground --mode prod --profile server .
 ```
 
-See [Production operation](/guides/production-operation/) for management
-listeners, logs, background operation, and the macOS LaunchAgent lifecycle.
+See [Production operation](/guides/production-operation/) for logs, background
+operation, provider ownership, and the macOS LaunchAgent lifecycle.
 
 ## Where to go next
 
@@ -386,5 +392,5 @@ listeners, logs, background operation, and the macOS LaunchAgent lifecycle.
 - [Requests and responses](/concepts/requests-responses/) describes logical HTTP values.
 - [Development console](/guides/development-console/) provides a persistent Hara REPL for declared apps.
 - [Multiple applications](/guides/multiple-applications/) hosts several apps in one Nginx configuration.
-- [Project schema](/reference/project-schema/) documents profiles, modules, and authentication realms.
+- [Project schema](/reference/project-schema/) documents profiles, modules, body limits, and route adapters.
 - [Status and roadmap](/project/status/) tracks the pre-release boundaries described in this guide.

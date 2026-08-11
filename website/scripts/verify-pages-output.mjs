@@ -11,7 +11,13 @@ const legacyHostMarker = "data-gw-legacy-host-redirect";
 const required = [
   "index.html",
   "getting-started/installation/index.html",
+  "concepts/data-plane-providers/index.html",
   "guides/writing-web-services/index.html",
+  "guides/provider-distributions/index.html",
+  "reference/data-plane-protocols/index.html",
+  "reference/hoplite-value/index.html",
+  "reference/hoplite-response-source/index.html",
+  "reference/hoplite-auth/index.html",
   "benchmarks/http.json",
   "benchmarks/footprints.json",
   legacyRuntimeModelPath,
@@ -32,6 +38,23 @@ const expectedLaunchMarkers = [
   'data-launch-target="fly"',
 ];
 const expectedNavigationLinks = ["/hoplite/", "/hoplite/getting-started/"];
+const expectedArchitectureCopy = [
+  "Application authentication",
+  "Data-plane providers",
+  "Provider distributions",
+  "Native provider protocols",
+  "hoplite.response-source/1",
+  "hoplite.value-request/1",
+  "hoplite-blob-provider-v0.1.1",
+];
+const retiredArchitectureClaims = [
+  "Hoplite authenticates both management users and application callers.",
+  "Foreground operation also starts the Hoplite management gateway",
+  "safe platform defaults: user-owned keys",
+  "The request body is not yet included in the HTA request map.",
+  "Authentication is owned by Hoplite, not by an application module.",
+  "Initialize and inspect Hoplite-owned authentication",
+];
 const expectedProjectLinks = [
   "https://oss.greenways.ai/",
   "https://oss.greenways.ai/hestia/",
@@ -48,6 +71,14 @@ const retiredMeasurements = [
 ];
 const unscopedRootLink = /(href|src|srcset|action)="\/(?!hoplite(?:\/|"))/;
 const duplicatedScope = /(href|src|srcset|action)="\/hoplite\/hoplite(?:\/|[A-Za-z0-9_-])/;
+const referenceContracts = {
+  "hoplite-core": ["example.app", "Failure behavior", "package-ref", ":hoplite/type :response"],
+  "hoplite-dev": ["example.app", "Common failures", ":status :running", "16384"],
+  "hoplite-host": ["example.crypto", "Signature verification", "00ff10", "4096"],
+  "hoplite-internal": ["example.host", "example.admin", ":profile/main", "configuration errors"],
+  "hoplite-response-source": ["example.download", "Using a provider-owned body", "Validation and failures", "69632"],
+  "hoplite-value": ["example.values", "Request and result flow", "Validation failures", "object-missing"],
+};
 
 async function htmlFiles(directory) {
   const output = [];
@@ -100,9 +131,11 @@ const responseContractValid = (contract) =>
 for (const path of required) await access(join(distRoot, path));
 const pages = await htmlFiles(distRoot);
 if (pages.length === 0) throw new Error("Pages verification found no generated HTML files");
+let renderedDocumentation = "";
 
 for (const path of pages) {
   const source = await readFile(path, "utf8");
+  renderedDocumentation += source;
   if (!source.includes(legacyHostMarker)) {
     throw new Error(`Pages verification did not find the legacy-host redirect in ${path}`);
   }
@@ -117,6 +150,41 @@ for (const path of pages) {
     if (url.origin !== "https://oss.greenways.ai" || !url.pathname.startsWith("/hoplite")) continue;
     if (!(await localTarget(url.pathname))) throw new Error(`Broken internal link in ${path}: ${href}`);
   }
+}
+
+for (const copy of expectedArchitectureCopy) {
+  if (!renderedDocumentation.includes(copy)) {
+    throw new Error(`Missing architecture documentation contract: ${copy}`);
+  }
+}
+for (const retired of retiredArchitectureClaims) {
+  if (renderedDocumentation.includes(retired)) {
+    throw new Error(`Retired architecture claim remains published: ${retired}`);
+  }
+}
+
+for (const [slug, markers] of Object.entries(referenceContracts)) {
+  const reference = await readFile(join(distRoot, "reference", slug, "index.html"), "utf8");
+  for (const marker of markers) {
+    if (!reference.includes(marker)) {
+      throw new Error(`${slug} is missing richer reference content: ${marker}`);
+    }
+  }
+}
+
+const referenceShell = await readFile(join(distRoot, "reference/hoplite-core/index.html"), "utf8");
+for (const shellMarker of ["data-has-sidebar", "sidebar-pane", "<details", "<summary", 'aria-controls="starlight__sidebar"']) {
+  if (!referenceShell.includes(shellMarker)) {
+    throw new Error(`Reference pages no longer expose expected collapsible navigation: ${shellMarker}`);
+  }
+}
+if (referenceShell.includes('href="/hoplite/reference/hoplite-auth/"')) {
+  throw new Error("Legacy hoplite.auth remains in the reference navigation");
+}
+
+const legacyAuth = await readFile(join(distRoot, "reference/hoplite-auth/index.html"), "utf8");
+for (const marker of ["Removed from current releases", "Do not add", "/hoplite/guides/authentication/"]) {
+  if (!legacyAuth.includes(marker)) throw new Error(`Legacy auth migration page is missing: ${marker}`);
 }
 
 const home = await readFile(join(distRoot, "index.html"), "utf8");

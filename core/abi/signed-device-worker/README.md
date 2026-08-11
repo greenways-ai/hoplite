@@ -1,6 +1,11 @@
 # Hoplite signed-device worker ingress
 
-This crate binds the closed `hoplite-signed-device/2` request to a trusted
+> **Migration/conformance status:** the direct signed-route ingress was removed
+> from the provider-neutral runtime. This crate is excluded from the current
+> core workspace and is not linked into published release builds. Current
+> applications authenticate and authorize inside HAL handlers.
+
+The retained implementation binds the closed `hoplite-signed-device/2` request to a trusted
 Hoplite route, verifies it with the installed Ed25519 key set, atomically
 admits its nonce and idempotency key, and returns one bounded application
 identity projection.

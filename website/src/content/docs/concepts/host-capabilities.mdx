@@ -23,6 +23,24 @@ The Nginx host provides request-time operations. Asynchronous handlers can await
 
 The interactive console installs the `hoplite.dev` host. Its public HAL functions call the host with methods such as `start`, `stop`, `restart`, `status`, `list-all`, and `logs`.
 
+## Portable Hoplite host
+
+`hoplite.host` supplies bounded randomness, SHA-256 hashing, canonical HTA value
+digests, base64url and hexadecimal conversion, strict P-256 public JWK
+conversion, Ed25519/P-256 signature verification, and Unix time. It contains no
+account, session, database, or authorization policy. Secret lookup remains
+unavailable unless a distribution installs a provider.
+
+## Installed native providers
+
+A distribution may register services such as `hoplite.blob`, `hoplite.store`,
+and `hoplite.value` during trusted worker startup. Applications can call an
+installed service but cannot register it or select its driver, path,
+credentials, or limits. See
+[Data-plane providers](/concepts/data-plane-providers/).
+
 ## Boundary rule
 
-The host service name and operation are explicit in the call. Hoplite does not treat arbitrary shell commands or undeclared server definitions as console capabilities.
+The host service name and operation are explicit in the call. Hoplite does not
+treat arbitrary shell commands, opaque numeric handles, provider paths, or
+undeclared server definitions as capabilities.

@@ -1911,12 +1911,12 @@ ngx_http_hoplite_bootstrap(ngx_cycle_t *cycle, const ngx_str_t *path)
     if (ngx_http_hoplite_read_file(cycle, path, &source, 0) != NGX_OK) {
         return NGX_ERROR;
     }
-    if (hoplite_bootstrap_modules(ngx_http_hoplite_runtime,
-                                  source.data, source.len) != 0)
+    if (hoplite_bootstrap_bytecode(ngx_http_hoplite_runtime,
+                                   source.data, source.len) != 0)
     {
         ngx_free(source.data);
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
-                      "hoplite bootstrap module loading failed");
+                      "hoplite HBB2 bootstrap loading failed");
         return NGX_ERROR;
     }
     ngx_free(source.data);
@@ -1939,7 +1939,7 @@ ngx_http_hoplite_init_process(ngx_cycle_t *cycle)
         return NGX_ERROR;
     }
     ngx_http_hoplite_runtime = hoplite_runtime_new();
-    if (ngx_http_hoplite_runtime == NULL || hoplite_abi_version() < 2) {
+    if (ngx_http_hoplite_runtime == NULL || hoplite_abi_version() < 4) {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
                       "hoplite runtime could not be initialized");
         return NGX_ERROR;

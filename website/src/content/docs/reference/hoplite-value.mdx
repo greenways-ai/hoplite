@@ -1,0 +1,112 @@
+---
+title: hoplite.value
+description: Portable validators for bounded canonical-value verification.
+---
+
+`hoplite.value` defines the portable HAL side of one installed canonical-value
+verification service:
+
+```text
+service    hoplite.value
+operation  object/verify-hta
+request    hoplite.value-request/1
+result     hoplite.value-result/1
+profile    hara.hta/1
+```
+
+The namespace validates requests and results; it does not select or install a
+native provider.
+
+```clojure
+(ns example.values
+  (:require [hoplite.value :as value]))
+```
+
+## Request and result flow
+
+```clojure
+(def digest
+  "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+
+(def request (value/verification-request digest 1048576))
+;; => {:protocol "hoplite.value-request/1"
+;;     :operation "object/verify-hta"
+;;     :digest digest
+;;     :max-bytes 1048576}
+
+;; An installed provider returns one of these closed result shapes:
+(def result (value/verified-result digest 38 {:kind :profile :version 1}))
+
+(value/result-matches-request? request result) ; => true
+(get result :value)                            ; => {:kind :profile :version 1}
+```
+
+Call the installed `hoplite.value` service with operation `object/verify-hta`
+and the constructed request. The exact host-call wrapper belongs to the
+provider-enabled distribution; this namespace deliberately supplies only the
+portable contract and validators.
+
+A request cannot select a path, URL, provider, driver, credential, source
+handle, decoder, schema, or application.
+
+## Results
+
+A successful result contains the exact verified digest, actual byte length,
+`"hara.hta/1"` profile, and decoded portable value. A failure contains the
+digest and one closed code:
+
+```text
+hoplite.value/object-missing
+hoplite.value/maximum-exceeded
+hoplite.value/digest-mismatch
+hoplite.value/hta-invalid
+hoplite.value/hta-noncanonical
+hoplite.value/value-unsupported
+hoplite.value/provider-failure
+```
+
+`result-matches-request?` checks protocol shape, digest identity, and the
+request maximum. `portable-value?` accepts nil, booleans, numbers, strings,
+keywords, byte buffers, vectors, and keyword-keyed maps containing the same
+portable shapes.
+
+```clojure
+(def missing
+  (value/failed-result digest "hoplite.value/object-missing"))
+
+(value/failure-result? missing)                ; => true
+(value/result-matches-request? request missing) ; => true
+```
+
+A matching failure is a valid response to the request, not a successful
+verification. Branch on `success-result?` and `failure-result?` before reading
+`:value`.
+
+## Public functions
+
+```clojure
+(canonical-digest? value)
+(bounded-byte-count? value)
+(request? value)
+(success-result? value)
+(failure-result? value)
+(result? value)
+(result-matches-request? request result)
+(verification-request digest max-bytes)
+(verified-result digest byte-length value)
+(failed-result digest code)
+```
+
+The filesystem implementation verifies actual object bytes, length, SHA-256,
+and canonical HTA encoding. Application policy must still authorize the object,
+bind any schema, and validate semantic meaning.
+
+## Validation failures
+
+Digests must be `sha256:` followed by exactly 64 lowercase hexadecimal digits.
+Byte counts must be positive integers no greater than 67108864 (64 MiB), and
+maps must contain exactly the documented fields. Predicates return `false`;
+the three constructors throw `{:phase :canonical-value/invalid}` with reason
+`:request`, `:success-result`, or `:failure-result` when validation fails.
+
+**Source:** [`core/lib/src/hoplite/value.hal`](https://github.com/greenways-ai/hoplite/blob/main/core/lib/src/hoplite/value.hal)

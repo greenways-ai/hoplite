@@ -12,24 +12,24 @@ selects a specific export from an exact version:
 ```clojure
 {:module/id "gh:greenways-ai:hoplite"
  :module/version "0.1.0"
- :module/export :hoplite/auth
- :module/as :auth
- :module/config {:auth/store :auth-store}}
+ :module/export :hoplite/module-runtime
+ :module/as :runtime
+ :module/config {}}
 ```
 
 A `.harp` may contain HAL sources, a `project.edn`, specs, migrations, assets,
 Rust sources, and signed WASM or HTA artifacts. Rust crates are publication-time
 build inputs; Hoplite activates their locked artifacts rather than compiling or
 downloading native code at runtime.
-`hoplite build` writes `native-adapters.edn` plus a Cargo dependency fragment.
-The latter points only at verified, content-addressed installed HARP roots and
-patches the addon to the host's exact ABI crate. Release builds consume that
-fragment to link factory functions into the closed native registry.
 
-Exports are independently composable. The core Hoplite archive is expected to
-export `:hoplite/auth`, `:hoplite/management`, `:hoplite/gateway`, and
-`:hoplite/module-runtime`. Store implementations and compatibility layers such
-as PGlite, SQLite and Supabase remain separate addon packages.
+Exports are independently composable. Native provider implementations and
+their distribution lifecycle remain separate from the core archive. A `.harp`
+activation cannot select a process path, driver, credential, or native service
+from request data.
+
+The migration-only `legacy-management` feature retains a native-adapter link
+plan for compatibility validation. Published release builds do not generate or
+consume that auth-specific plan.
 
 Build, inspect, and install archives with the same Hara package implementation
 used by Hoplite:
@@ -86,3 +86,7 @@ make benchmark-bytecode
 ```
 
 The benchmark compares HAL compilation, HBC decoding, and already-decoded execution for the bundled Hoplite namespaces. It is an engineering benchmark, not a published production performance claim.
+
+Provider source releases use a separate deterministic artifact and lock format,
+not a `.harp` activation. See
+[Provider distributions](/guides/provider-distributions/).

@@ -3,6 +3,15 @@ title: hoplite.core
 description: Public HAL constructors for applications, responses, modules, adapters, stores, and package references.
 ---
 
+`hoplite.core` contains the public, pure HAL constructors used to describe an
+application and its logical responses. Constructors return ordinary immutable
+maps; they do not start Nginx or perform I/O.
+
+```clojure
+(ns example.app
+  (:require [hoplite.core :as h]))
+```
+
 ## `app`
 
 <span class="doc-badge doc-badge--success">Public</span>
@@ -11,7 +20,27 @@ description: Public HAL constructors for applications, responses, modules, adapt
 (app definition)
 ```
 
-Defines one immutable resource application. A map is tagged with `:hoplite/type :application`; another value becomes the application's catch-all `:handler`.
+Defines one immutable resource application. A map is tagged with
+`:hoplite/type :application`; any other value becomes the catch-all handler.
+
+```clojure
+(defn hello [_request]
+  {:status 200
+   :headers {"content-type" "text/plain; charset=utf-8"}
+   :body "hello\n"})
+
+(def app
+  (h/app {:name "example"
+          :handler hello}))
+
+;; => {:name "example"
+;;     :handler #<function hello>
+;;     :hoplite/type :application}
+```
+
+The definition map is otherwise preserved, so routing and package-owned fields
+remain inspectable application data. Passing `hello` directly produces
+`{:hoplite/type :application :handler hello}`.
 
 ## `response`
 
@@ -22,7 +51,20 @@ Defines one immutable resource application. A map is tagged with `:hoplite/type 
 (response status body)
 ```
 
-Constructs a logical response value. Response maps may also be returned directly. The one-argument arity tags the definition; the two-argument arity creates a response containing `:status` and `:body`.
+Constructs a logical response value. Response maps may also be returned directly.
+
+```clojure
+(h/response 201 {:id 42})
+;; => {:hoplite/type :response :status 201 :body {:id 42}}
+
+(h/response {:status 204 :headers {"x-example" "created"}})
+;; => {:status 204 :headers {"x-example" "created"}
+;;     :hoplite/type :response}
+```
+
+The two-argument form sets only `:status` and `:body`. Use the one-argument form,
+or return a response map directly, when headers or other response fields are
+needed.
 
 ## `stream`
 
@@ -32,7 +74,15 @@ Constructs a logical response value. Response maps may also be returned directly
 (stream source)
 ```
 
-Marks a coroutine or producer as a backpressured response stream by returning `{:hoplite/type :stream :source source}`.
+Marks a coroutine or producer as a backpressured response stream:
+
+```clojure
+(h/stream producer)
+;; => {:hoplite/type :stream :source producer}
+```
+
+This constructor currently tags data only. Complete host integration remains
+pre-release; use documented response-source providers for bounded native bodies.
 
 ## `middleware`
 
@@ -42,7 +92,9 @@ Marks a coroutine or producer as a backpressured response stream by returning `{
 (middleware definition)
 ```
 
-Tags a lifecycle middleware definition. The documented lifecycle phases are request, response, error, and close; the complete host integration remains pre-release.
+Tags a lifecycle middleware definition with `:hoplite/type :middleware`. The
+documented phases are request, response, error, and close, but complete host
+integration remains pre-release.
 
 ## `service`
 
@@ -52,7 +104,8 @@ Tags a lifecycle middleware definition. The documented lifecycle phases are requ
 (service definition)
 ```
 
-Tags a managed application service definition.
+Tags a definition with `:hoplite/type :service`. Service lifecycle integration
+is not yet a supported production boundary.
 
 ## `module`, `adapter`, and `store`
 
@@ -68,6 +121,8 @@ Define composable behaviour entirely in HAL. A module owns behaviour and its
 contracts; an adapter implements a contract; a store is an adapter expressed
 through logical atomic operations rather than database tables. SQLite, PGlite
 and other persistence engines are addon implementations of that store boundary.
+These constructors currently validate no schema; each adds the corresponding
+`:hoplite/type` tag to the supplied map.
 
 ## `package-ref`
 
@@ -80,14 +135,27 @@ and other persistence engines are addon implementations of that store boundary.
 Constructs the activation selected by `project.edn`. For example:
 
 ```clojure
-(package-ref "gh:greenways-ai:hoplite"
+(package-ref "gh:example:service-package"
              "0.1.0"
-             :hoplite/auth
-             :auth
-             {:auth/store :auth-store})
+             :example/service
+             :service
+             {})
+;; => {:hoplite/type :package-ref
+;;     :module/id "gh:example:service-package"
+;;     :module/version "0.1.0"
+;;     :module/export :example/service
+;;     :module/as :service
+;;     :module/config {}}
 ```
 
 The version is exact, the export is package-owned, and the alias is unique in
 the composed application.
+
+## Failure behavior
+
+These constructors are deliberately small. Map-based constructors rely on
+ordinary map operations, so callers should pass maps where documented. Runtime
+validation of application, package, and experimental definitions happens at the
+build or host boundary that consumes them.
 
 **Source:** [`core/lib/src/hoplite/core.hal`](https://github.com/greenways-ai/hoplite/blob/main/core/lib/src/hoplite/core.hal)

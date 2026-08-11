@@ -83,15 +83,11 @@ Tahto's `.hal` client validates those meanings before and after calling
 `hoplite.store`. Other Hara applications can use the same mechanics with different
 state and receipt schemas.
 
-## Next slices
+## Current bindings
 
-1. Decode the `hoplite.store-request/1` frame while preserving the nested canonical
-   value and receipt spans.
-2. Adapt the reviewed SQLite transaction mechanics to `OpaqueValueStore`.
-3. Register the provider as `hoplite.store` through Hoplite's request-scoped host
-   provider ABI.
-4. Run the same HAL conformance against this in-memory driver and SQLite.
-5. Remove the transitional Tahto-specific native migration source after restart
-   and fault parity is proven.
-
-Tracked by [Hoplite issue #45](https://github.com/greenways-ai/hoplite/issues/45).
+`hoplite-value-store-provider` decodes the closed
+`hoplite.store-request/1` protocol while preserving canonical nested spans.
+The SQLite driver and in-memory implementation run through the same conformance
+contract. A store-enabled distribution registers the SQLite binding as
+`hoplite.store` through the store-only worker lifecycle; the combined
+value/store lifecycle remains a compatibility wrapper.

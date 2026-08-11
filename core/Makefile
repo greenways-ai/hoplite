@@ -110,7 +110,7 @@ example-prod:
 	cargo run --release -- serve foreground --mode prod examples
 
 benchmark-bytecode:
-	cargo run --release --bin hoplite-bytecode-loading -- 1000
+	cargo run --release --bin hoplite-bytecode-loading -- 1000 --check
 
 $(NGINX_ARCHIVE):
 	mkdir -p $(SOURCE_ROOT)

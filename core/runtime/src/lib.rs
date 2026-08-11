@@ -16,7 +16,7 @@ use std::ptr;
 use std::rc::Rc;
 use std::{ffi::c_void, slice, str};
 
-const ABI_VERSION: u32 = 3;
+const ABI_VERSION: u32 = 4;
 const MAX_CHILD_DRIVE_PASSES: usize = 64;
 type HostCall = (u64, Promise, String, String, Vec<Value>);
 
@@ -1177,6 +1177,10 @@ impl HopliteRuntime {
         Ok(())
     }
 
+    fn bootstrap_bytecode(&mut self, bundle: &[u8]) -> Result<(), String> {
+        vm::eval_eager_bytecode_bundle_with_registries(&self.namespaces, &self.protocols, bundle)
+    }
+
     fn work_call(&mut self, handler: HandlerId, binding: Value) -> Result<WorkId, ()> {
         let call = self.handlers.get(&handler).cloned().ok_or(())?;
         let work = self.open_work();
@@ -1710,6 +1714,26 @@ pub unsafe extern "C" fn hoplite_bootstrap_modules(
         let source = source(source_ptr, source_len)?;
         if let Err(error) = runtime.bootstrap_modules(source) {
             eprintln!("hoplite bootstrap: {error}");
+            return Err(());
+        }
+        Ok::<i32, ()>(0)
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_bootstrap_bytecode(
+    runtime: *mut HopliteRuntime,
+    bundle_ptr: *const u8,
+    bundle_len: usize,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        let bundle = bytes(bundle_ptr, bundle_len)?;
+        if let Err(error) = runtime.bootstrap_bytecode(bundle) {
+            eprintln!("hoplite bytecode bootstrap: {error}");
             return Err(());
         }
         Ok::<i32, ()>(0)
@@ -2274,6 +2298,48 @@ pub unsafe extern "C" fn hoplite_work_close(runtime: *mut HopliteRuntime, work: 
 mod tests {
     use super::*;
     use hara_wasm::lang::IPeekFirst;
+    use hara_wasm::vm::BytecodeBundleModule;
+
+    fn bytecode_module(
+        compiler: &mut hara_wasm::Runtime,
+        namespace: &str,
+        body: &str,
+    ) -> BytecodeBundleModule {
+        let declaration = format!("(ns {namespace} (:require [std.foundation :refer :all]))");
+        compiler.eval_native(&declaration).unwrap();
+        BytecodeBundleModule {
+            resource: namespace.into(),
+            namespace_form: declaration,
+            source_digest: [0; 32],
+            dependencies: vec!["std.foundation".into()],
+            eager: true,
+            artifact: compiler.compile_bytecode_artifact(body).unwrap(),
+        }
+    }
+
+    #[test]
+    fn bytecode_bootstrap_is_hbb2_and_transactional() {
+        let mut compiler = hara_wasm::Runtime::new();
+        let successful = bytecode_module(&mut compiler, "example.bytecode", "(defn answer [] 42)");
+        let bundle = vm::encode_bytecode_bundle(&[successful]).unwrap();
+        assert_eq!(&bundle[..4], b"HBB2");
+        let mut runtime = HopliteRuntime::new();
+        runtime.bootstrap_bytecode(&bundle).unwrap();
+        assert!(runtime
+            .namespaces
+            .find("example.bytecode")
+            .unwrap()
+            .mappings()
+            .iter()
+            .any(|(name, _)| name.as_str() == "answer"));
+
+        let good = bytecode_module(&mut compiler, "example.rollback", "(def marker 1)");
+        let bad = bytecode_module(&mut compiler, "example.failure", "(throw \"boom\")");
+        let failing = vm::encode_bytecode_bundle(&[good, bad]).unwrap();
+        assert!(runtime.bootstrap_bytecode(&failing).is_err());
+        assert!(runtime.namespaces.find("example.rollback").is_none());
+        assert!(runtime.namespaces.find("example.failure").is_none());
+    }
 
     #[test]
     fn bootstrap_compiles_namespaces_independently_in_dependency_order() {

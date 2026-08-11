@@ -1,86 +1,24 @@
 ---
-title: hoplite.auth
-description: HAL authentication policy, store contract, and pure session decisions.
+title: Legacy hoplite.auth
+description: Migration note for the removed Hoplite-owned authentication path.
 ---
 
-`hoplite.auth` is the package-owned authentication policy for Hoplite. It is
-written in HAL and exported from `gh:greenways-ai:hoplite` as `:hoplite/auth`.
-It does not select a database or call cryptographic libraries directly.
+:::caution[Removed from current releases]
+`hoplite.auth`, its management gateway, and its auth-store adapter are not part
+of the supported Hoplite runtime. The retained `legacy-management` Cargo feature
+exists only for migration validation and is disabled in release builds.
+:::
 
-## Module contract
+Do not add `hoplite.auth` imports or package exports to a new application.
+Existing callers should move authentication and authorization into ordinary HAL
+handlers. A handler can validate its chosen credentials, call narrowly scoped
+native cryptographic or storage capabilities, and return an application-owned
+principal or rejection response.
 
-<span class="doc-badge doc-badge--caution">Experimental</span>
+See [Authentication](/guides/authentication/) for the current model and
+[`hoplite.host`](/reference/hoplite-host/) for the low-level capabilities
+available to installed packages. Direct signed-route ingress and the former
+Hoplite-owned management gateway have no current replacement API.
 
-```clojure
-auth/module
-```
-
-The module declares the versioned `:hoplite/auth-store` contract and the host
-capabilities needed for randomness, hashing, signature verification, and time.
-A `.harp` addon implements the store contract for a chosen persistence engine.
-Before opening the backend, Hoplite evaluates the installed adapter export and
-checks its type, export identity, exact `:hoplite/auth-store` contract version,
-complete operation set, native crate identity, and `hoplite-auth-store/1` ABI.
-A matching coordinate alone is not sufficient activation authority. The
-`init`, `enroll`, `status`, and management-server paths all use this same
-composition; bootstrap commands cannot bypass the adapter selected by
-`project.edn`.
-
-## `AuthStore`
-
-```clojure
-(-query store query)
-(-transact store operation)
-```
-
-The native boundary is defined by the standalone
-`hoplite-auth-store-abi` crate. It encodes requests, mutation batches, and the
-operation catalogue as canonical HTA1 frames. Request identifiers are bounded,
-unknown operations are rejected before dispatch, and query operations cannot
-be placed inside atomic mutation batches. Each project build emits
-`auth-store.hta` and its SHA-256 contract digest.
-
-The contract also publishes the exact fields for every operation input and
-output record. Addons compile against the dependency-free Rust descriptors in
-`hoplite-auth-store-abi`; Hoplite emits the same descriptors under `:abi/types`
-in `auth-store.hta`. Optional fields represent absent values directly, including
-the `auth/UserMaybe` query result, rather than using backend-specific nulls.
-Before dispatch, Hoplite decodes the payload frame and enforces those record
-shapes: keyword field names, required fields, declared scalar or nested record
-types, and no adapter-specific extra fields.
-
-Native addons implement the object-safe `hoplite_auth_store_abi::Adapter`
-boundary. A single request returns a correlated success or error response;
-transactions must return one ordered response for every mutation. Hoplite checks
-response identity and validates successful HTA results against the operation's
-declared output record before exposing them to `.hal` policy code.
-The host's guarded `execute` and `transact` entry points validate inputs before
-calling native code and validate every correlated result afterward. Invalid HTA
-therefore cannot cross either side of the addon boundary.
-The native call receives dependency-free `RecordValue` and `Value` data rather
-than Hara runtime objects or raw HTA bytes. Hoplite alone owns HTA decoding and
-encoding, so storage crates remain small and do not link the language runtime.
-Refresh rotation explicitly carries `:refresh/session-id`; adapters can bind the
-consumed token, replacement token, and updated access grant in one transaction.
-
-The boundary uses logical authentication operations, including user and device
-records, one-time challenges, sessions, refresh rotation, revocation, and audit
-append. An implementation must preserve the compare-and-set and transaction
-semantics returned by the policy functions.
-
-## Policy functions
-
-```clojure
-(challenge id realm public-key nonce now ttl-seconds)
-(consume-challenge record now)
-(session id subject-id device-id realm access-hash now access-ttl refresh-ttl)
-(principal session claims)
-(rotate-refresh refresh session replacement now reuse-interval-seconds)
-```
-
-These functions are deterministic. They return values and atomic store
-operations; the selected store adapter performs those operations. In
-particular, refresh reuse outside the retry interval produces a session
-revocation and an audit event in one transaction.
-
-**Source:** [`core/lib/src/hoplite/auth.hal`](https://github.com/greenways-ai/hoplite/blob/main/core/lib/src/hoplite/auth.hal)
+The former source remains in the repository for migration comparison only:
+[`core/lib/src/hoplite/auth.hal`](https://github.com/greenways-ai/hoplite/blob/main/core/lib/src/hoplite/auth.hal).
