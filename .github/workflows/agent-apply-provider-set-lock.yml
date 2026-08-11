@@ -36,6 +36,33 @@ jobs:
       - name: Format and test the closed validator
         working-directory: hoplite
         run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('core/src/provider_lock/provider_set.rs')
+          text = path.read_text()
+          old = '''        let duplicate = mutate(|value| {
+              value["providers"][1] = value["providers"][0].clone();
+          });
+          assert!(validate(&duplicate, expected(), &backend, &consumer, &binding)
+              .unwrap_err()
+              .contains("duplicate provider"));
+          '''
+          new = '''        let duplicate = mutate(|value| {
+              value["providers"][1]["provider"] = Value::String("hoplite.blob".into());
+          });
+          let duplicate_error =
+              validate(&duplicate, expected(), &backend, &consumer, &binding).unwrap_err();
+          assert!(
+              duplicate_error.contains("duplicate provider"),
+              "unexpected duplicate provider error: {duplicate_error}"
+          );
+          '''
+          if text.count(old) != 1:
+              raise SystemExit('duplicate provider fixture changed')
+          path.write_text(text.replace(old, new))
+          PY
+
           rustfmt --edition 2021 \
             core/src/provider_lock.rs \
             core/src/provider_lock/object_backend.rs \
