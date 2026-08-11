@@ -142,9 +142,13 @@ fi
 
 inventory="$temporary/inventory"
 actual_files="$temporary/actual-files"
+# Do not use interval expressions such as {64} here. Debian and Ubuntu ship
+# different awk implementations/modes, while length plus a closed character
+# class has the same fail-closed meaning everywhere supported by the package.
 if ! awk '
   NF != 2 { exit 1 }
-  $1 !~ /^[0-9a-f]{64}$/ { exit 1 }
+  length($1) != 64 { exit 1 }
+  $1 !~ /^[0-9a-f]+$/ { exit 1 }
   $2 !~ /^\.\/[A-Za-z0-9._\/-]+$/ { exit 1 }
   $2 == "./FILES.sha256" { exit 1 }
   { print $2 }
