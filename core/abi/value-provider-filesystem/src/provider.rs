@@ -64,11 +64,7 @@ impl FilesystemValueProvider {
 }
 
 impl ImmutableObjectReader for FilesystemObjectReader {
-    fn read_verified(
-        &self,
-        digest: Digest,
-        max_bytes: usize,
-    ) -> Result<VerifiedObject, Failure> {
+    fn read_verified(&self, digest: Digest, max_bytes: usize) -> Result<VerifiedObject, Failure> {
         let _guard = self.exclusive().map_err(|_| Failure::Provider)?;
         let (metadata_path, data_path) = self.object_paths(digest);
         let object_directory = metadata_path.parent().ok_or(Failure::Provider)?;
