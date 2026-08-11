@@ -1,0 +1,338 @@
+name: Apply object backend lock parser
+
+on:
+  push:
+    branches:
+      - agent/value-object-backend-lock-91
+    paths:
+      - .github/workflows/agent-apply-object-backend-lock.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/value-object-backend-lock-91
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.78.0
+          components: rustfmt,clippy
+      - name: Insert and test the closed parser
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('core/src/provider_lock.rs')
+          text = path.read_text()
+          if 'OBJECT_BACKEND_FORMAT' in text:
+              raise SystemExit('object backend lock parser is already present')
+          marker = "\nfn validate_expected(expected: Expected<'_>) -> Result<(), String> {"
+          if text.count(marker) != 1:
+              raise SystemExit('provider lock validation marker changed')
+          block = r'''
+
+pub const OBJECT_BACKEND_FORMAT: &str = "hoplite.object-backend-lock/v1";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ObjectBackendExpected<'a> {
+    pub consumer: &'a str,
+    pub package: &'a str,
+    pub package_version: &'a str,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ValidatedObjectBackendLock {
+    consumer: String,
+    package: String,
+    package_version: String,
+    artifact_provider: String,
+    artifact_version: String,
+    artifact_digest: String,
+}
+
+impl ValidatedObjectBackendLock {
+    pub fn consumer(&self) -> &str {
+        &self.consumer
+    }
+
+    pub fn package(&self) -> &str {
+        &self.package
+    }
+
+    pub fn package_version(&self) -> &str {
+        &self.package_version
+    }
+
+    pub fn artifact_provider(&self) -> &str {
+        &self.artifact_provider
+    }
+
+    pub fn artifact_version(&self) -> &str {
+        &self.artifact_version
+    }
+
+    pub fn artifact_digest(&self) -> &str {
+        &self.artifact_digest
+    }
+}
+
+pub fn validate_object_backend_lock(
+    source: &[u8],
+    expected: ObjectBackendExpected<'_>,
+    backend: &ValidatedLock,
+) -> Result<ValidatedObjectBackendLock, String> {
+    if source.is_empty() {
+        return Err("object backend lock is empty".into());
+    }
+    if source.len() > MAX_LOCK_BYTES {
+        return Err(format!(
+            "object backend lock is {} bytes with limit {}",
+            source.len(),
+            MAX_LOCK_BYTES
+        ));
+    }
+    validate_object_backend_expected(expected)?;
+    JsonScanner::new(source).validate()?;
+
+    let value: Value = serde_json::from_slice(source)
+        .map_err(|error| format!("invalid object backend lock JSON: {error}"))?;
+    let root = exact_object(
+        &value,
+        "object backend lock",
+        &["backend", "consumer", "format"],
+    )?;
+    require_exact(
+        root,
+        "format",
+        OBJECT_BACKEND_FORMAT,
+        "object backend lock",
+    )?;
+    require_exact(root, "consumer", expected.consumer, "object backend lock")?;
+
+    let binding = exact_object(
+        field(root, "backend", "object backend lock")?,
+        "object backend binding",
+        &["artifact", "package", "version"],
+    )?;
+    require_exact(
+        binding,
+        "package",
+        expected.package,
+        "object backend binding",
+    )?;
+    require_exact(
+        binding,
+        "version",
+        expected.package_version,
+        "object backend binding",
+    )?;
+
+    let artifact = exact_object(
+        field(binding, "artifact", "object backend binding")?,
+        "object backend artifact",
+        &["digest", "provider", "version"],
+    )?;
+    require_exact(
+        artifact,
+        "provider",
+        backend.provider(),
+        "object backend artifact",
+    )?;
+    require_exact(
+        artifact,
+        "version",
+        backend.version(),
+        "object backend artifact",
+    )?;
+    let artifact_digest = require_text(artifact, "digest", "object backend artifact")?;
+    validate_digest(artifact_digest, "object backend artifact digest")?;
+    if artifact_digest != backend.artifact_digest() {
+        return Err(format!(
+            "object backend artifact digest does not match the validated provider lock: binding {artifact_digest:?}, provider lock {:?}",
+            backend.artifact_digest()
+        ));
+    }
+
+    Ok(ValidatedObjectBackendLock {
+        consumer: expected.consumer.to_owned(),
+        package: expected.package.to_owned(),
+        package_version: expected.package_version.to_owned(),
+        artifact_provider: backend.provider().to_owned(),
+        artifact_version: backend.version().to_owned(),
+        artifact_digest: artifact_digest.to_owned(),
+    })
+}
+
+fn validate_object_backend_expected(expected: ObjectBackendExpected<'_>) -> Result<(), String> {
+    for (name, value) in [
+        ("expected object backend consumer", expected.consumer),
+        ("expected object backend package", expected.package),
+        (
+            "expected object backend package version",
+            expected.package_version,
+        ),
+    ] {
+        validate_text(name, value)?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod object_backend_tests {
+    use super::*;
+
+    const DIGEST: &str =
+        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const PROVIDER_LOCK: &str = r#"{
+  "format": "hoplite.provider-lock/v1",
+  "provider": "hoplite.blob",
+  "version": "0.1.1",
+  "source_revision": "0123456789abcdef0123456789abcdef01234567",
+  "release": {
+    "repository": "greenways-ai/hoplite",
+    "tag": "hoplite-blob-provider-v0.1.1"
+  },
+  "artifact": {
+    "name": "hoplite-blob-provider-0.1.1.tar.gz",
+    "media_type": "application/gzip",
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+}"#;
+    const BINDING: &str = r#"{
+  "format": "hoplite.object-backend-lock/v1",
+  "consumer": "hoplite.value",
+  "backend": {
+    "package": "hoplite-blob-filesystem-reader",
+    "version": "0.1.0",
+    "artifact": {
+      "provider": "hoplite.blob",
+      "version": "0.1.1",
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+}"#;
+
+    fn backend() -> ValidatedLock {
+        validate(
+            PROVIDER_LOCK.as_bytes(),
+            Expected {
+                provider: "hoplite.blob",
+                version: "0.1.1",
+                repository: "greenways-ai/hoplite",
+                tag: "hoplite-blob-provider-v0.1.1",
+                asset: "hoplite-blob-provider-0.1.1.tar.gz",
+                media_type: "application/gzip",
+            },
+            DIGEST,
+        )
+        .unwrap()
+    }
+
+    fn expected() -> ObjectBackendExpected<'static> {
+        ObjectBackendExpected {
+            consumer: "hoplite.value",
+            package: "hoplite-blob-filesystem-reader",
+            package_version: "0.1.0",
+        }
+    }
+
+    fn mutate(change: impl FnOnce(&mut Value)) -> Vec<u8> {
+        let mut value: Value = serde_json::from_str(BINDING).unwrap();
+        change(&mut value);
+        serde_json::to_vec(&value).unwrap()
+    }
+
+    #[test]
+    fn accepts_one_exact_provider_bound_backend() {
+        let binding = validate_object_backend_lock(BINDING.as_bytes(), expected(), &backend())
+            .unwrap();
+        assert_eq!(binding.consumer(), "hoplite.value");
+        assert_eq!(binding.package(), "hoplite-blob-filesystem-reader");
+        assert_eq!(binding.package_version(), "0.1.0");
+        assert_eq!(binding.artifact_provider(), "hoplite.blob");
+        assert_eq!(binding.artifact_version(), "0.1.1");
+        assert_eq!(binding.artifact_digest(), DIGEST);
+    }
+
+    #[test]
+    fn rejects_missing_unknown_and_duplicate_fields() {
+        let missing = mutate(|value| {
+            value["backend"].as_object_mut().unwrap().remove("artifact");
+        });
+        assert!(validate_object_backend_lock(&missing, expected(), &backend())
+            .unwrap_err()
+            .contains("missing [artifact]"));
+
+        let unknown = mutate(|value| {
+            value["backend"].as_object_mut().unwrap().insert(
+                "root".into(),
+                Value::String("/tmp/forbidden".into()),
+            );
+        });
+        assert!(validate_object_backend_lock(&unknown, expected(), &backend())
+            .unwrap_err()
+            .contains("unknown [root]"));
+
+        let duplicate = BINDING.replace(
+            "\"consumer\": \"hoplite.value\",",
+            "\"consumer\": \"hoplite.value\", \"consumer\": \"other\",",
+        );
+        assert!(validate_object_backend_lock(duplicate.as_bytes(), expected(), &backend())
+            .unwrap_err()
+            .contains("duplicate key \"consumer\""));
+    }
+
+    #[test]
+    fn rejects_package_and_provider_artifact_drift() {
+        let package = mutate(|value| {
+            value["backend"]["package"] = Value::String("other-reader".into())
+        });
+        assert!(validate_object_backend_lock(&package, expected(), &backend())
+            .unwrap_err()
+            .contains("incompatible"));
+
+        let version = mutate(|value| {
+            value["backend"]["artifact"]["version"] = Value::String("0.2.0".into())
+        });
+        assert!(validate_object_backend_lock(&version, expected(), &backend())
+            .unwrap_err()
+            .contains("incompatible"));
+
+        let digest = mutate(|value| {
+            value["backend"]["artifact"]["digest"] = Value::String(
+                "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                    .into(),
+            )
+        });
+        assert!(validate_object_backend_lock(&digest, expected(), &backend())
+            .unwrap_err()
+            .contains("does not match"));
+    }
+}
+'''
+          path.write_text(text.replace(marker, block + marker))
+          PY
+
+          rustfmt --edition 2021 \
+            core/src/provider_lock.rs \
+            core/src/bin/hoplite-object-backend-lock.rs
+          cargo test --manifest-path core/Cargo.toml --workspace --locked \
+            --bin hoplite-object-backend-lock
+          cargo clippy --manifest-path core/Cargo.toml --locked \
+            --bin hoplite-object-backend-lock -- -D warnings
+
+      - name: Commit only source changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            core/src/provider_lock.rs \
+            core/src/bin/hoplite-object-backend-lock.rs
+          git commit -m "Validate value object backend bindings"
+          git push origin HEAD:agent/value-object-backend-lock-91
