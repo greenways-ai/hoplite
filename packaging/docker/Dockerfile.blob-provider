@@ -14,10 +14,10 @@ RUN cargo run --quiet --manifest-path hoplite/core/Cargo.toml --locked \
       hoplite/packaging/providers/blob/provider-lock.json \
       hoplite/packaging/providers/blob/provider-manifest.published.json \
       --provider hoplite.blob \
-      --version 0.1.0 \
+      --version 0.1.1 \
       --repository greenways-ai/hoplite \
-      --tag hoplite-blob-provider-v0.1.0 \
-      --asset hoplite-blob-provider-0.1.0.tar.gz \
+      --tag hoplite-blob-provider-v0.1.1 \
+      --asset hoplite-blob-provider-0.1.1.tar.gz \
       --media-type application/gzip \
       --request hoplite.blob-request/1 \
       --result hoplite.blob-result/1 \

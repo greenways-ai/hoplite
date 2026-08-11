@@ -64,10 +64,10 @@ jobs:
           manifest=packaging/providers/blob/provider-manifest.published.json
           compatibility=(
             --provider hoplite.blob
-            --version 0.1.0
+            --version 0.1.1
             --repository greenways-ai/hoplite
-            --tag hoplite-blob-provider-v0.1.0
-            --asset hoplite-blob-provider-0.1.0.tar.gz
+            --tag hoplite-blob-provider-v0.1.1
+            --asset hoplite-blob-provider-0.1.1.tar.gz
             --media-type application/gzip
             --request hoplite.blob-request/1
             --result hoplite.blob-result/1
@@ -81,14 +81,14 @@ jobs:
           "${verifier[@]}" "$lock" "$manifest" \
             "${compatibility[@]}" --shell > /tmp/provider.env
           grep -Fx 'HOPLITE_PROVIDER_NAME=hoplite.blob' /tmp/provider.env
-          grep -Fx 'HOPLITE_PROVIDER_VERSION=0.1.0' /tmp/provider.env
-          grep -Fx 'HOPLITE_PROVIDER_SOURCE_REVISION=5d5b98b379bee49db54f79492441d83bd192930b' \
+          grep -Fx 'HOPLITE_PROVIDER_VERSION=0.1.1' /tmp/provider.env
+          grep -Fx 'HOPLITE_PROVIDER_SOURCE_REVISION=8d97a452032d47740314899bb175096d8fc83f8e' \
             /tmp/provider.env
-          grep -Fx 'HOPLITE_PROVIDER_SHA256=5a8b3735e7b8c147b2879647455db7d1769f26964e4f8c78432935adb040e362' \
+          grep -Fx 'HOPLITE_PROVIDER_SHA256=03c5dea9854cf23b60c7d2638c17712accc7e77eb53db4d15ed0b45327ee8210' \
             /tmp/provider.env
 
           cp "$lock" /tmp/mismatched-lock.json
-          sed -i 's/5a8b3735/6a8b3735/' /tmp/mismatched-lock.json
+          sed -i 's/03c5dea9/13c5dea9/' /tmp/mismatched-lock.json
           if "${verifier[@]}" /tmp/mismatched-lock.json "$manifest" \
             "${compatibility[@]}"; then
             echo "mismatched lock digest unexpectedly passed" >&2
@@ -96,7 +96,7 @@ jobs:
           fi
 
           cp "$manifest" /tmp/mismatched-manifest.json
-          sed -i 's/5a8b3735/6a8b3735/' /tmp/mismatched-manifest.json
+          sed -i 's/03c5dea9/13c5dea9/' /tmp/mismatched-manifest.json
           if "${verifier[@]}" "$lock" /tmp/mismatched-manifest.json \
             "${compatibility[@]}"; then
             echo "mismatched published manifest unexpectedly passed" >&2

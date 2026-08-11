@@ -49,18 +49,20 @@ After extraction, `hoplite-provider-manifest` validates the portable contract,
 ABI and driver declarations. The package is tested with Rust 1.78 and built
 independently from the Hoplite core workspace.
 
-## Current pinned production package `0.1.0`
+## Current pinned production package `0.1.1`
 
 ```text
-release tag      hoplite-blob-provider-v0.1.0
-source revision  5d5b98b379bee49db54f79492441d83bd192930b
-archive           hoplite-blob-provider-0.1.0.tar.gz
-archive SHA-256  5a8b3735e7b8c147b2879647455db7d1769f26964e4f8c78432935adb040e362
+release tag      hoplite-blob-provider-v0.1.1
+source revision  8d97a452032d47740314899bb175096d8fc83f8e
+archive           hoplite-blob-provider-0.1.1.tar.gz
+archive SHA-256  03c5dea9854cf23b60c7d2638c17712accc7e77eb53db4d15ed0b45327ee8210
 ```
 
-The source build workflow now emits `0.1.1`, which adds the shared reader to
-the closed artifact. A follow-up pin PR will bind its published digest and
-source revision before production composition moves from `0.1.0`.
+This is the first pinned blob-provider artifact that carries the shared
+filesystem object reader. `hoplite.blob` range egress and `hoplite.value`
+bounded canonical-value verification therefore consume the same authoritative
+filesystem read implementation while retaining separate portable service
+identities.
 
 The source-tree `provider-manifest.json` keeps `artifact.digest` null because an
 artifact cannot contain its own byte digest. The external

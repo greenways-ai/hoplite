@@ -67,6 +67,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hoplite-blob-filesystem-reader"
+version = "0.1.0"
+dependencies = [
+ "fs2",
+ "hoplite-blob-store",
+ "sha2",
+]
+
+[[package]]
 name = "hoplite-blob-store"
 version = "0.1.0"
 
@@ -84,6 +93,7 @@ name = "hoplite-blob-store-filesystem"
 version = "0.1.0"
 dependencies = [
  "fs2",
+ "hoplite-blob-filesystem-reader",
  "hoplite-blob-store",
  "sha2",
 ]
