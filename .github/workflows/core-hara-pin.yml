@@ -1,0 +1,59 @@
+name: Core Hara compatibility pin
+
+env:
+  HARA_REF: 494b17a39c952f24a68bfeda1bd66283a80f735c
+
+on:
+  push:
+    paths:
+      - core/Cargo.toml
+      - core/Cargo.lock
+      - core/runtime/**
+      - packaging/hara-revision
+      - .github/workflows/core-hara-pin.yml
+  pull_request:
+    paths:
+      - core/Cargo.toml
+      - core/Cargo.lock
+      - core/runtime/**
+      - packaging/hara-revision
+      - .github/workflows/core-hara-pin.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-hara-pin-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+      - name: Verify the reviewed source pin
+        run: |
+          test "$(tr -d '\r\n' < hoplite/packaging/hara-revision)" = "$HARA_REF"
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ env.HARA_REF }}
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Require an exact reproducible dependency graph
+        working-directory: hoplite
+        run: |
+          cargo metadata --manifest-path core/Cargo.toml --locked \
+            --format-version 1 >/tmp/hoplite-core-metadata.json
+          cargo test --manifest-path core/Cargo.toml --workspace --locked
+      - name: Require the runtime VM entry point used by Hoplite
+        run: |
+          grep -R -F 'eval_eager_bytecode_bundle_with_registries' \
+            hara/core/rust/src/vm.rs \
+            hara/core/rust/src/vm
+          grep -F 'eval_eager_bytecode_bundle_with_registries' \
+            hoplite/core/runtime/src/lib.rs
