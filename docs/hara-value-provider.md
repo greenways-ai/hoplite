@@ -99,6 +99,11 @@ its closed file inventory and byte-compares the reader package in the archive
 with the reader compiled into the local value adapter. A package, version or
 digest mismatch fails before value-provider materialization.
 
+The generic lock parser is tested with the current stable core toolchain. After
+that closed compatibility gate succeeds, the isolated value-provider package is
+built and linted with its Rust 1.78 compatibility toolchain and exact pinned Hara
+canonical decoder. This split does not change either portable contract.
+
 The backend lock and all compatibility expectations are trusted distribution
 inputs. They are not available through `hoplite.value-request/1`, cannot be
 selected by application HAL and do not change namespace authorization.
