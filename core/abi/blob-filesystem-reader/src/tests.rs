@@ -82,6 +82,18 @@ fn install(root: &TestRoot, bytes: &[u8]) -> Digest {
     object_digest
 }
 
+fn read_all(source: &mut FilesystemResponseSource) -> Result<Vec<u8>, BlobError> {
+    let mut output = Vec::new();
+    let mut buffer = [0_u8; 3];
+    loop {
+        let read = source.read(&mut buffer)?;
+        if read == 0 {
+            return Ok(output);
+        }
+        output.extend_from_slice(&buffer[..read]);
+    }
+}
+
 #[test]
 fn reads_exact_verified_bytes_and_reopens() {
     let root = TestRoot::new("read-restart");
@@ -106,6 +118,26 @@ fn reads_exact_verified_bytes_and_reopens() {
 }
 
 #[test]
+fn opens_verified_ranges_without_materializing_the_full_response() {
+    let root = TestRoot::new("source");
+    let bytes = b"0123456789abcdef";
+    let object_digest = install(&root, bytes);
+    let reader = FilesystemObjectReader::open(root.path(), limits()).unwrap();
+
+    let summary = reader.inspect_verified(object_digest).unwrap();
+    assert_eq!(summary.digest(), object_digest);
+    assert_eq!(summary.size(), bytes.len() as u64);
+
+    let mut source = reader
+        .open_source(ObjectRange::new(object_digest, 4, 7).unwrap())
+        .unwrap();
+    assert_eq!(source.declared_length(), 7);
+    assert_eq!(read_all(&mut source).unwrap(), b"456789a");
+    source.close().unwrap();
+    assert!(matches!(source.close(), Err(BlobError::SourceClosed)));
+}
+
+#[test]
 fn rejects_missing_incomplete_and_excess_objects() {
     let root = TestRoot::new("bounded");
     let bytes = b"bounded-object";
@@ -124,6 +156,10 @@ fn rejects_missing_incomplete_and_excess_objects() {
         reader.read_verified(object_digest, limits().max_object_bytes + 1),
         Err(Failure::Maximum)
     );
+    assert!(matches!(
+        reader.open_source(ObjectRange::new(object_digest, 0, bytes.len() as u64 + 1).unwrap()),
+        Err(BlobError::InvalidRange { .. })
+    ));
 
     let (metadata_path, _) = object_paths(&root, object_digest);
     fs::remove_file(metadata_path).unwrap();
@@ -146,6 +182,10 @@ fn rejects_tampered_bytes_and_metadata() {
         reader.read_verified(object_digest, bytes.len()),
         Err(Failure::Digest)
     );
+    assert!(matches!(
+        reader.inspect_verified(object_digest),
+        Err(BlobError::DigestMismatch { .. })
+    ));
 
     fs::write(&data_path, bytes).unwrap();
     fs::write(
