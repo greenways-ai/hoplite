@@ -1,0 +1,13 @@
+{
+  "format": "hoplite.object-backend-lock/v1",
+  "consumer": "hoplite.value",
+  "backend": {
+    "package": "hoplite-blob-filesystem-reader",
+    "version": "0.1.0",
+    "artifact": {
+      "provider": "hoplite.blob",
+      "version": "0.1.1",
+      "digest": "sha256:03c5dea9854cf23b60c7d2638c17712accc7e77eb53db4d15ed0b45327ee8210"
+    }
+  }
+}

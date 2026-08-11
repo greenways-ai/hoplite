@@ -1,0 +1,207 @@
+name: hoplite.value object backend lock
+
+env:
+  CORE_HARA_REF: d310105d54954399da0b0289b7d43c7d1bf9d984
+  VALUE_HARA_REF: d2a2e376917131cfb8954ac156db3a5e174f2c1a
+
+on:
+  push:
+    paths:
+      - core/src/provider_lock.rs
+      - core/src/provider_lock/object_backend.rs
+      - core/src/bin/hoplite-object-backend-lock.rs
+      - core/abi/blob-filesystem-reader/**
+      - core/abi/value-provider-filesystem/**
+      - core/abi/value-provider-filesystem-ffi/**
+      - packaging/providers/value/**
+      - packaging/providers/blob/provider-lock.json
+      - packaging/providers/blob/provider-manifest.published.json
+      - packaging/scripts/verify-blob-provider-artifact.sh
+      - packaging/hara-value-revision
+      - docs/hara-value-provider.md
+      - .github/workflows/value-provider-backend-lock.yml
+  pull_request:
+    paths:
+      - core/src/provider_lock.rs
+      - core/src/provider_lock/object_backend.rs
+      - core/src/bin/hoplite-object-backend-lock.rs
+      - core/abi/blob-filesystem-reader/**
+      - core/abi/value-provider-filesystem/**
+      - core/abi/value-provider-filesystem-ffi/**
+      - packaging/providers/value/**
+      - packaging/providers/blob/provider-lock.json
+      - packaging/providers/blob/provider-manifest.published.json
+      - packaging/scripts/verify-blob-provider-artifact.sh
+      - packaging/hara-value-revision
+      - docs/hara-value-provider.md
+      - .github/workflows/value-provider-backend-lock.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: value-object-backend-lock-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lock:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ env.CORE_HARA_REF }}
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Test the closed object backend lock boundary
+        working-directory: hoplite
+        run: |
+          cargo fmt --manifest-path core/Cargo.toml -- --check
+          cargo test --manifest-path core/Cargo.toml --workspace --locked \
+            --bin hoplite-object-backend-lock
+
+      - name: Validate value compatibility and exact backend identity
+        working-directory: hoplite
+        run: |
+          manifest_verifier=(
+            cargo run --quiet --manifest-path core/Cargo.toml --locked
+            --bin hoplite-provider-manifest --
+          )
+          "${manifest_verifier[@]}" \
+            packaging/providers/value/provider-manifest.json \
+            --provider hoplite.value \
+            --request hoplite.value-request/1 \
+            --result hoplite.value-result/1 \
+            --abi hoplite.value-provider-ffi \
+            --abi-version 1 \
+            --driver filesystem \
+            --driver-version 1
+
+          binding_verifier=(
+            cargo run --quiet --manifest-path core/Cargo.toml --locked
+            --bin hoplite-object-backend-lock --
+          )
+          compatibility=(
+            --consumer hoplite.value
+            --consumer-request hoplite.value-request/1
+            --consumer-result hoplite.value-result/1
+            --consumer-abi hoplite.value-provider-ffi
+            --consumer-abi-version 1
+            --consumer-driver filesystem
+            --consumer-driver-version 1
+            --backend-package hoplite-blob-filesystem-reader
+            --backend-package-version 0.1.0
+            --backend-provider hoplite.blob
+            --backend-version 0.1.1
+            --backend-repository greenways-ai/hoplite
+            --backend-tag hoplite-blob-provider-v0.1.1
+            --backend-asset hoplite-blob-provider-0.1.1.tar.gz
+            --backend-media-type application/gzip
+            --backend-request hoplite.blob-request/1
+            --backend-result hoplite.blob-result/1
+            --backend-abi hoplite.blob-provider-ffi
+            --backend-abi-version 1
+            --backend-driver filesystem
+            --backend-driver-version 1
+          )
+          "${binding_verifier[@]}" \
+            packaging/providers/value/object-backend-lock.json \
+            packaging/providers/value/provider-manifest.json \
+            packaging/providers/blob/provider-lock.json \
+            packaging/providers/blob/provider-manifest.published.json \
+            "${compatibility[@]}"
+
+          cp packaging/providers/value/object-backend-lock.json /tmp/digest-mismatch.json
+          sed -i 's/03c5dea9/13c5dea9/' /tmp/digest-mismatch.json
+          if "${binding_verifier[@]}" \
+            /tmp/digest-mismatch.json \
+            packaging/providers/value/provider-manifest.json \
+            packaging/providers/blob/provider-lock.json \
+            packaging/providers/blob/provider-manifest.published.json \
+            "${compatibility[@]}"; then
+            echo "object backend digest mismatch unexpectedly passed" >&2
+            exit 1
+          fi
+
+          cp packaging/providers/value/object-backend-lock.json /tmp/version-mismatch.json
+          sed -i 's/"version": "0.1.0"/"version": "0.2.0"/' /tmp/version-mismatch.json
+          if "${binding_verifier[@]}" \
+            /tmp/version-mismatch.json \
+            packaging/providers/value/provider-manifest.json \
+            packaging/providers/blob/provider-lock.json \
+            packaging/providers/blob/provider-manifest.published.json \
+            "${compatibility[@]}"; then
+            echo "object backend package version mismatch unexpectedly passed" >&2
+            exit 1
+          fi
+
+      - name: Keep backend selection outside portable requests and generic core
+        working-directory: hoplite
+        run: |
+          ! grep -R -E 'object-backend-lock|backend-package-version' \
+            core/lib core/nginx core/src/app.rs core/src/host.rs
+
+  backend:
+    needs: lock
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ env.VALUE_HARA_REF }}
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.78.0
+          components: rustfmt,clippy
+
+      - name: Verify the canonical decoder revision
+        run: |
+          test "$(tr -d '\n' < hoplite/packaging/hara-value-revision)" = "$VALUE_HARA_REF"
+
+      - name: Download and byte-compare the locked reader package
+        working-directory: hoplite
+        run: |
+          archive=/tmp/hoplite-blob-provider-0.1.1.tar.gz
+          curl --fail --location --retry 3 \
+            https://github.com/greenways-ai/hoplite/releases/download/hoplite-blob-provider-v0.1.1/hoplite-blob-provider-0.1.1.tar.gz \
+            --output "$archive"
+          echo "03c5dea9854cf23b60c7d2638c17712accc7e77eb53db4d15ed0b45327ee8210  ${archive}" \
+            | sha256sum --check
+          bash packaging/scripts/verify-blob-provider-artifact.sh \
+            "$archive" \
+            sha256:03c5dea9854cf23b60c7d2638c17712accc7e77eb53db4d15ed0b45327ee8210 \
+            /tmp/backend-root
+
+          package=/tmp/backend-root/hoplite-blob-provider-0.1.1
+          test "$(cat "${package}/SOURCE_REVISION")" = \
+            8d97a452032d47740314899bb175096d8fc83f8e
+          test "$(cat "${package}/PACKAGE_VERSION")" = 0.1.1
+          diff -ru \
+            core/abi/blob-filesystem-reader \
+            "$package/abi/blob-filesystem-reader"
+
+      - name: Compile the value adapter against the locked reader
+        working-directory: hoplite
+        run: |
+          grep -F 'hoplite-blob-filesystem-reader' \
+            core/abi/value-provider-filesystem/Cargo.toml
+          cargo clippy \
+            --manifest-path core/abi/value-provider-filesystem-ffi/Cargo.toml \
+            --all-targets --locked -- -D warnings
+          cargo test \
+            --manifest-path core/abi/value-provider-filesystem-ffi/Cargo.toml \
+            --all-targets --locked

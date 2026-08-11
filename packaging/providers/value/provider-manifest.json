@@ -1,0 +1,23 @@
+{
+  "format": "hoplite.provider-manifest/v1",
+  "provider": "hoplite.value",
+  "contract": {
+    "request": "hoplite.value-request/1",
+    "result": "hoplite.value-result/1"
+  },
+  "abi": {
+    "name": "hoplite.value-provider-ffi",
+    "version": "1"
+  },
+  "driver": {
+    "name": "filesystem",
+    "version": "1"
+  },
+  "distribution": {
+    "selection": "static-build",
+    "request_selectable": false
+  },
+  "artifact": {
+    "digest": null
+  }
+}

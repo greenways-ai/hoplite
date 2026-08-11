@@ -79,6 +79,40 @@ runtime/compiler pin because the provider is an isolated static library. The
 installed-provider workflow checks out and tests that exact revision before
 materialization.
 
+## Object backend lock
+
+`packaging/providers/value/provider-manifest.json` declares only the closed
+`hoplite.value` service, protocol, ABI and filesystem-driver compatibility. It
+does not declare another object store.
+
+`packaging/providers/value/object-backend-lock.json` binds that service to:
+
+```text
+backend package   hoplite-blob-filesystem-reader/0.1.0
+container package hoplite-blob-provider/0.1.1
+artifact digest   sha256:03c5dea9854cf23b60c7d2638c17712accc7e77eb53db4d15ed0b45327ee8210
+```
+
+The object-backend workflow validates the value manifest, validates the
+published blob provider lock, downloads and verifies the exact archive, checks
+its closed file inventory and byte-compares the reader package in the archive
+with the reader compiled into the local value adapter. A package, version or
+digest mismatch fails before value-provider materialization.
+
+The generic lock parser is tested with the current stable core toolchain. After
+that closed compatibility gate succeeds, the isolated value-provider package is
+built and linted with its Rust 1.78 compatibility toolchain and exact pinned Hara
+canonical decoder. This split does not change either portable contract.
+
+The backend lock and all compatibility expectations are trusted distribution
+inputs. They are not available through `hoplite.value-request/1`, cannot be
+selected by application HAL and do not change namespace authorization.
+
+This boundary proves backend identity but does not yet publish a complete
+standalone value-provider artifact. The following release slice can materialize
+that package from the locked reader and canonical Hara decoder without
+reintroducing filesystem ownership into the value adapter.
+
 ## Boundary with Tahto
 
 The shared reader proves immutable byte identity. `hoplite.value` proves that
