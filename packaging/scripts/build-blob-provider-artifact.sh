@@ -25,7 +25,7 @@ if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9._-]+)?$ ]]; then
   exit 2
 fi
 
-for command in git tar gzip sha256sum find sort cmp; do
+for command in git tar gzip sha256sum find sort awk; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "required command is unavailable: $command" >&2
     exit 2
@@ -41,6 +41,7 @@ if [[ ! $commit =~ ^[0-9a-f]{40}$ ]]; then
 fi
 
 package_name="hoplite-blob-provider-$version"
+artifact_name="$package_name.tar.gz"
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/hoplite-blob-provider.XXXXXX")
 trap 'rm -rf "$temporary"' EXIT
 source_tree="$temporary/source"
@@ -121,5 +122,7 @@ LC_ALL=C tar \
 
 cp "$archive" "$output"
 digest=$(sha256sum "$output" | awk '{print $1}')
-printf '%s  %s\n' "$digest" "$(basename "$output")" > "$output.sha256"
+# The sidecar describes the canonical package identity, not the caller's
+# temporary output path, so independent builds produce identical sidecars.
+printf '%s  %s\n' "$digest" "$artifact_name" > "$output.sha256"
 printf 'sha256:%s\n' "$digest"
