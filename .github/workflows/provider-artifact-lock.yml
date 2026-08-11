@@ -1,0 +1,58 @@
+name: Provider artifact lock
+
+env:
+  HARA_REF: d310105d54954399da0b0289b7d43c7d1bf9d984
+
+on:
+  push:
+    paths:
+      - core/src/provider_lock.rs
+      - core/src/bin/hoplite-provider-lock.rs
+      - packaging/providers/**/provider-lock.json
+      - packaging/providers/**/provider-manifest.published.json
+      - packaging/docker/Dockerfile.blob-provider
+      - .github/workflows/provider-artifact-lock.yml
+  pull_request:
+    paths:
+      - core/src/provider_lock.rs
+      - core/src/bin/hoplite-provider-lock.rs
+      - packaging/providers/**/provider-lock.json
+      - packaging/providers/**/provider-manifest.published.json
+      - packaging/docker/Dockerfile.blob-provider
+      - .github/workflows/provider-artifact-lock.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: provider-artifact-lock-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ env.HARA_REF }}
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Test the closed lock and published-manifest boundary
+        working-directory: hoplite
+        run: |
+          cargo fmt --manifest-path core/Cargo.toml -- --check
+          cargo test --manifest-path core/Cargo.toml --workspace --locked \
+            --bin hoplite-provider-lock
+      - name: Keep locks outside request and generic provider selection
+        working-directory: hoplite
+        run: |
+          ! grep -R -E 'provider-lock|provider-manifest\.published' \
+            core/lib core/nginx core/src/app.rs core/src/host.rs
