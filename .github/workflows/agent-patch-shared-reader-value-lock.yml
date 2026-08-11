@@ -1,0 +1,52 @@
+name: Patch shared reader value lock generation
+
+on:
+  push:
+    branches:
+      - agent/blob-store-shared-reader-91
+    paths:
+      - .github/workflows/agent-patch-shared-reader-value-lock.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/blob-store-shared-reader-91
+          fetch-depth: 0
+      - name: Add the value-provider lock regeneration and remove this workflow
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/agent-blob-store-shared-reader.yml')
+          text = path.read_text()
+          old = (
+              '          cargo generate-lockfile \\\n'
+              '            --manifest-path core/abi/blob-store-filesystem/Cargo.toml\n'
+              '          cargo generate-lockfile \\\n'
+              '            --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml\n'
+          )
+          new = (
+              '          cargo generate-lockfile \\\n'
+              '            --manifest-path core/abi/blob-store-filesystem/Cargo.toml\n'
+              '          cargo generate-lockfile \\\n'
+              '            --manifest-path core/abi/value-provider-filesystem/Cargo.toml\n'
+              '          cargo generate-lockfile \\\n'
+              '            --manifest-path core/abi/blob-store-provider-ffi/Cargo.toml\n'
+          )
+          if text.count(old) != 1:
+              raise SystemExit('shared-reader lock generation block changed')
+          path.write_text(text.replace(old, new))
+          PY
+          rm .github/workflows/agent-patch-shared-reader-value-lock.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Regenerate the value lock for shared blob reads"
+          git push origin HEAD:agent/blob-store-shared-reader-91
