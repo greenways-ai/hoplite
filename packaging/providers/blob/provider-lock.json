@@ -1,0 +1,15 @@
+{
+  "format": "hoplite.provider-lock/v1",
+  "provider": "hoplite.blob",
+  "version": "0.1.0",
+  "source_revision": "5d5b98b379bee49db54f79492441d83bd192930b",
+  "release": {
+    "repository": "greenways-ai/hoplite",
+    "tag": "hoplite-blob-provider-v0.1.0"
+  },
+  "artifact": {
+    "name": "hoplite-blob-provider-0.1.0.tar.gz",
+    "media_type": "application/gzip",
+    "digest": "sha256:5a8b3735e7b8c147b2879647455db7d1769f26964e4f8c78432935adb040e362"
+  }
+}

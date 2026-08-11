@@ -10,11 +10,15 @@ on:
       - core/abi/blob-store-filesystem/**
       - core/abi/blob-store-provider/**
       - core/abi/blob-store-provider-ffi/**
+      - core/src/provider_lock.rs
+      - core/src/bin/hoplite-provider-lock.rs
       - core/nginx/**
       - core/examples/**
       - packaging/docker/Dockerfile.blob-provider
-      - packaging/providers/blob/provider-manifest.json
+      - packaging/providers/blob/provider-lock.json
+      - packaging/providers/blob/provider-manifest.published.json
       - packaging/providers/blob/nginx/**
+      - packaging/scripts/verify-blob-provider-artifact.sh
       - packaging/scripts/smoke-response-source.sh
       - .github/workflows/blob-provider-composed-response.yml
   pull_request:
@@ -23,11 +27,15 @@ on:
       - core/abi/blob-store-filesystem/**
       - core/abi/blob-store-provider/**
       - core/abi/blob-store-provider-ffi/**
+      - core/src/provider_lock.rs
+      - core/src/bin/hoplite-provider-lock.rs
       - core/nginx/**
       - core/examples/**
       - packaging/docker/Dockerfile.blob-provider
-      - packaging/providers/blob/provider-manifest.json
+      - packaging/providers/blob/provider-lock.json
+      - packaging/providers/blob/provider-manifest.published.json
       - packaging/providers/blob/nginx/**
+      - packaging/scripts/verify-blob-provider-artifact.sh
       - packaging/scripts/smoke-response-source.sh
       - .github/workflows/blob-provider-composed-response.yml
 
@@ -52,12 +60,18 @@ jobs:
           ref: ${{ env.HARA_REF }}
           path: hara
           submodules: recursive
-      - name: Verify the default image remains provider-free
+      - name: Verify generic and distribution ownership
         run: |
           ! grep -E 'HOPLITE_(BLOB|STORE|VALUE)' \
             hoplite/packaging/docker/Dockerfile
           ! grep -E 'hoplite_(blob|value|value_store)_host_provider' \
             hoplite/core/nginx/config
+          grep -F 'provider-lock.json' \
+            hoplite/packaging/docker/Dockerfile.blob-provider
+          grep -F '/src/provider/abi/blob-store-provider-ffi' \
+            hoplite/packaging/docker/Dockerfile.blob-provider
+          ! grep -F 'HOPLITE_BLOB_PROVIDER_FFI_DIR=/src/hoplite/core/abi/blob-store-provider-ffi' \
+            hoplite/packaging/docker/Dockerfile.blob-provider
       - name: Build the distribution-owned blob composition
         run: |
           docker build \

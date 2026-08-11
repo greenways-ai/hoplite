@@ -1,0 +1,23 @@
+{
+  "format": "hoplite.provider-manifest/v1",
+  "provider": "hoplite.blob",
+  "contract": {
+    "request": "hoplite.blob-request/1",
+    "result": "hoplite.blob-result/1"
+  },
+  "abi": {
+    "name": "hoplite.blob-provider-ffi",
+    "version": "1"
+  },
+  "driver": {
+    "name": "filesystem",
+    "version": "1"
+  },
+  "distribution": {
+    "selection": "static-build",
+    "request_selectable": false
+  },
+  "artifact": {
+    "digest": "sha256:5a8b3735e7b8c147b2879647455db7d1769f26964e4f8c78432935adb040e362"
+  }
+}
