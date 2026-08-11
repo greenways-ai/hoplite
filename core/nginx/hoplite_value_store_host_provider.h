@@ -1,17 +1,18 @@
 #ifndef HOPLITE_VALUE_STORE_HOST_PROVIDER_H
 #define HOPLITE_VALUE_STORE_HOST_PROVIDER_H
 
-#include <stddef.h>
-#include <stdint.h>
+#include "hoplite_store_host_provider.h"
 
-#define HOPLITE_VALUE_STORE_HOST_PROVIDER_OK 0
-#define HOPLITE_VALUE_STORE_HOST_PROVIDER_DISABLED 1
-#define HOPLITE_VALUE_STORE_HOST_PROVIDER_ERROR (-1)
+#define HOPLITE_VALUE_STORE_HOST_PROVIDER_OK \
+    HOPLITE_STORE_HOST_PROVIDER_OK
+#define HOPLITE_VALUE_STORE_HOST_PROVIDER_DISABLED \
+    HOPLITE_STORE_HOST_PROVIDER_DISABLED
+#define HOPLITE_VALUE_STORE_HOST_PROVIDER_ERROR \
+    HOPLITE_STORE_HOST_PROVIDER_ERROR
 
 /*
- * Register one worker-owned SQLite hoplite.store provider from trusted bytes.
- * This function is a startup boundary; request and application values must
- * never supply the path, driver choice, or limits.
+ * Compatibility entry point for trusted callers that previously registered
+ * hoplite.store through the combined store+value bootstrap.
  */
 int32_t hoplite_value_store_host_provider_register_sqlite_v1(
     const uint8_t *path,
@@ -20,16 +21,13 @@ int32_t hoplite_value_store_host_provider_register_sqlite_v1(
     size_t max_receipt_bytes);
 
 /*
- * Read trusted process configuration and register the provider once.
- *
- * HOPLITE_STORE_PATH enables the provider. Optional positive decimal
- * limits are read from HOPLITE_STORE_MAX_VALUE_BYTES and
- * HOPLITE_STORE_MAX_RECEIPT_BYTES. An absent path leaves the service
- * intentionally disabled; malformed or unusable configuration is an error.
+ * Initialise the store provider and then the independently configured
+ * hoplite.value provider. New store-only distributions should call
+ * hoplite_store_host_provider_init_process_v1 directly.
  */
 int32_t hoplite_value_store_host_provider_init_process_v1(void);
 
-/* Close the worker-owned provider exactly once. Safe to call repeatedly. */
+/* Close hoplite.value and then hoplite.store. Safe to call repeatedly. */
 void hoplite_value_store_host_provider_exit_process_v1(void);
 
 #endif /* HOPLITE_VALUE_STORE_HOST_PROVIDER_H */
