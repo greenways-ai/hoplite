@@ -150,12 +150,7 @@ pub fn validate(
         "provider lock artifact",
         &["digest", "media_type", "name"],
     )?;
-    require_exact(
-        artifact,
-        "name",
-        expected.asset,
-        "provider lock artifact",
-    )?;
+    require_exact(artifact, "name", expected.asset, "provider lock artifact")?;
     require_exact(
         artifact,
         "media_type",
@@ -242,17 +237,17 @@ fn valid_repository_component(value: &str) -> bool {
     !value.is_empty()
         && value != "."
         && value != ".."
-        && value
-            .bytes()
-            .all(|byte| matches!(byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'_' | b'-'))
+        && value.bytes().all(
+            |byte| matches!(byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'_' | b'-'),
+        )
 }
 
 fn validate_release_token(name: &str, value: &str) -> Result<(), String> {
     if value == "."
         || value == ".."
-        || !value
-            .bytes()
-            .all(|byte| matches!(byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'_' | b'-'))
+        || !value.bytes().all(
+            |byte| matches!(byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'_' | b'-'),
+        )
     {
         return Err(format!("{name} contains unsupported bytes"));
     }
@@ -590,8 +585,7 @@ impl<'a> JsonScanner<'a> {
 mod tests {
     use super::*;
 
-    const DIGEST: &str =
-        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const DIGEST: &str = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const LOCK: &str = r#"{
   "format": "hoplite.provider-lock/v1",
   "provider": "hoplite.blob",
@@ -678,15 +672,9 @@ mod tests {
         for source in [
             mutate(|value| value["provider"] = Value::String("hoplite.store".into())),
             mutate(|value| value["version"] = Value::String("0.2.0".into())),
-            mutate(|value| {
-                value["release"]["repository"] = Value::String("other/repo".into())
-            }),
-            mutate(|value| {
-                value["release"]["tag"] = Value::String("other-tag".into())
-            }),
-            mutate(|value| {
-                value["artifact"]["name"] = Value::String("other.tar.gz".into())
-            }),
+            mutate(|value| value["release"]["repository"] = Value::String("other/repo".into())),
+            mutate(|value| value["release"]["tag"] = Value::String("other-tag".into())),
+            mutate(|value| value["artifact"]["name"] = Value::String("other.tar.gz".into())),
             mutate(|value| {
                 value["artifact"]["media_type"] = Value::String("application/zip".into())
             }),
@@ -707,9 +695,7 @@ mod tests {
 
     #[test]
     fn revisions_and_release_identities_are_bounded() {
-        let bad_revision = mutate(|value| {
-            value["source_revision"] = Value::String("ABC".into())
-        });
+        let bad_revision = mutate(|value| value["source_revision"] = Value::String("ABC".into()));
         assert!(validate(&bad_revision, expected(), DIGEST)
             .unwrap_err()
             .contains("40 lowercase"));

@@ -181,11 +181,14 @@ mod tests {
 
     #[test]
     fn unknown_options_fail_before_file_access() {
-        let error = run(
-            ["lock.json", "manifest.json", "--url", "https://example.invalid"]
-                .into_iter()
-                .map(str::to_owned),
-        )
+        let error = run([
+            "lock.json",
+            "manifest.json",
+            "--url",
+            "https://example.invalid",
+        ]
+        .into_iter()
+        .map(str::to_owned))
         .unwrap_err();
         assert!(error.contains("unknown provider lock option"));
     }
