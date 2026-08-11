@@ -7,11 +7,7 @@ struct StaticReader {
 }
 
 impl ImmutableObjectReader for StaticReader {
-    fn read_verified(
-        &self,
-        digest: Digest,
-        max_bytes: usize,
-    ) -> Result<VerifiedObject, Failure> {
+    fn read_verified(&self, digest: Digest, max_bytes: usize) -> Result<VerifiedObject, Failure> {
         self.calls.fetch_add(1, AtomicOrdering::SeqCst);
         if digest != self.object.digest() {
             return Err(Failure::Missing);
