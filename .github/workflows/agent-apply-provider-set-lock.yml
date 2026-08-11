@@ -33,34 +33,41 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Format and test the closed validator
+      - name: Reconcile and test the closed validator
         working-directory: hoplite
         run: |
+          git show origin/main:core/src/provider_lock.rs > core/src/provider_lock.rs
+
           python3 - <<'PY'
           from pathlib import Path
 
-          path = Path('core/src/provider_lock/provider_set.rs')
-          text = path.read_text()
-          old = '''        let duplicate = mutate(|value| {
-              value["providers"][1] = value["providers"][0].clone();
-          });
-          assert!(validate(&duplicate, expected(), &backend, &consumer, &binding)
-              .unwrap_err()
-              .contains("duplicate provider"));
+          lock = Path('core/src/provider_lock.rs')
+          text = lock.read_text()
+          marker = '''pub use object_backend::{
+              validate as validate_object_backend_lock, Expected as ObjectBackendExpected,
+              ValidatedLock as ValidatedObjectBackendLock, FORMAT as OBJECT_BACKEND_FORMAT,
+          };
+
           '''
-          new = '''        let duplicate = mutate(|value| {
-              value["providers"][1]["provider"] = Value::String("hoplite.blob".into());
-          });
-          let duplicate_error =
-              validate(&duplicate, expected(), &backend, &consumer, &binding).unwrap_err();
-          assert!(
-              duplicate_error.contains("duplicate provider"),
-              "unexpected duplicate provider error: {duplicate_error}"
-          );
+          addition = '''#[path = "provider_lock/provider_set.rs"]
+          mod provider_set;
+          pub use provider_set::{
+              validate as validate_provider_set_lock, Expected as ProviderSetExpected,
+              ValidatedSet as ValidatedProviderSet, FORMAT as PROVIDER_SET_FORMAT,
+          };
+
           '''
+          if text.count(marker) != 1:
+              raise SystemExit('main provider lock module boundary changed')
+          lock.write_text(text.replace(marker, marker + addition))
+
+          provider_set = Path('core/src/provider_lock/provider_set.rs')
+          text = provider_set.read_text()
+          old = 'value["providers"][1] = value["providers"][0].clone();'
+          new = 'value["providers"][1]["provider"] = Value::String("hoplite.blob".into());'
           if text.count(old) != 1:
               raise SystemExit('duplicate provider fixture changed')
-          path.write_text(text.replace(old, new))
+          provider_set.write_text(text.replace(old, new))
           PY
 
           rustfmt --edition 2021 \
@@ -69,8 +76,10 @@ jobs:
             core/src/provider_lock/provider_set.rs \
             core/src/bin/hoplite-provider-set-lock.rs
           cargo test --manifest-path core/Cargo.toml --workspace --locked \
+            --bin hoplite-provider-lock \
+            --bin hoplite-object-backend-lock \
             --bin hoplite-provider-set-lock
-      - name: Commit only the formatted source
+      - name: Commit only the reconciled source
         working-directory: hoplite
         run: |
           git config user.name "github-actions[bot]"
