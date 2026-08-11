@@ -52,10 +52,7 @@ impl ByteSource for TestSource {
         if self.finishes != 0 {
             return Err(Error::SourceClosed);
         }
-        if self
-            .fail_after
-            .is_some_and(|limit| self.cursor >= limit)
-        {
+        if self.fail_after.is_some_and(|limit| self.cursor >= limit) {
             return Err(Error::source(
                 "blob-conformance-source-failure",
                 "injected source failure",
@@ -115,19 +112,9 @@ fn open_request_with_digest<D: Driver>(
     .expect("conformance open request must be valid")
 }
 
-fn append_request<D: Driver>(
-    driver: &D,
-    name: &str,
-    offset: u64,
-    length: usize,
-) -> StagingAppend {
-    StagingAppend::new(
-        staging_key(driver, name),
-        offset,
-        length,
-        driver.limits(),
-    )
-    .expect("conformance append request must be valid")
+fn append_request<D: Driver>(driver: &D, name: &str, offset: u64, length: usize) -> StagingAppend {
+    StagingAppend::new(staging_key(driver, name), offset, length, driver.limits())
+        .expect("conformance append request must be valid")
 }
 
 fn commit_request<D: Driver>(driver: &D, name: &str, bytes: &[u8]) -> StagingCommit {
@@ -179,12 +166,7 @@ fn append_exact<D: Driver>(
     receipt
 }
 
-fn staging_offset<D: Driver>(
-    driver: &D,
-    store: &D::Store,
-    name: &str,
-    bytes: &[u8],
-) -> u64 {
+fn staging_offset<D: Driver>(driver: &D, store: &D::Store, name: &str, bytes: &[u8]) -> u64 {
     store
         .staging_open(open_request(driver, name, bytes))
         .unwrap_or_else(|error| {
@@ -216,7 +198,11 @@ fn read_all<S: ResponseSource>(mut source: S, chunk_size: usize) -> Vec<u8> {
         }
         output.extend_from_slice(&chunk[..read]);
     }
-    assert_eq!(output.len(), declared, "source length must match declaration");
+    assert_eq!(
+        output.len(),
+        declared,
+        "source length must match declaration"
+    );
     source.close().expect("conformance source close");
     assert_eq!(
         error_code(source.read(&mut [0_u8; 1])),
@@ -229,7 +215,9 @@ fn read_all<S: ResponseSource>(mut source: S, chunk_size: usize) -> Vec<u8> {
 /// commit replay and immutable ranged response sources.
 pub fn staged_round_trip<D: Driver>(driver: &D) {
     let store = driver.open().expect("conformance driver must open");
-    store.probe().expect("conformance driver probe must succeed");
+    store
+        .probe()
+        .expect("conformance driver probe must succeed");
 
     let bytes = b"abcdefgh";
     let opened = store
@@ -286,10 +274,12 @@ pub fn source_failures_are_atomic<D: Driver>(driver: &D) {
 
     let mut short = TestSource::new(b"a".to_vec());
     assert_eq!(
-        error_code(store.staging_append_from_source(
-            append_request(driver, "source-errors", 0, 2),
-            &mut short,
-        )),
+        error_code(
+            store.staging_append_from_source(
+                append_request(driver, "source-errors", 0, 2),
+                &mut short,
+            )
+        ),
         "blob-source-short"
     );
     assert_eq!(short.finishes, 1);
@@ -297,10 +287,12 @@ pub fn source_failures_are_atomic<D: Driver>(driver: &D) {
 
     let mut long = TestSource::new(b"abc".to_vec());
     assert_eq!(
-        error_code(store.staging_append_from_source(
-            append_request(driver, "source-errors", 0, 2),
-            &mut long,
-        )),
+        error_code(
+            store.staging_append_from_source(
+                append_request(driver, "source-errors", 0, 2),
+                &mut long,
+            )
+        ),
         "blob-source-long"
     );
     assert_eq!(long.finishes, 1);
@@ -308,10 +300,12 @@ pub fn source_failures_are_atomic<D: Driver>(driver: &D) {
 
     let mut stale = TestSource::new(b"ab".to_vec());
     assert_eq!(
-        error_code(store.staging_append_from_source(
-            append_request(driver, "source-errors", 1, 2),
-            &mut stale,
-        )),
+        error_code(
+            store.staging_append_from_source(
+                append_request(driver, "source-errors", 1, 2),
+                &mut stale,
+            )
+        ),
         "blob-offset-mismatch"
     );
     assert_eq!(stale.finishes, 0, "rejected source must not be claimed");
@@ -339,11 +333,7 @@ pub fn commit_failures_and_abort<D: Driver>(driver: &D) {
         .expect("incomplete staging must open");
     append_exact(driver, &store, "incomplete", 0, &bytes[..2]);
     assert_eq!(
-        error_code(store.staging_verify_commit(commit_request(
-            driver,
-            "incomplete",
-            bytes,
-        ))),
+        error_code(store.staging_verify_commit(commit_request(driver, "incomplete", bytes,))),
         "blob-staging-incomplete"
     );
     assert_eq!(
@@ -385,7 +375,9 @@ pub fn commit_failures_and_abort<D: Driver>(driver: &D) {
     );
     let key = staging_key(driver, "collision");
     store.staging_abort(&key).expect("first abort must succeed");
-    store.staging_abort(&key).expect("replayed abort must succeed");
+    store
+        .staging_abort(&key)
+        .expect("replayed abort must succeed");
     assert_eq!(staging_offset(driver, &store, "collision", b"abc"), 0);
 }
 
@@ -422,11 +414,7 @@ pub fn range_and_capacity_guards<D: Driver>(driver: &D) {
             .expect("staging capacity fixture must open");
     }
     assert_eq!(
-        error_code(store.staging_open(open_request(
-            driver,
-            "capacity-overflow",
-            b"x",
-        ))),
+        error_code(store.staging_open(open_request(driver, "capacity-overflow", b"x",))),
         "blob-staging-capacity"
     );
 }
@@ -455,9 +443,7 @@ pub fn reopen_preserves_staging_and_objects<D: Driver>(driver: &D) {
 
     let store = driver.open().expect("third conformance session must open");
     let source = store
-        .object_open_source(
-            ObjectRange::new(driver.digest(bytes), 0, bytes.len() as u64).unwrap(),
-        )
+        .object_open_source(ObjectRange::new(driver.digest(bytes), 0, bytes.len() as u64).unwrap())
         .expect("reopened object source must open");
     assert_eq!(read_all(source, 3), bytes);
 }
