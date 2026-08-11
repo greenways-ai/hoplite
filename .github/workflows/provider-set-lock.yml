@@ -1,0 +1,242 @@
+name: Pinned provider set
+
+env:
+  HARA_REF: d310105d54954399da0b0289b7d43c7d1bf9d984
+  PROFILE: hoplite.blob+value/1
+  BLOB_VERSION: 0.1.1
+  BLOB_REVISION: 8d97a452032d47740314899bb175096d8fc83f8e
+  BLOB_SHA256: 03c5dea9854cf23b60c7d2638c17712accc7e77eb53db4d15ed0b45327ee8210
+  VALUE_VERSION: 0.1.0
+  VALUE_REVISION: bbc42008a44223a977a84ffedb8f2262ba06f1ba
+  VALUE_HARA_REVISION: d2a2e376917131cfb8954ac156db3a5e174f2c1a
+  VALUE_SHA256: 47e96af3768621b25ef448004795ce9ecbdca091cfa31910308009156ed89e4f
+
+on:
+  push:
+    paths:
+      - core/src/provider_lock.rs
+      - core/src/provider_lock/object_backend.rs
+      - core/src/provider_lock/provider_set.rs
+      - core/src/bin/hoplite-provider-lock.rs
+      - core/src/bin/hoplite-object-backend-lock.rs
+      - core/src/bin/hoplite-provider-set-lock.rs
+      - packaging/providers/runtime/**
+      - packaging/providers/blob/provider-lock.json
+      - packaging/providers/blob/provider-manifest.published.json
+      - packaging/providers/value/provider-lock.json
+      - packaging/providers/value/provider-manifest.json
+      - packaging/providers/value/provider-manifest.published.json
+      - packaging/providers/value/object-backend-lock.json
+      - packaging/scripts/verify-blob-provider-artifact.sh
+      - packaging/scripts/verify-value-provider-artifact.sh
+      - .github/workflows/provider-set-lock.yml
+  pull_request:
+    paths:
+      - core/src/provider_lock.rs
+      - core/src/provider_lock/object_backend.rs
+      - core/src/provider_lock/provider_set.rs
+      - core/src/bin/hoplite-provider-lock.rs
+      - core/src/bin/hoplite-object-backend-lock.rs
+      - core/src/bin/hoplite-provider-set-lock.rs
+      - packaging/providers/runtime/**
+      - packaging/providers/blob/provider-lock.json
+      - packaging/providers/blob/provider-manifest.published.json
+      - packaging/providers/value/provider-lock.json
+      - packaging/providers/value/provider-manifest.json
+      - packaging/providers/value/provider-manifest.published.json
+      - packaging/providers/value/object-backend-lock.json
+      - packaging/scripts/verify-blob-provider-artifact.sh
+      - packaging/scripts/verify-value-provider-artifact.sh
+      - .github/workflows/provider-set-lock.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: provider-set-lock-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  set:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ env.HARA_REF }}
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Test all closed lock parsers
+        working-directory: hoplite
+        run: |
+          cargo fmt --manifest-path core/Cargo.toml -- --check
+          cargo test --manifest-path core/Cargo.toml --workspace --locked \
+            --bin hoplite-provider-lock \
+            --bin hoplite-object-backend-lock \
+            --bin hoplite-provider-set-lock
+
+      - name: Validate the exact blob and value set
+        working-directory: hoplite
+        run: |
+          verifier=(
+            cargo run --quiet --manifest-path core/Cargo.toml --locked
+            --bin hoplite-provider-set-lock --
+          )
+          arguments=(
+            packaging/providers/runtime/provider-set-lock.json
+            packaging/providers/blob/provider-lock.json
+            packaging/providers/blob/provider-manifest.published.json
+            packaging/providers/value/provider-lock.json
+            packaging/providers/value/provider-manifest.published.json
+            packaging/providers/value/object-backend-lock.json
+            "$PROFILE"
+          )
+          "${verifier[@]}" "${arguments[@]}"
+
+      - name: Reject missing, duplicate, unknown and drifting providers
+        working-directory: hoplite
+        run: |
+          python3 - <<'PY'
+          import copy
+          import json
+          from pathlib import Path
+
+          source = Path("packaging/providers/runtime/provider-set-lock.json")
+          document = json.loads(source.read_text())
+          fixtures = Path("/tmp/provider-set-fixtures")
+          fixtures.mkdir()
+
+          cases = {}
+
+          missing = copy.deepcopy(document)
+          missing["providers"].pop()
+          cases["missing-provider"] = missing
+
+          duplicate = copy.deepcopy(document)
+          duplicate["providers"][1]["provider"] = "hoplite.blob"
+          cases["duplicate-provider"] = duplicate
+
+          unknown = copy.deepcopy(document)
+          unknown["providers"][1]["provider"] = "hoplite.store"
+          cases["unknown-provider"] = unknown
+
+          digest = copy.deepcopy(document)
+          digest["providers"][1]["digest"] = "sha256:" + "0" * 64
+          cases["value-digest-drift"] = digest
+
+          package = copy.deepcopy(document)
+          package["bindings"][0]["package"] = "other-reader"
+          cases["backend-package-drift"] = package
+
+          binding = copy.deepcopy(document)
+          binding["bindings"].append(copy.deepcopy(binding["bindings"][0]))
+          cases["duplicate-binding"] = binding
+
+          profile = copy.deepcopy(document)
+          profile["profile"] = "hoplite.blob+value/2"
+          cases["profile-drift"] = profile
+
+          unknown_field = copy.deepcopy(document)
+          unknown_field["root"] = "/forbidden"
+          cases["unknown-field"] = unknown_field
+
+          for name, fixture in cases.items():
+              (fixtures / f"{name}.json").write_text(
+                  json.dumps(fixture, sort_keys=True, separators=(",", ":")) + "\n"
+              )
+          PY
+
+          verifier=(
+            cargo run --quiet --manifest-path core/Cargo.toml --locked
+            --bin hoplite-provider-set-lock --
+          )
+          tail=(
+            packaging/providers/blob/provider-lock.json
+            packaging/providers/blob/provider-manifest.published.json
+            packaging/providers/value/provider-lock.json
+            packaging/providers/value/provider-manifest.published.json
+            packaging/providers/value/object-backend-lock.json
+            "$PROFILE"
+          )
+
+          for fixture in /tmp/provider-set-fixtures/*.json; do
+            if "${verifier[@]}" "$fixture" "${tail[@]}"; then
+              echo "provider set fixture unexpectedly passed: $fixture" >&2
+              exit 1
+            fi
+          done
+
+      - name: Download and verify both locked provider artifacts
+        working-directory: hoplite
+        run: |
+          blob_archive="/tmp/hoplite-blob-provider-${BLOB_VERSION}.tar.gz"
+          value_archive="/tmp/hoplite-value-provider-${VALUE_VERSION}.tar.gz"
+
+          curl --fail --location --retry 3 \
+            "https://github.com/greenways-ai/hoplite/releases/download/hoplite-blob-provider-v${BLOB_VERSION}/hoplite-blob-provider-${BLOB_VERSION}.tar.gz" \
+            --output "$blob_archive"
+          curl --fail --location --retry 3 \
+            "https://github.com/greenways-ai/hoplite/releases/download/hoplite-value-provider-v${VALUE_VERSION}/hoplite-value-provider-${VALUE_VERSION}.tar.gz" \
+            --output "$value_archive"
+
+          echo "${BLOB_SHA256}  ${blob_archive}" | sha256sum --check
+          echo "${VALUE_SHA256}  ${value_archive}" | sha256sum --check
+
+          bash packaging/scripts/verify-blob-provider-artifact.sh \
+            "$blob_archive" "sha256:${BLOB_SHA256}" /tmp/blob-root
+          bash packaging/scripts/verify-value-provider-artifact.sh \
+            "$value_archive" "sha256:${VALUE_SHA256}" /tmp/value-root
+
+          blob="/tmp/blob-root/hoplite-blob-provider-${BLOB_VERSION}"
+          value="/tmp/value-root/hoplite-value-provider-${VALUE_VERSION}"
+
+          test "$(cat "${blob}/PACKAGE_VERSION")" = "$BLOB_VERSION"
+          test "$(cat "${blob}/SOURCE_REVISION")" = "$BLOB_REVISION"
+          test "$(cat "${value}/PACKAGE_VERSION")" = "$VALUE_VERSION"
+          test "$(cat "${value}/SOURCE_REVISION")" = "$VALUE_REVISION"
+          test "$(cat "${value}/HARA_REVISION")" = "$VALUE_HARA_REVISION"
+
+      - name: Prove one exact immutable reader across the set
+        working-directory: hoplite
+        run: |
+          blob="/tmp/blob-root/hoplite-blob-provider-${BLOB_VERSION}"
+          value="/tmp/value-root/hoplite-value-provider-${VALUE_VERSION}"
+
+          diff -ru \
+            core/abi/blob-filesystem-reader \
+            "$blob/abi/blob-filesystem-reader"
+          diff -ru \
+            core/abi/blob-filesystem-reader \
+            "$value/hoplite/core/abi/blob-filesystem-reader"
+          diff -ru \
+            "$blob/abi/blob-filesystem-reader" \
+            "$value/hoplite/core/abi/blob-filesystem-reader"
+
+          cmp \
+            packaging/providers/value/provider-manifest.json \
+            "$value/provider-manifest.json"
+          cmp \
+            packaging/providers/value/object-backend-lock.json \
+            "$value/object-backend-lock.json"
+          cmp \
+            packaging/providers/blob/provider-lock.json \
+            "$value/backend/provider-lock.json"
+          cmp \
+            packaging/providers/blob/provider-manifest.published.json \
+            "$value/backend/provider-manifest.published.json"
+
+      - name: Keep the set outside portable requests and mutable store selection
+        working-directory: hoplite
+        run: |
+          ! grep -F '"hoplite.store"' \
+            packaging/providers/runtime/provider-set-lock.json
+          ! grep -R -E 'provider-set-lock|hoplite\.blob\+value/1' \
+            core/lib core/nginx core/src/app.rs core/src/host.rs
