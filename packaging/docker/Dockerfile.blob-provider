@@ -9,22 +9,46 @@ WORKDIR /src
 COPY hoplite hoplite
 COPY hara hara
 
-RUN cargo run --manifest-path hoplite/core/Cargo.toml --locked \
-      --bin hoplite-provider-manifest -- \
-      hoplite/packaging/providers/blob/provider-manifest.json \
+RUN cargo run --quiet --manifest-path hoplite/core/Cargo.toml --locked \
+      --bin hoplite-provider-lock -- \
+      hoplite/packaging/providers/blob/provider-lock.json \
+      hoplite/packaging/providers/blob/provider-manifest.published.json \
       --provider hoplite.blob \
+      --version 0.1.0 \
+      --repository greenways-ai/hoplite \
+      --tag hoplite-blob-provider-v0.1.0 \
+      --asset hoplite-blob-provider-0.1.0.tar.gz \
+      --media-type application/gzip \
       --request hoplite.blob-request/1 \
       --result hoplite.blob-result/1 \
       --abi hoplite.blob-provider-ffi \
       --abi-version 1 \
       --driver filesystem \
-      --driver-version 1
-RUN make -C hoplite/core runtime blob-store-provider nginx-source
+      --driver-version 1 \
+      --shell > /tmp/hoplite-provider.env \
+    && . /tmp/hoplite-provider.env \
+    && provider_archive="/tmp/${HOPLITE_PROVIDER_ASSET}" \
+    && provider_root=/src/provider-root \
+    && curl --fail --location --retry 3 \
+         "https://github.com/${HOPLITE_PROVIDER_REPOSITORY}/releases/download/${HOPLITE_PROVIDER_TAG}/${HOPLITE_PROVIDER_ASSET}" \
+         --output "$provider_archive" \
+    && echo "${HOPLITE_PROVIDER_SHA256}  ${provider_archive}" | sha256sum --check \
+    && bash hoplite/packaging/scripts/verify-blob-provider-artifact.sh \
+         "$provider_archive" "sha256:${HOPLITE_PROVIDER_SHA256}" "$provider_root" \
+    && package="${provider_root}/hoplite-blob-provider-${HOPLITE_PROVIDER_VERSION}" \
+    && test "$(cat "${package}/SOURCE_REVISION")" = "$HOPLITE_PROVIDER_SOURCE_REVISION" \
+    && test "$(cat "${package}/PACKAGE_VERSION")" = "$HOPLITE_PROVIDER_VERSION" \
+    && mv "$package" /src/provider \
+    && rmdir "$provider_root" \
+    && cargo build \
+         --manifest-path /src/provider/abi/blob-store-provider-ffi/Cargo.toml \
+         --release --locked
+RUN make -C hoplite/core runtime nginx-source
 RUN cd "hoplite/core/target/sources/nginx-${NGINX_VERSION}" \
     && HOPLITE_RUNTIME_DIR=/src/hoplite/core/target/release \
        HOPLITE_CORE_NGINX_DIR=/src/hoplite/core/nginx \
-       HOPLITE_BLOB_PROVIDER_FFI_DIR=/src/hoplite/core/abi/blob-store-provider-ffi \
-       HOPLITE_BLOB_PROVIDER_LIB_DIR=/src/hoplite/core/abi/blob-store-provider-ffi/target/release \
+       HOPLITE_BLOB_PROVIDER_FFI_DIR=/src/provider/abi/blob-store-provider-ffi \
+       HOPLITE_BLOB_PROVIDER_LIB_DIR=/src/provider/abi/blob-store-provider-ffi/target/release \
        ./configure --prefix=/src/hoplite/core/target/nginx \
          --with-http_ssl_module --with-threads \
          --add-module=/src/hoplite/core/nginx \
