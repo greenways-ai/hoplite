@@ -1,5 +1,8 @@
 name: Apply object backend lock parser
 
+env:
+  HARA_REF: d310105d54954399da0b0289b7d43c7d1bf9d984
+
 on:
   push:
     branches:
@@ -18,12 +21,20 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: agent/value-object-backend-lock-91
+          path: hoplite
           fetch-depth: 0
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ env.HARA_REF }}
+          path: hara
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.78.0
           components: rustfmt,clippy
       - name: Export and test the closed parser
+        working-directory: hoplite
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -57,6 +68,7 @@ jobs:
             --bin hoplite-object-backend-lock -- -D warnings
 
       - name: Commit only source changes
+        working-directory: hoplite
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
