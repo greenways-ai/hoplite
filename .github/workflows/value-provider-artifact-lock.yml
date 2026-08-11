@@ -142,7 +142,7 @@ jobs:
           test "$(cat "${package}/PACKAGE_VERSION")" = "$VALUE_VERSION"
           test "$(cat "${package}/SOURCE_REVISION")" = "$VALUE_REVISION"
           test "$(cat "${package}/HARA_REVISION")" = "$VALUE_HARA_REF"
-          test "$(cat packaging/hara-value-revision | tr -d '\r\n')" = "$VALUE_HARA_REF"
+          test "$(tr -d '\r\n' < packaging/hara-value-revision)" = "$VALUE_HARA_REF"
           cmp \
             packaging/providers/value/object-backend-lock.json \
             "$package/object-backend-lock.json"
@@ -191,10 +191,36 @@ jobs:
             --backend-driver filesystem \
             --backend-driver-version 1
 
-          grep -Fx "$BACKEND_REVISION" "$package/backend/provider-lock.json" >/dev/null || true
-          grep -F "$BACKEND_SHA256" "$package/object-backend-lock.json"
-          grep -F "$BACKEND_SHA256" "$package/backend/provider-lock.json"
-          grep -F "$BACKEND_SHA256" "$package/backend/provider-manifest.published.json"
+          PACKAGE="$package" \
+          BACKEND_VERSION="$BACKEND_VERSION" \
+          BACKEND_REVISION="$BACKEND_REVISION" \
+          BACKEND_SHA256="$BACKEND_SHA256" \
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          package = Path(os.environ["PACKAGE"])
+          expected_digest = f"sha256:{os.environ['BACKEND_SHA256']}"
+          lock = json.loads((package / "backend/provider-lock.json").read_text())
+          manifest = json.loads(
+              (package / "backend/provider-manifest.published.json").read_text()
+          )
+          binding = json.loads((package / "object-backend-lock.json").read_text())
+
+          assert lock["provider"] == "hoplite.blob"
+          assert lock["version"] == os.environ["BACKEND_VERSION"]
+          assert lock["source_revision"] == os.environ["BACKEND_REVISION"]
+          assert lock["artifact"]["digest"] == expected_digest
+          assert manifest["provider"] == "hoplite.blob"
+          assert manifest["artifact"]["digest"] == expected_digest
+          assert binding["consumer"] == "hoplite.value"
+          assert binding["backend"]["package"] == "hoplite-blob-filesystem-reader"
+          assert binding["backend"]["version"] == "0.1.0"
+          assert binding["backend"]["artifact"]["provider"] == "hoplite.blob"
+          assert binding["backend"]["artifact"]["version"] == os.environ["BACKEND_VERSION"]
+          assert binding["backend"]["artifact"]["digest"] == expected_digest
+          PY
 
       - name: Build only from the verified extracted package
         working-directory: hoplite
