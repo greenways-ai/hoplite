@@ -6,16 +6,20 @@ ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 MANIFEST="$ROOT/core/runtime/Cargo.toml"
 HEADER="$ROOT/core/nginx/hoplite_runtime.h"
 INVENTORY="$ROOT/docs/native-symbols.txt"
+TARGET="$ROOT/core/target/release"
+STATIC_LIBRARY="$TARGET/libhoplite_runtime.a"
 WORK="$(mktemp -d)"
-TARGET="$WORK/target"
-STATIC_LIBRARY="$TARGET/release/libhoplite_runtime.a"
 trap 'rm -rf "$WORK"' EXIT
 
-# Use an isolated target directory and ask rustc for the native link set before
-# running the Rust fixture. This guarantees rustc executes with
-# --print=native-static-libs instead of Cargo reusing a release artifact built
-# by an earlier CI step and emitting no link metadata.
-CARGO_TARGET_DIR="$TARGET" cargo rustc \
+# Remove only the runtime package's release outputs. Dependencies remain cached,
+# but rustc must execute the static-library build below and therefore always
+# emits the native link set instead of Cargo silently reusing an earlier output.
+cargo clean \
+  --manifest-path "$MANIFEST" \
+  --release \
+  --package hoplite-runtime
+
+cargo rustc \
   --manifest-path "$MANIFEST" \
   --locked \
   --release \
@@ -36,7 +40,7 @@ test -f "$STATIC_LIBRARY" || {
   exit 1
 }
 
-CARGO_TARGET_DIR="$TARGET" cargo run \
+cargo run \
   --manifest-path "$MANIFEST" \
   --locked \
   --release \
