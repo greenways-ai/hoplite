@@ -91,6 +91,12 @@
       "name": "hoplite_runtime.h",
       "path": "core/nginx/hoplite_runtime.h",
       "status": "public",
+      "symbol_inventory": "docs/native-symbols.txt",
+      "conformance": [
+        "core/runtime/examples/embed.rs",
+        "core/runtime/examples/embed.c",
+        "packaging/scripts/smoke-embedding.sh"
+      ],
       "summary": "Hoplite runtime lifecycle, HAB0 alpha bootstrap, handler, work and request embedding ABI."
     },
     {
