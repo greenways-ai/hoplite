@@ -1,0 +1,14 @@
+(ns hoplite.fixture.composition
+  (:require [hoplite.fixture.foundation
+             :as foundation
+             :refer [foundation-label]]))
+
+(def composition-label "composition")
+
+(defn proof
+  []
+  (str (foundation/aliased-label)
+       "|"
+       foundation-label
+       "|"
+       composition-label))
