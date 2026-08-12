@@ -37,6 +37,23 @@ The alpha decoder rejects:
 The current limits are 8 MiB for `apps.hta` and 64 MiB for embedded `HBX0`
 bytecode.
 
+## Golden and migration fixtures
+
+`core/application-bundle/tests/fixtures/hab0-golden.hex` is the committed exact
+byte contract for one small deterministic envelope. The test suite requires the
+current encoder to reproduce all 95 bytes and requires the decoder to recover
+the exact manifest-bound `HBX0` payload.
+
+`hab1-migration-rejected.hex` preserves the same payload with only the outer
+marker changed to `HAB1`. The current decoder must reject that fixture. A future
+alpha epoch therefore cannot become an accidental alias: it must add its own
+format identity, decoder, golden bytes, migration note, and explicit acceptance
+policy while retaining the old fixture as compatibility evidence.
+
+Golden fixtures are append-only compatibility records. Changing the current
+encoder requires a new epoch fixture rather than rewriting the bytes that
+represent an already published contract.
+
 ## Startup law
 
 The worker validates the complete `HAB0` envelope, then performs a full
