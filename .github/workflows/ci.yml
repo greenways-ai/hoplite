@@ -55,6 +55,8 @@ jobs:
         run: cargo test --manifest-path hoplite/core/Cargo.toml --workspace --locked
       - name: Verify the default product boundary
         run: bash hoplite/packaging/scripts/verify-default-product.sh
+      - name: Test the public Rust and C embedding contracts
+        run: bash hoplite/packaging/scripts/smoke-embedding.sh
       - name: Compile the public data-plane header
         run: |
           cat > /tmp/hoplite-public-header.c <<'EOF'
