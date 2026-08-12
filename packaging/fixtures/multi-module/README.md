@@ -19,5 +19,5 @@ alias|foundation|composition|composition|application
 ```
 
 That body can only be assembled when Hara preserves dependency order, aliases,
-referred Vars, namespace-local Vars and cross-namespace calls through HBB2,
-HAB1, isolated preflight, staged worker publication and Nginx dispatch.
+referred Vars, namespace-local Vars and cross-namespace calls through HBX0,
+HAB0, isolated preflight, staged worker publication and Nginx dispatch.

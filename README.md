@@ -134,7 +134,7 @@ Production build output is isolated under `.hoplite/`:
   openapi/<app-name>.json
 ```
 
-`app.hbx` is the deterministic HAB1 application bundle loaded transactionally
+`app.hbx` is the deterministic HAB0 application bundle loaded transactionally
 by a worker. Development builds may also emit `.hoplite/app.hal` for inspection;
 production builds remove that source projection. Generated `.hoplite` output is
 never registered as application input, even when a project uses

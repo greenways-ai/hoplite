@@ -8,34 +8,34 @@ compiled Hara modules and the route manifest as unrelated inputs.
 The byte layout is deterministic:
 
 ```text
-HAB1
+HAB0
 sha256(payload)
 runtime ABI (u32 little-endian)
 sha256(exact apps.hta bytes)
 embedded bytecode length (u32 little-endian)
-embedded Hara HBB2 bytecode bundle
+embedded Hara HBX0 bytecode bundle
 ```
 
-`HAB1` is the Hoplite-owned compatibility boundary. `HBB2` remains the
+`HAB0` is the Hoplite-owned compatibility boundary. `HBX0` remains the
 Hara-owned container for namespace-preserving bytecode modules.
 
 The v1 decoder rejects:
 
 - unsupported runtime ABI versions;
 - an empty or oversized route manifest;
-- an empty, oversized, or non-HBB2 bytecode payload;
+- an empty, oversized, or non-HBX0 bytecode payload;
 - checksum, manifest-digest, and declared-length mismatches;
 - truncation and trailing bytes.
 
-The current limits are 8 MiB for `apps.hta` and 64 MiB for embedded HBB2
+The current limits are 8 MiB for `apps.hta` and 64 MiB for embedded HBX0
 bytecode.
 
 ## Startup law
 
-The worker validates the complete HAB1 envelope, then performs a full
+The worker validates the complete HAB0 envelope, then performs a full
 bytecode-and-route preflight on an isolated thread. Hara's thread-local protocol
 and multimethod state cannot leak from a rejected preflight. Only after that
-succeeds does Hoplite construct a fresh staged runtime, load the same HBB2 bytes,
+succeeds does Hoplite construct a fresh staged runtime, load the same HBX0 bytes,
 prepare the same route handlers, and atomically replace the pristine worker
 runtime.
 
@@ -58,10 +58,10 @@ bounded file-based `hoplite_bootstrap_application_files_v1` entry point.
 ## Source-free verification
 
 `hoplite verify [--manifest FILE] [PROJECT|OUTPUT|BUNDLE]` reads only the
-built HAB1 and its exact manifest. It applies the same regular-file and size
+built HAB0 and its exact manifest. It applies the same regular-file and size
 limits used by production worker startup, verifies the envelope and manifest
 digest, validates the HTA document, and reports the runtime ABI, digest and
-embedded HBB2 size without executing application code.
+embedded HBX0 size without executing application code.
 
 The Nginx module passes configured paths to the Rust runtime rather than
 allocating files in C. Bundle and manifest limits are therefore checked before

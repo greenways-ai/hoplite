@@ -4,8 +4,13 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-pub const FORMAT: &str = "hoplite.application-bundle/1";
-pub const MAGIC: &[u8; 4] = b"HAB1";
+/// Portable document identity for the current pre-release envelope.
+pub const FORMAT: &str = "hoplite.application-bundle/0-alpha";
+/// Four-byte marker for the Hoplite-owned alpha envelope.
+pub const MAGIC: &[u8; 4] = b"HAB0";
+/// Hara-owned alpha bundle marker required inside the envelope.
+pub const HARA_BUNDLE_MAGIC: &[u8; 4] = b"HBX0";
+/// Numeric embedding ABI compatibility, independent of format maturity.
 pub const RUNTIME_ABI_VERSION: u32 = 4;
 pub const MAX_MANIFEST_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_BYTECODE_BYTES: usize = 64 * 1024 * 1024;
@@ -57,7 +62,7 @@ impl fmt::Display for Error {
                 "hoplite/application-bundle-too-large: {actual} bytes exceeds {MAX_BUNDLE_BYTES}"
             ),
             Self::InvalidMagic => {
-                formatter.write_str("hoplite/application-bundle-invalid: expected HAB1")
+                formatter.write_str("hoplite/application-bundle-invalid: expected HAB0")
             }
             Self::ChecksumMismatch => {
                 formatter.write_str("hoplite/application-bundle-checksum-mismatch")
@@ -70,7 +75,7 @@ impl fmt::Display for Error {
                 formatter.write_str("hoplite/application-manifest-mismatch")
             }
             Self::InvalidBytecodeMagic => formatter.write_str(
-                "hoplite/application-bytecode-invalid: expected embedded HBB2 bundle",
+                "hoplite/application-bytecode-invalid: expected embedded HBX0 bundle",
             ),
             Self::Truncated => formatter.write_str("hoplite/application-bundle-truncated"),
             Self::TrailingBytes { actual } => write!(
@@ -342,7 +347,9 @@ fn validate_bytecode(bytecode: &[u8]) -> Result<(), Error> {
             actual: bytecode.len(),
         });
     }
-    if bytecode.len() < 4 || &bytecode[..4] != b"HBB2" {
+    if bytecode.len() < HARA_BUNDLE_MAGIC.len()
+        || &bytecode[..HARA_BUNDLE_MAGIC.len()] != HARA_BUNDLE_MAGIC
+    {
         return Err(Error::InvalidBytecodeMagic);
     }
     Ok(())
@@ -369,8 +376,8 @@ fn take<'a>(input: &mut &'a [u8], length: usize) -> Result<&'a [u8], Error> {
 mod tests {
     use super::*;
 
-    fn hbb2() -> Vec<u8> {
-        b"HBB2deterministic-bytecode".to_vec()
+    fn hbx0() -> Vec<u8> {
+        b"HBX0deterministic-bytecode".to_vec()
     }
 
     fn reseal(bundle: &mut [u8]) {
@@ -381,7 +388,7 @@ mod tests {
     #[test]
     fn round_trip_is_deterministic_and_manifest_bound() {
         let manifest = b"exact-route-manifest";
-        let bytecode = hbb2();
+        let bytecode = hbx0();
         let first = encode(manifest, &bytecode).unwrap();
         let second = encode(manifest, &bytecode).unwrap();
         assert_eq!(first, second);
@@ -393,7 +400,7 @@ mod tests {
 
     #[test]
     fn rejects_manifest_drift_before_exposing_bytecode() {
-        let bundle = encode(b"manifest-a", &hbb2()).unwrap();
+        let bundle = encode(b"manifest-a", &hbx0()).unwrap();
         assert_eq!(
             decode(&bundle, b"manifest-b"),
             Err(Error::ManifestDigestMismatch)
@@ -402,7 +409,7 @@ mod tests {
 
     #[test]
     fn rejects_runtime_abi_drift_even_with_a_valid_checksum() {
-        let mut bundle = encode(b"manifest", &hbb2()).unwrap();
+        let mut bundle = encode(b"manifest", &hbx0()).unwrap();
         bundle[PREFIX_BYTES..PREFIX_BYTES + 4].copy_from_slice(&5u32.to_le_bytes());
         reseal(&mut bundle);
         assert_eq!(
@@ -413,11 +420,11 @@ mod tests {
 
     #[test]
     fn rejects_tampering_and_trailing_bytes() {
-        let mut tampered = encode(b"manifest", &hbb2()).unwrap();
+        let mut tampered = encode(b"manifest", &hbx0()).unwrap();
         *tampered.last_mut().unwrap() ^= 1;
         assert_eq!(decode(&tampered, b"manifest"), Err(Error::ChecksumMismatch));
 
-        let mut trailing = encode(b"manifest", &hbb2()).unwrap();
+        let mut trailing = encode(b"manifest", &hbx0()).unwrap();
         trailing.push(0);
         reseal(&mut trailing);
         assert_eq!(
@@ -427,8 +434,8 @@ mod tests {
     }
 
     #[test]
-    fn rejects_empty_oversized_and_non_hbb2_inputs() {
-        assert_eq!(encode(b"", &hbb2()), Err(Error::EmptyManifest));
+    fn rejects_empty_oversized_and_non_hbx0_inputs() {
+        assert_eq!(encode(b"", &hbx0()), Err(Error::EmptyManifest));
         assert_eq!(encode(b"manifest", b""), Err(Error::EmptyBytecode));
         assert_eq!(
             encode(b"manifest", b"not-bytecode"),
@@ -437,7 +444,7 @@ mod tests {
 
         let manifest = vec![0; MAX_MANIFEST_BYTES + 1];
         assert_eq!(
-            encode(&manifest, &hbb2()),
+            encode(&manifest, &hbx0()),
             Err(Error::ManifestTooLarge {
                 actual: MAX_MANIFEST_BYTES + 1
             })
@@ -445,12 +452,31 @@ mod tests {
     }
 
     #[test]
+    fn rejects_pre_reset_bundle_markers() {
+        let manifest = b"manifest";
+
+        let mut old_outer = encode(manifest, &hbx0()).unwrap();
+        let mut old_outer_magic = *MAGIC;
+        old_outer_magic[3] = b'1';
+        old_outer[..MAGIC.len()].copy_from_slice(&old_outer_magic);
+        assert_eq!(decode(&old_outer, manifest), Err(Error::InvalidMagic));
+
+        let mut old_inner = HARA_BUNDLE_MAGIC.to_vec();
+        old_inner[2] = b'B';
+        old_inner[3] = b'2';
+        old_inner.extend_from_slice(b"legacy-bytecode");
+        assert_eq!(
+            encode(manifest, &old_inner),
+            Err(Error::InvalidBytecodeMagic)
+        );
+    }
+    #[test]
     fn bounded_file_reads_preserve_exact_bytes_and_reject_oversize() {
         use std::sync::atomic::{AtomicU64, Ordering};
 
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let path = std::env::temp_dir().join(format!(
-            "hoplite-hab1-file-{}-{}",
+            "hoplite-hab0-file-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));

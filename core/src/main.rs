@@ -147,7 +147,7 @@ fn run_verify_command(arguments: &[String]) -> Result<(), String> {
     );
     println!("runtime ABI: {}", application_bundle::RUNTIME_ABI_VERSION);
     println!("manifest sha256: {}", lower_hex(&verified.manifest_digest));
-    println!("embedded HBB2: {} bytes", verified.bytecode_bytes);
+    println!("embedded HBX0: {} bytes", verified.bytecode_bytes);
     Ok(())
 }
 
@@ -425,11 +425,11 @@ fn check(root: &Path, settings: &BuildSettings) -> Result<Project, String> {
         return Err("project has no .hal source files".into());
     }
     let modules = application_modules(&sources)?;
-    let hbb2 = compile_application_modules(&modules)
+    let hbx0 = compile_application_modules(&modules)
         .map_err(|error| format!("Hoplite bytecode compilation failed: {error}"))?;
     let app_config = app::load(&project, settings.profile.as_deref(), settings.production)?;
     let manifest = app::manifest(&app_config)?;
-    application_bundle::encode(&manifest, &hbb2)
+    application_bundle::encode(&manifest, &hbx0)
         .map_err(|error| format!("cannot encode Hoplite application bundle: {error}"))?;
     platform::load(&project, settings.profile.as_deref())?;
     Ok(project)
@@ -473,11 +473,11 @@ fn build(root: &Path, settings: &BuildSettings) -> Result<PathBuf, String> {
     } else {
         Some(runtime_application_modules(&modules)?)
     };
-    let hbb2 = compile_application_modules(&modules)
+    let hbx0 = compile_application_modules(&modules)
         .map_err(|error| format!("Hoplite bytecode compilation failed: {error}"))?;
     let app_config = app::load(&project, settings.profile.as_deref(), settings.production)?;
     let manifest = app::manifest(&app_config)?;
-    let bundle = application_bundle::encode(&manifest, &hbb2)
+    let bundle = application_bundle::encode(&manifest, &hbx0)
         .map_err(|error| format!("cannot encode Hoplite application bundle: {error}"))?;
     let platform_config = platform::load(&project, settings.profile.as_deref())?;
     let output = project.root.join(".hoplite");
@@ -1314,17 +1314,17 @@ mod tests {
                  (defn answer [] (dependency/answer))",
             ),
         ];
-        let hbb2 = compile_application_modules(&modules).unwrap();
-        assert_eq!(&hbb2[..4], b"HBB2");
+        let hbx0 = compile_application_modules(&modules).unwrap();
+        assert_eq!(&hbx0[..4], b"HBX0");
 
         let manifest = b"exact-app-manifest";
-        let bundle = application_bundle::encode(manifest, &hbb2).unwrap();
+        let bundle = application_bundle::encode(manifest, &hbx0).unwrap();
         assert_eq!(&bundle[..4], application_bundle::MAGIC);
         assert_eq!(
             application_bundle::decode(&bundle, manifest)
                 .unwrap()
                 .bytecode(),
-            hbb2
+            hbx0
         );
     }
 
@@ -1424,7 +1424,7 @@ mod tests {
         let output = root.join(".hoplite");
         std::fs::create_dir_all(&output).unwrap();
         let manifest = hta::encode(&hara_wasm::core::Value::Map(Default::default())).unwrap();
-        let bundle = application_bundle::encode(&manifest, b"HBB2verification").unwrap();
+        let bundle = application_bundle::encode(&manifest, b"HBX0verification").unwrap();
         std::fs::write(output.join("app.hbx"), &bundle).unwrap();
         std::fs::write(output.join("apps.hta"), &manifest).unwrap();
 
@@ -1432,7 +1432,7 @@ mod tests {
         let verified = verify_application_bundle(&bundle_path, &manifest_path).unwrap();
         assert_eq!(verified.bundle_bytes, bundle.len());
         assert_eq!(verified.manifest_bytes, manifest.len());
-        assert_eq!(verified.bytecode_bytes, b"HBB2verification".len());
+        assert_eq!(verified.bytecode_bytes, b"HBX0verification".len());
         assert_eq!(lower_hex(&verified.manifest_digest).len(), 64);
 
         std::fs::remove_dir_all(root).unwrap();

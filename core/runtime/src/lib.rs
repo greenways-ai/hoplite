@@ -1394,6 +1394,15 @@ impl HopliteRuntime {
             vm::VmFiberState::Cancelled => {
                 self.reject_work(work, error_value("work/cancelled", "cancelled".into()));
             }
+            vm::VmFiberState::Yielded(_) => {
+                self.reject_work(
+                    work,
+                    error_value(
+                        "fiber/yield-unsupported",
+                        "yielded outside a coroutine driver".into(),
+                    ),
+                );
+            }
             vm::VmFiberState::Running => {
                 self.reject_work(
                     work,
@@ -2452,11 +2461,11 @@ mod tests {
     }
 
     #[test]
-    fn bytecode_bootstrap_uses_hara_hbb2_and_is_transactional() {
+    fn bytecode_bootstrap_uses_hara_hbx0_and_is_transactional() {
         let mut compiler = hara_wasm::Runtime::new();
         let successful = bytecode_module(&mut compiler, "example.bytecode", "(defn answer [] 42)");
         let bundle = vm::encode_bytecode_bundle(&[successful]).unwrap();
-        assert_eq!(&bundle[..4], b"HBB2");
+        assert_eq!(&bundle[..4], b"HBX0");
         let mut runtime = HopliteRuntime::new();
         runtime.bootstrap_bytecode(&bundle).unwrap();
         assert!(runtime
@@ -2483,9 +2492,9 @@ mod tests {
             "example.application",
             "(defn show [_request] {:status 200 :body \"ready\"})",
         );
-        let hbb2 = vm::encode_bytecode_bundle(&[module]).unwrap();
+        let hbx0 = vm::encode_bytecode_bundle(&[module]).unwrap();
         let manifest = hta::encode(&manifest_v2("example.application/show", "request")).unwrap();
-        let bundle = application_bundle::encode(&manifest, &hbb2).unwrap();
+        let bundle = application_bundle::encode(&manifest, &hbx0).unwrap();
         assert_eq!(&bundle[..4], application_bundle::MAGIC);
 
         let mut runtime = HopliteRuntime::new();
@@ -2504,7 +2513,7 @@ mod tests {
         assert!(rejected.handlers.is_empty());
 
         let invalid_manifest = hta::encode(&manifest_v2("missing/handler", "request")).unwrap();
-        let invalid_bundle = application_bundle::encode(&invalid_manifest, &hbb2).unwrap();
+        let invalid_bundle = application_bundle::encode(&invalid_manifest, &hbx0).unwrap();
         let mut rolled_back = HopliteRuntime::new();
         let error = rolled_back
             .bootstrap_application(&invalid_bundle, &invalid_manifest)
