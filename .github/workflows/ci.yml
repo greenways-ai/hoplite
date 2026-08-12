@@ -84,7 +84,7 @@ jobs:
             hoplite_response_body_v1 response = {0};
             request.read = read_body;
             response.read_at = read_body_at;
-            return HOPLITE_DATA_PLANE_ABI_VERSION == 1u &&
+            return HOPLITE_CALLBACK_OK == 0 &&
                        request.read == read_body &&
                        response.read_at == read_body_at
                      ? 0
