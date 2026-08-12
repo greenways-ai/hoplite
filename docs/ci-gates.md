@@ -26,12 +26,21 @@ They are never part of the steady-state gate set.
 The library job protects Hoplite-owned source and public boundaries:
 
 - the reviewed Hara revision matches `packaging/hara-revision`;
+- the alpha version policy matches code, documentation, and the Hara pin and
+  rejects stale stable-looking application-contract identifiers;
 - Rust formatting is clean;
 - the committed dependency graph resolves with `--locked`;
 - the complete core workspace test suite passes;
 - public C headers compile as C11;
 - the fixed-capacity host registry, exported provider interface, and bounded
   response-source pump pass their native fixtures.
+
+The alpha policy is implemented by
+`packaging/scripts/verify-alpha-versioning.sh`. It protects the current
+`hoplite.application-bundle/0-alpha` / `HAB0` envelope, Hara `HBX0` payload,
+reviewed dependency pin, and the separation between portable format epochs and
+native ABI generations. The full compatibility rule is documented in
+[Versioning during alpha](versioning.md).
 
 A stale lock is a source failure. CI must not hide it by removing `--locked` or
 regenerating dependencies implicitly.
@@ -89,6 +98,8 @@ and demonstrated low variance.
 - Normal branch and main pushes never create GitHub releases.
 - `Release` runs only for version tags or an explicit rebuild of an existing
   tag.
+- A pre-1.0 package tag does not promote an alpha portable contract to a stable
+  major version.
 - Provider or downstream product artifacts are not published by Hoplite core
   workflows.
 - `pages` may deploy documentation from main and validated benchmark evidence.
