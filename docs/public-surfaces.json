@@ -112,54 +112,127 @@
       "summary": "Historical composed value/store product adapter retained for extraction."
     }
   ],
+  "cli_programs": [
+    {
+      "name": "hoplite",
+      "path": "core/src/main.rs",
+      "status": "public",
+      "availability": "default",
+      "summary": "Development and control CLI for application builds, verification, serving and Hara evaluation."
+    },
+    {
+      "name": "hoplite-server",
+      "path": "core/src/bin/hoplite-server.rs",
+      "status": "public",
+      "availability": "default",
+      "summary": "Source-free production serving CLI that executes the generated Nginx configuration."
+    },
+    {
+      "name": "hoplite-bytecode-loading",
+      "path": "core/src/bin/hoplite-bytecode-loading.rs",
+      "status": "internal",
+      "availability": "development-evidence",
+      "summary": "Internal bytecode-loading evidence and measurement program, not a supported user command."
+    },
+    {
+      "name": "hoplite-object-backend-lock",
+      "path": "core/src/bin/hoplite-object-backend-lock.rs",
+      "status": "migration-only",
+      "availability": "source-build-only",
+      "summary": "Historical object-backend product lock generator retained for extraction."
+    },
+    {
+      "name": "hoplite-provider-lock",
+      "path": "core/src/bin/hoplite-provider-lock.rs",
+      "status": "migration-only",
+      "availability": "source-build-only",
+      "summary": "Historical provider-product lock generator retained for extraction."
+    },
+    {
+      "name": "hoplite-provider-manifest",
+      "path": "core/src/bin/hoplite-provider-manifest.rs",
+      "status": "migration-only",
+      "availability": "source-build-only",
+      "summary": "Historical provider-product manifest generator retained for extraction."
+    },
+    {
+      "name": "hoplite-provider-set-lock",
+      "path": "core/src/bin/hoplite-provider-set-lock.rs",
+      "status": "migration-only",
+      "availability": "source-build-only",
+      "summary": "Historical provider-set lock generator retained for extraction."
+    }
+  ],
   "cli_commands": [
     {
+      "program": "hoplite",
       "name": "auth",
       "status": "migration-only",
       "availability": "legacy-management",
       "summary": "Historical management authentication command available only in legacy builds."
     },
     {
+      "program": "hoplite",
       "name": "eval",
       "status": "public",
       "availability": "default",
       "summary": "Evaluate one Hara expression in the development runtime."
     },
     {
+      "program": "hoplite",
       "name": "package",
       "status": "experimental",
       "availability": "default",
       "summary": "Inspect, build, install and verify Hoplite package artifacts."
     },
     {
+      "program": "hoplite",
       "name": "repl",
       "status": "public",
       "availability": "default",
       "summary": "Start the interactive Hoplite Hara REPL."
     },
     {
+      "program": "hoplite",
       "name": "run",
       "status": "public",
       "availability": "default",
       "summary": "Evaluate one Hara source file in the development runtime."
     },
     {
+      "program": "hoplite",
       "name": "serve",
       "status": "public",
       "availability": "default",
       "summary": "Check, build and operate a Hoplite application server."
     },
     {
+      "program": "hoplite",
       "name": "verify",
       "status": "public",
       "availability": "default",
       "summary": "Verify a built HAB0 alpha application and exact manifest without executing source."
     },
     {
+      "program": "hoplite",
       "name": "version",
       "status": "public",
       "availability": "default",
       "summary": "Report Hoplite, Hara and Nginx version information."
+    },
+    {
+      "program": "hoplite-server",
+      "name": "serve",
+      "status": "public",
+      "availability": "default",
+      "summary": "Execute the built source-free production configuration, optionally overriding worker count."
+    },
+    {
+      "program": "hoplite-server",
+      "name": "version",
+      "status": "public",
+      "availability": "default",
+      "summary": "Report the production server and embedded Nginx versions."
     }
   ],
   "portable_documents": [
