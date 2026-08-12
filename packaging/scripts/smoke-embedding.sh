@@ -13,7 +13,7 @@ set -e
 
 cat "$WORK/output.log"
 if [[ "$status" -ne 0 ]]; then
-  tail -c 12000 "$WORK/output.log" > "$WORK/output.tail"
+  tail -c 3500 "$WORK/output.log" > "$WORK/output.tail"
   encoded="$(base64 -w0 "$WORK/output.tail")"
   echo "::error file=packaging/scripts/smoke-embedding.sh,title=embedding-log-base64::$encoded"
 fi
