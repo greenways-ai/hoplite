@@ -145,6 +145,17 @@ jobs:
         run: |
           docker run --rm hoplite-ci version
           bash hoplite/packaging/scripts/smoke-request-body-v3.sh hoplite-ci
+      - name: Build the three-module production fixture
+        run: |
+          docker build \
+            -f hoplite/packaging/docker/Dockerfile \
+            --build-arg HOPLITE_APP=packaging/fixtures/multi-module \
+            -t hoplite-multi-module \
+            .
+      - name: Verify the fixture remains source-free
+        run: bash hoplite/packaging/scripts/assert-production-image.sh hoplite-multi-module
+      - name: Prove aliases, referred Vars and ordered namespaces through Nginx
+        run: bash hoplite/packaging/scripts/smoke-multi-module.sh hoplite-multi-module
 
   docs:
     name: docs
