@@ -1,0 +1,210 @@
+name: Build the source-free Hoplite production image
+
+on:
+  push:
+    branches:
+      - agent/source-free-production-image
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hoplite-source-free-production-image
+  cancel-in-progress: true
+
+jobs:
+  implement:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/source-free-production-image
+          path: hoplite
+          fetch-depth: 0
+      - name: Resolve the reviewed Hara revision
+        id: hara
+        working-directory: hoplite
+        run: echo "revision=$(tr -d '[:space:]' < packaging/hara-revision)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ steps.hara.outputs.revision }}
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Project only production artifacts
+        working-directory: hoplite
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}")
+              file.write_text(text.replace(old, new))
+
+          replace_exact(
+              "core/src/main.rs",
+              '''    let modules = application_modules(&sources)?;
+              let runtime_source = runtime_application_modules(&modules)?;
+              let hbb2 = compile_application_modules(&modules)
+          ''',
+              '''    let modules = application_modules(&sources)?;
+              let runtime_source = if settings.production {
+                  None
+              } else {
+                  Some(runtime_application_modules(&modules)?)
+              };
+              let hbb2 = compile_application_modules(&modules)
+          ''',
+          )
+          replace_exact(
+              "core/src/main.rs",
+              '''    fs::create_dir_all(&configuration).map_err(io)?;
+              fs::write(output.join("app.hal"), &runtime_source).map_err(io)?;
+              fs::write(output.join("app.hbx"), bundle).map_err(io)?;
+          ''',
+              '''    fs::create_dir_all(&configuration).map_err(io)?;
+              let runtime_source_path = output.join("app.hal");
+              if let Some(runtime_source) = runtime_source {
+                  fs::write(&runtime_source_path, runtime_source).map_err(io)?;
+              } else if let Err(error) = fs::remove_file(&runtime_source_path) {
+                  if error.kind() != std::io::ErrorKind::NotFound {
+                      return Err(format!(
+                          "cannot remove production source projection {}: {error}",
+                          runtime_source_path.display()
+                      ));
+                  }
+              }
+              fs::write(output.join("app.hbx"), bundle).map_err(io)?;
+          ''',
+          )
+
+          replace_exact(
+              "packaging/docker/Dockerfile",
+              "COPY --from=builder --chown=hoplite:hoplite /app /app\n",
+              "COPY --from=builder --chown=hoplite:hoplite /app/.hoplite /app/.hoplite\n",
+          )
+
+          Path("packaging/scripts/assert-production-image.sh").write_text('''#!/usr/bin/env bash
+          set -euo pipefail
+
+          image="${1:-hoplite-ci}"
+
+          docker run --rm --entrypoint sh "$image" -eu -c '\
+          test "$(id -u)" -ne 0
+          test -d /app/.hoplite
+          test "$(find /app -mindepth 1 -maxdepth 1 | wc -l)" -eq 1
+          test -f /app/.hoplite/app.hbx
+          test -f /app/.hoplite/apps.hta
+          test -f /app/.hoplite/conf/nginx.conf
+          test ! -e /app/.hoplite/app.hal
+          test ! -e /app/app.hal
+          test ! -e /app/project.edn
+          test ! -e /app/Makefile
+          if find /app -type f \( -name "*.hal" -o -name "project.edn" -o -name "hara.extension.edn" \) -print -quit | grep -q .; then
+            echo "production image contains Hara application source or project input" >&2
+            find /app -type f \( -name "*.hal" -o -name "project.edn" -o -name "hara.extension.edn" \) -print >&2
+            exit 1
+          fi
+          for tool in hoplite cargo rustc cc make; do
+            if command -v "$tool" >/dev/null 2>&1; then
+              echo "production image unexpectedly contains build tool: $tool" >&2
+              exit 1
+            fi
+          done
+          find /app -type f -print | sort
+          '
+
+          printf 'Validated source-free production composition for %s.\\n' "$image"
+          ''')
+
+          replace_exact(
+              "README.md",
+              '''Production build output is isolated under `.hoplite/`:
+
+              ```text
+              .hoplite/
+                app.hal
+                app.hbx
+                apps.hta
+                platform.edn
+                platform.hta
+                conf/nginx.conf
+                openapi/<app-name>.json
+              ```
+
+              `app.hbx` is the deterministic application bundle loaded transactionally by a
+              worker. `app.hal` remains inspectable build output and a development input; it
+              is not the production worker bootstrap artifact.
+          ''',
+              '''Production build output is isolated under `.hoplite/`:
+
+              ```text
+              .hoplite/
+                app.hbx
+                apps.hta
+                platform.edn
+                platform.hta
+                conf/nginx.conf
+                openapi/<app-name>.json
+              ```
+
+              `app.hbx` is the deterministic HAB1 application bundle loaded transactionally
+              by a worker. Development builds may also emit `.hoplite/app.hal` for inspection;
+              production builds remove that source projection. Verify a built application
+              without executing it with `hoplite verify .`.
+          ''',
+          )
+
+          with Path("docs/application-bundle.md").open("a") as file:
+              file.write('''
+
+          ## Production artifact projection
+
+          Development builds may emit `.hoplite/app.hal` as an inspectable projection.
+          Production builds remove that file and retain only versioned serving artifacts,
+          generated configuration, platform documents and API descriptions under
+          `.hoplite/`.
+
+          The generic container image copies only `/app/.hoplite` from the builder stage.
+          Application `.hal` files, `project.edn`, the development `hoplite` CLI, Cargo,
+          Rust and native build tools are absent from the final image. The production image
+          gate verifies this composition before exercising the real Nginx serving path.
+          ''')
+          PY
+          chmod +x packaging/scripts/assert-production-image.sh
+          rustfmt --edition 2021 core/src/main.rs
+          git diff --check
+      - name: Prove development and production output separation
+        working-directory: hoplite
+        run: |
+          cargo test --manifest-path core/Cargo.toml --workspace --locked
+          rm -rf core/examples/.hoplite
+          cargo run --manifest-path core/Cargo.toml -- serve build --mode dev core/examples
+          test -f core/examples/.hoplite/app.hal
+          cargo run --manifest-path core/Cargo.toml -- serve build --mode prod core/examples
+          test ! -e core/examples/.hoplite/app.hal
+          cargo run --manifest-path core/Cargo.toml -- verify core/examples
+          rm -rf core/examples/.hoplite
+      - name: Commit the validated implementation
+        working-directory: hoplite
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add core/src/main.rs packaging/docker/Dockerfile \
+            packaging/scripts/assert-production-image.sh README.md \
+            docs/application-bundle.md
+          git diff --cached --quiet && {
+            echo "source-free production implementation produced no changes" >&2
+            exit 1
+          }
+          git commit -m "Make the production image source-free"
+          git push origin HEAD:agent/source-free-production-image
