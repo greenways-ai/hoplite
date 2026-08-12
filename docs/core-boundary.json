@@ -304,6 +304,11 @@
       "summary": "Container runtime compatibility helper used by evidence jobs."
     },
     {
+      "path": "packaging/scripts/smoke-embedding.sh",
+      "status": "core",
+      "summary": "Runs the Rust and C embedding fixtures and verifies the exact native symbol set."
+    },
+    {
       "path": "packaging/scripts/smoke-host-providers.sh",
       "status": "reference-conformance",
       "summary": "Generic native host-provider ABI smoke coverage."
