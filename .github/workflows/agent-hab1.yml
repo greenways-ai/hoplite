@@ -1,0 +1,175 @@
+name: Build the Hoplite application bundle contract
+
+on:
+  push:
+    branches:
+      - agent/hoplite-application-bundle-v1
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hoplite-application-bundle-v1
+  cancel-in-progress: true
+
+jobs:
+  implement:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/hoplite-application-bundle-v1
+          path: hoplite
+          fetch-depth: 0
+      - name: Resolve the reviewed Hara revision
+        id: hara
+        working-directory: hoplite
+        run: echo "revision=$(tr -d '[:space:]' < packaging/hara-revision)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ steps.hara.outputs.revision }}
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Implement HAB1 and transactional startup
+        working-directory: hoplite
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          
+          def replace_exact(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one exact match, found {count}")
+              file.write_text(text.replace(old, new))
+          
+          def replace_between(path: str, start: str, end: str, replacement: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              start_at = text.find(start)
+              if start_at < 0:
+                  raise SystemExit(f"{path}: start marker not found: {start!r}")
+              end_at = text.find(end, start_at + len(start))
+              if end_at < 0:
+                  raise SystemExit(f"{path}: end marker not found: {end!r}")
+              if text.find(start, start_at + len(start)) >= 0:
+                  raise SystemExit(f"{path}: start marker is not unique: {start!r}")
+              file.write_text(text[:start_at] + replacement + text[end_at:])
+          
+          def write(path: str, content: str) -> None:
+              file = Path(path)
+              file.parent.mkdir(parents=True, exist_ok=True)
+              file.write_text(content)
+          
+          write("core/application-bundle/Cargo.toml", '[package]\nname = "hoplite-application-bundle"\nversion = "0.1.0"\nedition = "2021"\nlicense = "Apache-2.0"\nrust-version = "1.78"\ndescription = "Versioned application bundle envelope for Hoplite"\n\n[dependencies]\nsha2 = "0.10"\n')
+          write("core/application-bundle/src/lib.rs", 'use sha2::{Digest, Sha256};\nuse std::fmt;\n\npub const FORMAT: &str = "hoplite.application-bundle/1";\npub const MAGIC: &[u8; 4] = b"HAB1";\npub const RUNTIME_ABI_VERSION: u32 = 4;\npub const MAX_MANIFEST_BYTES: usize = 8 * 1024 * 1024;\npub const MAX_BYTECODE_BYTES: usize = 64 * 1024 * 1024;\n\nconst CHECKSUM_BYTES: usize = 32;\nconst PREFIX_BYTES: usize = MAGIC.len() + CHECKSUM_BYTES;\nconst FIXED_PAYLOAD_BYTES: usize = 4 + CHECKSUM_BYTES + 4;\npub const MAX_BUNDLE_BYTES: usize = PREFIX_BYTES + FIXED_PAYLOAD_BYTES + MAX_BYTECODE_BYTES;\n\n#[derive(Clone, Debug, PartialEq, Eq)]\npub enum Error {\n    EmptyManifest,\n    ManifestTooLarge { actual: usize },\n    EmptyBytecode,\n    BytecodeTooLarge { actual: usize },\n    BundleTooSmall { actual: usize },\n    BundleTooLarge { actual: usize },\n    InvalidMagic,\n    ChecksumMismatch,\n    RuntimeAbiMismatch { actual: u32 },\n    ManifestDigestMismatch,\n    InvalidBytecodeMagic,\n    Truncated,\n    TrailingBytes { actual: usize },\n    LengthOverflow,\n}\n\nimpl fmt::Display for Error {\n    fn fmt(&self, formatter: &mut fmt::Formatter<\'_>) -> fmt::Result {\n        match self {\n            Self::EmptyManifest => {\n                formatter.write_str("hoplite/application-manifest-empty")\n            }\n            Self::ManifestTooLarge { actual } => write!(\n                formatter,\n                "hoplite/application-manifest-too-large: {actual} bytes exceeds {MAX_MANIFEST_BYTES}"\n            ),\n            Self::EmptyBytecode => formatter.write_str("hoplite/application-bytecode-empty"),\n            Self::BytecodeTooLarge { actual } => write!(\n                formatter,\n                "hoplite/application-bytecode-too-large: {actual} bytes exceeds {MAX_BYTECODE_BYTES}"\n            ),\n            Self::BundleTooSmall { actual } => write!(\n                formatter,\n                "hoplite/application-bundle-truncated: {actual} bytes"\n            ),\n            Self::BundleTooLarge { actual } => write!(\n                formatter,\n                "hoplite/application-bundle-too-large: {actual} bytes exceeds {MAX_BUNDLE_BYTES}"\n            ),\n            Self::InvalidMagic => {\n                formatter.write_str("hoplite/application-bundle-invalid: expected HAB1")\n            }\n            Self::ChecksumMismatch => {\n                formatter.write_str("hoplite/application-bundle-checksum-mismatch")\n            }\n            Self::RuntimeAbiMismatch { actual } => write!(\n                formatter,\n                "hoplite/application-bundle-incompatible: runtime ABI {actual}, expected {RUNTIME_ABI_VERSION}"\n            ),\n            Self::ManifestDigestMismatch => {\n                formatter.write_str("hoplite/application-manifest-mismatch")\n            }\n            Self::InvalidBytecodeMagic => formatter.write_str(\n                "hoplite/application-bytecode-invalid: expected embedded HBB2 bundle",\n            ),\n            Self::Truncated => formatter.write_str("hoplite/application-bundle-truncated"),\n            Self::TrailingBytes { actual } => write!(\n                formatter,\n                "hoplite/application-bundle-trailing-bytes: {actual}"\n            ),\n            Self::LengthOverflow => {\n                formatter.write_str("hoplite/application-bundle-length-overflow")\n            }\n        }\n    }\n}\n\nimpl std::error::Error for Error {}\n\n#[derive(Clone, Copy, Debug, PartialEq, Eq)]\npub struct Decoded<\'a> {\n    bytecode: &\'a [u8],\n    manifest_digest: [u8; CHECKSUM_BYTES],\n}\n\nimpl<\'a> Decoded<\'a> {\n    pub fn bytecode(self) -> &\'a [u8] {\n        self.bytecode\n    }\n\n    pub fn manifest_digest(self) -> [u8; CHECKSUM_BYTES] {\n        self.manifest_digest\n    }\n}\n\npub fn encode(manifest: &[u8], bytecode: &[u8]) -> Result<Vec<u8>, Error> {\n    validate_manifest(manifest)?;\n    validate_bytecode(bytecode)?;\n\n    let length = u32::try_from(bytecode.len()).map_err(|_| Error::LengthOverflow)?;\n    let manifest_digest = digest(manifest);\n    let mut payload = Vec::with_capacity(FIXED_PAYLOAD_BYTES + bytecode.len());\n    payload.extend_from_slice(&RUNTIME_ABI_VERSION.to_le_bytes());\n    payload.extend_from_slice(&manifest_digest);\n    payload.extend_from_slice(&length.to_le_bytes());\n    payload.extend_from_slice(bytecode);\n\n    let checksum = digest(&payload);\n    let mut bundle = Vec::with_capacity(PREFIX_BYTES + payload.len());\n    bundle.extend_from_slice(MAGIC);\n    bundle.extend_from_slice(&checksum);\n    bundle.extend_from_slice(&payload);\n    Ok(bundle)\n}\n\npub fn decode<\'a>(bundle: &\'a [u8], manifest: &[u8]) -> Result<Decoded<\'a>, Error> {\n    validate_manifest(manifest)?;\n    if bundle.len() < PREFIX_BYTES + FIXED_PAYLOAD_BYTES {\n        return Err(Error::BundleTooSmall {\n            actual: bundle.len(),\n        });\n    }\n    if bundle.len() > MAX_BUNDLE_BYTES {\n        return Err(Error::BundleTooLarge {\n            actual: bundle.len(),\n        });\n    }\n    if &bundle[..MAGIC.len()] != MAGIC {\n        return Err(Error::InvalidMagic);\n    }\n\n    let expected_checksum: [u8; CHECKSUM_BYTES] =\n        bundle[MAGIC.len()..PREFIX_BYTES].try_into().unwrap();\n    let payload = &bundle[PREFIX_BYTES..];\n    if digest(payload) != expected_checksum {\n        return Err(Error::ChecksumMismatch);\n    }\n\n    let mut input = payload;\n    let runtime_abi = take_u32(&mut input)?;\n    if runtime_abi != RUNTIME_ABI_VERSION {\n        return Err(Error::RuntimeAbiMismatch {\n            actual: runtime_abi,\n        });\n    }\n\n    let manifest_digest: [u8; CHECKSUM_BYTES] =\n        take(&mut input, CHECKSUM_BYTES)?.try_into().unwrap();\n    if digest(manifest) != manifest_digest {\n        return Err(Error::ManifestDigestMismatch);\n    }\n\n    let bytecode_len = take_u32(&mut input)? as usize;\n    if bytecode_len == 0 {\n        return Err(Error::EmptyBytecode);\n    }\n    if bytecode_len > MAX_BYTECODE_BYTES {\n        return Err(Error::BytecodeTooLarge {\n            actual: bytecode_len,\n        });\n    }\n    let bytecode = take(&mut input, bytecode_len)?;\n    if !input.is_empty() {\n        return Err(Error::TrailingBytes {\n            actual: input.len(),\n        });\n    }\n    validate_bytecode(bytecode)?;\n    Ok(Decoded {\n        bytecode,\n        manifest_digest,\n    })\n}\n\nfn validate_manifest(manifest: &[u8]) -> Result<(), Error> {\n    if manifest.is_empty() {\n        return Err(Error::EmptyManifest);\n    }\n    if manifest.len() > MAX_MANIFEST_BYTES {\n        return Err(Error::ManifestTooLarge {\n            actual: manifest.len(),\n        });\n    }\n    Ok(())\n}\n\nfn validate_bytecode(bytecode: &[u8]) -> Result<(), Error> {\n    if bytecode.is_empty() {\n        return Err(Error::EmptyBytecode);\n    }\n    if bytecode.len() > MAX_BYTECODE_BYTES {\n        return Err(Error::BytecodeTooLarge {\n            actual: bytecode.len(),\n        });\n    }\n    if bytecode.len() < 4 || &bytecode[..4] != b"HBB2" {\n        return Err(Error::InvalidBytecodeMagic);\n    }\n    Ok(())\n}\n\nfn digest(bytes: &[u8]) -> [u8; CHECKSUM_BYTES] {\n    Sha256::digest(bytes).into()\n}\n\nfn take_u32(input: &mut &[u8]) -> Result<u32, Error> {\n    Ok(u32::from_le_bytes(\n        take(input, 4)?.try_into().unwrap(),\n    ))\n}\n\nfn take<\'a>(input: &mut &\'a [u8], length: usize) -> Result<&\'a [u8], Error> {\n    if input.len() < length {\n        return Err(Error::Truncated);\n    }\n    let (value, remaining) = input.split_at(length);\n    *input = remaining;\n    Ok(value)\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    fn hbb2() -> Vec<u8> {\n        b"HBB2deterministic-bytecode".to_vec()\n    }\n\n    fn reseal(bundle: &mut [u8]) {\n        let checksum = digest(&bundle[PREFIX_BYTES..]);\n        bundle[MAGIC.len()..PREFIX_BYTES].copy_from_slice(&checksum);\n    }\n\n    #[test]\n    fn round_trip_is_deterministic_and_manifest_bound() {\n        let manifest = b"exact-route-manifest";\n        let bytecode = hbb2();\n        let first = encode(manifest, &bytecode).unwrap();\n        let second = encode(manifest, &bytecode).unwrap();\n        assert_eq!(first, second);\n        assert_eq!(&first[..4], MAGIC);\n        let decoded = decode(&first, manifest).unwrap();\n        assert_eq!(decoded.bytecode(), bytecode);\n        assert_eq!(decoded.manifest_digest(), digest(manifest));\n    }\n\n    #[test]\n    fn rejects_manifest_drift_before_exposing_bytecode() {\n        let bundle = encode(b"manifest-a", &hbb2()).unwrap();\n        assert_eq!(\n            decode(&bundle, b"manifest-b"),\n            Err(Error::ManifestDigestMismatch)\n        );\n    }\n\n    #[test]\n    fn rejects_runtime_abi_drift_even_with_a_valid_checksum() {\n        let mut bundle = encode(b"manifest", &hbb2()).unwrap();\n        bundle[PREFIX_BYTES..PREFIX_BYTES + 4].copy_from_slice(&5u32.to_le_bytes());\n        reseal(&mut bundle);\n        assert_eq!(\n            decode(&bundle, b"manifest"),\n            Err(Error::RuntimeAbiMismatch { actual: 5 })\n        );\n    }\n\n    #[test]\n    fn rejects_tampering_and_trailing_bytes() {\n        let mut tampered = encode(b"manifest", &hbb2()).unwrap();\n        *tampered.last_mut().unwrap() ^= 1;\n        assert_eq!(\n            decode(&tampered, b"manifest"),\n            Err(Error::ChecksumMismatch)\n        );\n\n        let mut trailing = encode(b"manifest", &hbb2()).unwrap();\n        trailing.push(0);\n        reseal(&mut trailing);\n        assert_eq!(\n            decode(&trailing, b"manifest"),\n            Err(Error::TrailingBytes { actual: 1 })\n        );\n    }\n\n    #[test]\n    fn rejects_empty_oversized_and_non_hbb2_inputs() {\n        assert_eq!(encode(b"", &hbb2()), Err(Error::EmptyManifest));\n        assert_eq!(encode(b"manifest", b""), Err(Error::EmptyBytecode));\n        assert_eq!(\n            encode(b"manifest", b"not-bytecode"),\n            Err(Error::InvalidBytecodeMagic)\n        );\n\n        let manifest = vec![0; MAX_MANIFEST_BYTES + 1];\n        assert_eq!(\n            encode(&manifest, &hbb2()),\n            Err(Error::ManifestTooLarge {\n                actual: MAX_MANIFEST_BYTES + 1\n            })\n        );\n    }\n}\n')
+          write("docs/application-bundle.md", '# Hoplite application bundle v1\n\nProduction workers boot one **Hoplite application bundle** rather than treating\ncompiled Hara modules and the route manifest as unrelated inputs.\n\n## Format\n\nThe byte layout is deterministic:\n\n```text\nHAB1\nsha256(payload)\nruntime ABI (u32 little-endian)\nsha256(exact apps.hta bytes)\nembedded bytecode length (u32 little-endian)\nembedded Hara HBB2 bytecode bundle\n```\n\n`HAB1` is the Hoplite-owned compatibility boundary. `HBB2` remains the\nHara-owned container for namespace-preserving bytecode modules.\n\nThe v1 decoder rejects:\n\n- unsupported runtime ABI versions;\n- an empty or oversized route manifest;\n- an empty, oversized, or non-HBB2 bytecode payload;\n- checksum, manifest-digest, and declared-length mismatches;\n- truncation and trailing bytes.\n\nThe current limits are 8 MiB for `apps.hta` and 64 MiB for embedded HBB2\nbytecode.\n\n## Startup law\n\nThe worker validates the complete HAB1 envelope and decodes the exact bound\nroute manifest before mutating application state. It then:\n\n1. loads every eager HBB2 module transactionally;\n2. prepares every route handler transactionally;\n3. publishes the application routers only after both phases succeed.\n\nA bytecode failure, unknown handler, malformed manifest, checksum mismatch, or\nmanifest substitution leaves the worker with neither partially loaded\nnamespaces nor partially prepared routes.\n\n## Compatibility\n\nThe bundle records the exact Hoplite runtime ABI. Changing the envelope layout,\nmanifest-binding law, or required runtime ABI requires a new HAB format and a\ndocumented migration path.\n\nThe lower-level `hoplite_bootstrap_bytecode` and `hoplite_apps_prepare` symbols\nremain available for embedding compatibility, but the generated Nginx\nproduction configuration uses `hoplite_bootstrap_application_v1`.\n')
+          
+          replace_exact(
+              "core/Cargo.toml",
+              'members = [\n  ".",\n',
+              'members = [\n  ".",\n  "application-bundle",\n',
+          )
+          replace_exact(
+              "core/Cargo.toml",
+              'hara-wasm = { path = "../../hara/core/rust", features = ["bytecode-vm"] }\n',
+              'hara-wasm = { path = "../../hara/core/rust", features = ["bytecode-vm"] }\n'
+              'hoplite-application-bundle = { path = "application-bundle" }\n',
+          )
+          replace_exact(
+              "core/runtime/Cargo.toml",
+              'hara-wasm = { path = "../../../hara/core/rust", features = ["bytecode-vm"] }\n',
+              'hara-wasm = { path = "../../../hara/core/rust", features = ["bytecode-vm"] }\n'
+              'hoplite-application-bundle = { path = "../application-bundle" }\n',
+          )
+          
+          replace_exact(
+              "core/src/main.rs",
+              'use hara_wasm::Runtime;\n',
+              'use hara_wasm::Runtime;\nuse hoplite_application_bundle as application_bundle;\n',
+          )
+          replace_exact("core/src/main.rs", '    let modules = application_modules(&sources)?;\n    compile_application_modules(&modules)\n        .map_err(|error| format!("Hoplite bytecode compilation failed: {error}"))?;\n    app::load(&project, settings.profile.as_deref(), settings.production)?;\n    platform::load(&project, settings.profile.as_deref())?;\n    Ok(project)\n', '    let modules = application_modules(&sources)?;\n    let hbb2 = compile_application_modules(&modules)\n        .map_err(|error| format!("Hoplite bytecode compilation failed: {error}"))?;\n    let app_config = app::load(&project, settings.profile.as_deref(), settings.production)?;\n    let manifest = app::manifest(&app_config)?;\n    application_bundle::encode(&manifest, &hbb2)\n        .map_err(|error| format!("cannot encode Hoplite application bundle: {error}"))?;\n    platform::load(&project, settings.profile.as_deref())?;\n    Ok(project)\n')
+          replace_exact("core/src/main.rs", '    let bytecode = compile_application_modules(&modules)\n        .map_err(|error| format!("Hoplite bytecode compilation failed: {error}"))?;\n    let app_config = app::load(&project, settings.profile.as_deref(), settings.production)?;\n    let platform_config = platform::load(&project, settings.profile.as_deref())?;\n    let output = project.root.join(".hoplite");\n    let configuration = output.join("conf");\n    fs::create_dir_all(&configuration).map_err(io)?;\n    fs::write(output.join("app.hal"), &runtime_source).map_err(io)?;\n    fs::write(output.join("app.hbx"), bytecode).map_err(io)?;\n    fs::write(output.join("apps.hta"), app::manifest(&app_config)?).map_err(io)?;\n', '    let hbb2 = compile_application_modules(&modules)\n        .map_err(|error| format!("Hoplite bytecode compilation failed: {error}"))?;\n    let app_config = app::load(&project, settings.profile.as_deref(), settings.production)?;\n    let manifest = app::manifest(&app_config)?;\n    let bundle = application_bundle::encode(&manifest, &hbb2)\n        .map_err(|error| format!("cannot encode Hoplite application bundle: {error}"))?;\n    let platform_config = platform::load(&project, settings.profile.as_deref())?;\n    let output = project.root.join(".hoplite");\n    let configuration = output.join("conf");\n    fs::create_dir_all(&configuration).map_err(io)?;\n    fs::write(output.join("app.hal"), &runtime_source).map_err(io)?;\n    fs::write(output.join("app.hbx"), bundle).map_err(io)?;\n    fs::write(output.join("apps.hta"), manifest).map_err(io)?;\n')
+          replace_exact("core/src/main.rs", '    #[test]\n    fn compiles_a_multi_namespace_application_bundle() {\n        let modules = [\n            module("(ns example.dependency) (defn answer [] 42)"),\n            module(\n                "(ns example.application (:require [example.dependency :as dependency])) \\\n                 (defn answer [] (dependency/answer))",\n            ),\n        ];\n        let bundle = compile_application_modules(&modules).unwrap();\n        assert_eq!(&bundle[..4], b"HBB2");\n    }\n', '    #[test]\n    fn compiles_hara_bytecode_and_wraps_the_hoplite_application_contract() {\n        let modules = [\n            module("(ns example.dependency) (defn answer [] 42)"),\n            module(\n                "(ns example.application (:require [example.dependency :as dependency])) \\\n                 (defn answer [] (dependency/answer))",\n            ),\n        ];\n        let hbb2 = compile_application_modules(&modules).unwrap();\n        assert_eq!(&hbb2[..4], b"HBB2");\n\n        let manifest = b"exact-app-manifest";\n        let bundle = application_bundle::encode(manifest, &hbb2).unwrap();\n        assert_eq!(&bundle[..4], application_bundle::MAGIC);\n        assert_eq!(\n            application_bundle::decode(&bundle, manifest)\n                .unwrap()\n                .bytecode(),\n            hbb2\n        );\n    }\n')
+          
+          replace_exact(
+              "core/runtime/src/lib.rs",
+              'use hara_wasm::{core, hta, kernel, vm};\n',
+              'use hara_wasm::{core, hta, kernel, vm};\n'
+              'use hoplite_application_bundle as application_bundle;\n',
+          )
+          replace_exact(
+              "core/runtime/src/lib.rs",
+              'const ABI_VERSION: u32 = 4;\n',
+              'const ABI_VERSION: u32 = application_bundle::RUNTIME_ABI_VERSION;\n',
+          )
+          replace_exact(
+              "core/runtime/src/lib.rs",
+              '    fn bootstrap_bytecode(&mut self, bundle: &[u8]) -> Result<(), String> {\n'
+              '        vm::eval_eager_bytecode_bundle_with_registries(&self.namespaces, &self.protocols, bundle)\n'
+              '    }\n\n',
+              '    fn bootstrap_bytecode(&mut self, bundle: &[u8]) -> Result<(), String> {\n        vm::eval_eager_bytecode_bundle_with_registries(&self.namespaces, &self.protocols, bundle)\n    }\n\n    fn bootstrap_application(&mut self, bundle: &[u8], manifest: &[u8]) -> Result<(), String> {\n        let decoded = application_bundle::decode(bundle, manifest)\n            .map_err(|error| error.to_string())?;\n        let manifest = hta::decode(manifest)\n            .map_err(|error| format!("hoplite/application-manifest-invalid: {error}"))?;\n\n        let namespaces_before = self.namespaces.snapshot();\n        let protocols_before = self.protocols.snapshot();\n        let multimethods_before = core::snapshot_multimethods();\n        let loaded = self\n            .bootstrap_bytecode(decoded.bytecode())\n            .and_then(|_| self.apps_prepare(manifest));\n        if let Err(error) = loaded {\n            self.namespaces.restore(namespaces_before);\n            self.protocols.restore(protocols_before);\n            core::restore_multimethods(multimethods_before);\n            return Err(error);\n        }\n        Ok(())\n    }\n\n',
+          )
+          replace_between(
+              "core/runtime/src/lib.rs",
+              '    fn apps_prepare(&mut self, manifest: Value) -> Result<(), String> {\n',
+              '    fn app_call(&mut self, app: AppId, request: Value) -> Result<WorkId, ()> {\n',
+              '    fn apps_prepare(&mut self, manifest: Value) -> Result<(), String> {\n        let previous_next_handler = self.next_handler;\n        let previous_handlers = self.handlers.clone();\n        let previous_apps = std::mem::take(&mut self.apps);\n        let result = (|| {\n            let format = map_optional_number(&manifest, "format").unwrap_or(1);\n            if !matches!(format, 1 | 2) {\n                return Err("unsupported Hoplite app manifest format".into());\n            }\n            let legacy = format == 1;\n            let mut apps = HashMap::new();\n            for app in map_sequence(&manifest, "apps")? {\n                let id = map_number(&app, "id")? as u64;\n                let mut routes = Vec::new();\n                for route in map_sequence(&app, "routes")? {\n                    let method = map_string(&route, "method")?;\n                    let path = map_string(&route, "path")?;\n                    let function = map_string(&route, "handler")?;\n                    let adapter =\n                        RouteAdapter::parse(map_optional_string(&route, "adapter"), legacy)?;\n                    if map_value(&route, "auth").is_some() {\n                        return Err("route auth policy belongs in the HAL handler".into());\n                    }\n                    let handler = self.handler_prepare(&function)?;\n                    routes.push(AppRoute {\n                        method,\n                        path,\n                        handler,\n                        adapter,\n                    });\n                }\n                if apps.insert(id, AppRouter { routes }).is_some() {\n                    return Err(format!("duplicate app id {id}"));\n                }\n            }\n            self.apps = apps;\n            Ok(())\n        })();\n\n        match result {\n            Ok(()) => Ok(()),\n            Err(error) => {\n                self.next_handler = previous_next_handler;\n                self.handlers = previous_handlers;\n                self.apps = previous_apps;\n                Err(error)\n            }\n        }\n    }\n\n',
+          )
+          replace_exact(
+              "core/runtime/src/lib.rs",
+              '#[no_mangle]\npub unsafe extern "C" fn hoplite_work_start(\n',
+              '#[no_mangle]\npub unsafe extern "C" fn hoplite_bootstrap_application_v1(\n    runtime: *mut HopliteRuntime,\n    bundle_ptr: *const u8,\n    bundle_len: usize,\n    manifest_ptr: *const u8,\n    manifest_len: usize,\n) -> i32 {\n    catch_unwind(AssertUnwindSafe(|| {\n        let runtime = runtime_mut(runtime)?;\n        let bundle = bytes(bundle_ptr, bundle_len)?;\n        let manifest = bytes(manifest_ptr, manifest_len)?;\n        if let Err(error) = runtime.bootstrap_application(bundle, manifest) {\n            eprintln!("hoplite application bootstrap: {error}");\n            return Err(());\n        }\n        Ok::<i32, ()>(0)\n    }))\n    .ok()\n    .and_then(Result::ok)\n    .unwrap_or(1)\n}\n\n#[no_mangle]\npub unsafe extern "C" fn hoplite_work_start(\n',
+          )
+          replace_between(
+              "core/runtime/src/lib.rs",
+              '    #[test]\n    fn bytecode_bootstrap_is_hbx_alpha_and_transactional() {\n',
+              '    #[test]\n    fn bootstrap_compiles_namespaces_independently_in_dependency_order() {\n',
+              '    #[test]\n    fn bytecode_bootstrap_uses_hara_hbb2_and_is_transactional() {\n        let mut compiler = hara_wasm::Runtime::new();\n        let successful = bytecode_module(&mut compiler, "example.bytecode", "(defn answer [] 42)");\n        let bundle = vm::encode_bytecode_bundle(&[successful]).unwrap();\n        assert_eq!(&bundle[..4], b"HBB2");\n        let mut runtime = HopliteRuntime::new();\n        runtime.bootstrap_bytecode(&bundle).unwrap();\n        assert!(runtime\n            .namespaces\n            .find("example.bytecode")\n            .unwrap()\n            .mappings()\n            .iter()\n            .any(|(name, _)| name.as_str() == "answer"));\n\n        let good = bytecode_module(&mut compiler, "example.rollback", "(def marker 1)");\n        let bad = bytecode_module(&mut compiler, "example.failure", "(throw \\"boom\\")");\n        let failing = vm::encode_bytecode_bundle(&[good, bad]).unwrap();\n        assert!(runtime.bootstrap_bytecode(&failing).is_err());\n        assert!(runtime.namespaces.find("example.rollback").is_none());\n        assert!(runtime.namespaces.find("example.failure").is_none());\n    }\n\n    #[test]\n    fn application_bundle_binds_manifest_and_rolls_back_route_failure() {\n        let mut compiler = hara_wasm::Runtime::new();\n        let module = bytecode_module(\n            &mut compiler,\n            "example.application",\n            "(defn show [_request] {:status 200 :body \\"ready\\"})",\n        );\n        let hbb2 = vm::encode_bytecode_bundle(&[module]).unwrap();\n        let manifest = hta::encode(&manifest_v2("example.application/show", "request")).unwrap();\n        let bundle = application_bundle::encode(&manifest, &hbb2).unwrap();\n        assert_eq!(&bundle[..4], application_bundle::MAGIC);\n\n        let mut runtime = HopliteRuntime::new();\n        runtime.bootstrap_application(&bundle, &manifest).unwrap();\n        assert!(runtime.namespaces.find("example.application").is_some());\n        assert!(runtime.apps.contains_key(&1));\n\n        let substituted =\n            hta::encode(&manifest_v2("example.application/show", "raw")).unwrap();\n        let mut rejected = HopliteRuntime::new();\n        let error = rejected\n            .bootstrap_application(&bundle, &substituted)\n            .unwrap_err();\n        assert!(error.contains("application-manifest-mismatch"), "{error}");\n        assert!(rejected.namespaces.find("example.application").is_none());\n        assert!(rejected.apps.is_empty());\n        assert!(rejected.handlers.is_empty());\n\n        let invalid_manifest = hta::encode(&manifest_v2("missing/handler", "request")).unwrap();\n        let invalid_bundle = application_bundle::encode(&invalid_manifest, &hbb2).unwrap();\n        let mut rolled_back = HopliteRuntime::new();\n        let error = rolled_back\n            .bootstrap_application(&invalid_bundle, &invalid_manifest)\n            .unwrap_err();\n        assert!(error.contains("unknown") || error.contains("missing"), "{error}");\n        assert!(rolled_back.namespaces.find("example.application").is_none());\n        assert!(rolled_back.apps.is_empty());\n        assert!(rolled_back.handlers.is_empty());\n    }\n\n',
+          )
+          
+          replace_exact("core/nginx/hoplite_runtime.h", '/* Transactionally load a deterministic alpha HBX application bundle. */\nint hoplite_bootstrap_bytecode(hoplite_runtime_t *runtime,\n                               const uint8_t *bundle,\n                               size_t bundle_len);\n', '/*\n * Transactionally load a Hara HBB2 bundle. This lower-level compatibility\n * entry point does not bind or prepare a Hoplite route manifest.\n */\nint hoplite_bootstrap_bytecode(hoplite_runtime_t *runtime,\n                               const uint8_t *bundle,\n                               size_t bundle_len);\n\n/*\n * Validate one HAB1 bundle against the exact route manifest, load its embedded\n * HBB2 modules, and prepare every app route as one transactional startup.\n */\nint hoplite_bootstrap_application_v1(hoplite_runtime_t *runtime,\n                                     const uint8_t *bundle,\n                                     size_t bundle_len,\n                                     const uint8_t *manifest,\n                                     size_t manifest_len);\n')
+          replace_between(
+              "core/nginx/ngx_http_hoplite_module.c",
+              'static ngx_int_t\nngx_http_hoplite_bootstrap(',
+              'static ngx_int_t\nngx_http_hoplite_init_process(',
+              'static ngx_int_t\nngx_http_hoplite_bootstrap(ngx_cycle_t *cycle,\n                           const ngx_str_t *bundle_path,\n                           const ngx_str_t *manifest_path)\n{\n    ngx_str_t bundle, manifest;\n\n    if (ngx_http_hoplite_read_file(cycle, bundle_path, &bundle, 0) != NGX_OK) {\n        return NGX_ERROR;\n    }\n    if (ngx_http_hoplite_read_file(cycle, manifest_path, &manifest, 0) != NGX_OK) {\n        ngx_free(bundle.data);\n        return NGX_ERROR;\n    }\n    if (hoplite_bootstrap_application_v1(ngx_http_hoplite_runtime,\n                                         bundle.data, bundle.len,\n                                         manifest.data, manifest.len) != 0)\n    {\n        ngx_free(manifest.data);\n        ngx_free(bundle.data);\n        ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,\n                      "hoplite HAB1 application bootstrap loading failed");\n        return NGX_ERROR;\n    }\n    ngx_free(manifest.data);\n    ngx_free(bundle.data);\n    return NGX_OK;\n}\n\n',
+          )
+          replace_exact(
+              "core/nginx/ngx_http_hoplite_module.c",
+              '    conf = ngx_http_cycle_get_module_main_conf(cycle, ngx_http_hoplite_module);\n    if (conf != NULL && conf->bootstrap.len != 0\n        && ngx_http_hoplite_bootstrap(cycle, &conf->bootstrap) != NGX_OK)\n    {\n        return NGX_ERROR;\n    }\n    if (conf != NULL && conf->manifest.len != 0) {\n        ngx_str_t manifest;\n        if (ngx_http_hoplite_read_file(cycle, &conf->manifest, &manifest, 0) != NGX_OK) {\n            return NGX_ERROR;\n        }\n        if (hoplite_apps_prepare(ngx_http_hoplite_runtime,\n                                 manifest.data, manifest.len) != 0) {\n            ngx_free(manifest.data);\n            ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,\n                          "hoplite could not prepare app manifest %V", &conf->manifest);\n            return NGX_ERROR;\n        }\n        ngx_free(manifest.data);\n    }\n    return NGX_OK;\n',
+              '    conf = ngx_http_cycle_get_module_main_conf(cycle, ngx_http_hoplite_module);\n    if (conf != NULL\n        && (conf->bootstrap.len != 0 || conf->manifest.len != 0))\n    {\n        if (conf->bootstrap.len == 0 || conf->manifest.len == 0) {\n            ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,\n                          "hoplite_bootstrap and hoplite_manifest must be configured together");\n            return NGX_ERROR;\n        }\n        if (ngx_http_hoplite_bootstrap(cycle,\n                                       &conf->bootstrap,\n                                       &conf->manifest) != NGX_OK)\n        {\n            return NGX_ERROR;\n        }\n    }\n    return NGX_OK;\n',
+          )
+          PY
+      - name: Format and validate the complete core workspace
+        working-directory: hoplite
+        run: |
+          cargo fmt --manifest-path core/Cargo.toml
+          cargo test --manifest-path core/Cargo.toml --workspace
+          cargo metadata --manifest-path core/Cargo.toml --locked --no-deps >/dev/null
+
+          cc -std=c11 -Wall -Wextra -Werror \
+            -I core/nginx \
+            core/nginx/hoplite_response_source.c \
+            core/nginx/tests/response_source.c \
+            -o /tmp/hoplite-response-source
+          /tmp/hoplite-response-source
+      - name: Commit the validated implementation
+        working-directory: hoplite
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add core docs
+          git diff --cached --quiet && {
+            echo "HAB1 implementation produced no changes" >&2
+            exit 1
+          }
+          git commit -m "Add the HAB1 application bundle contract"
+          git push origin HEAD:agent/hoplite-application-bundle-v1
