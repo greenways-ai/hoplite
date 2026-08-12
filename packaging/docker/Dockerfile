@@ -20,7 +20,7 @@ RUN groupadd --system hoplite && useradd --system --gid hoplite --home /var/lib/
     && mkdir -p /app /var/lib/hoplite/cache \
     && chown -R hoplite:hoplite /app /var/lib/hoplite
 COPY --from=builder /src/hoplite/core/target/release/hoplite-server /usr/local/bin/hoplite-server
-COPY --from=builder --chown=hoplite:hoplite /app /app
+COPY --from=builder --chown=hoplite:hoplite /app/.hoplite /app/.hoplite
 USER hoplite
 ENV HOPLITE_SERVER_CACHE=/var/lib/hoplite/cache \
     HOPLITE_WORKERS=auto

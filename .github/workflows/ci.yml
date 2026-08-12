@@ -139,6 +139,8 @@ jobs:
           submodules: recursive
       - name: Build the generic production image
         run: docker build -f hoplite/packaging/docker/Dockerfile -t hoplite-ci .
+      - name: Verify the source-free production image
+        run: bash hoplite/packaging/scripts/assert-production-image.sh hoplite-ci
       - name: Exercise the real serving plane
         run: |
           docker run --rm hoplite-ci version
