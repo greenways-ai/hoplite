@@ -2,6 +2,7 @@ use hara_wasm::kernel::{parse_forms, Form};
 use hara_wasm::project::{self, Project};
 use hara_wasm::vm::{self, BytecodeBundleModule};
 use hara_wasm::Runtime;
+use hoplite_application_bundle as application_bundle;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -296,9 +297,12 @@ fn check(root: &Path, settings: &BuildSettings) -> Result<Project, String> {
         return Err("project has no .hal source files".into());
     }
     let modules = application_modules(&sources)?;
-    compile_application_modules(&modules)
+    let hbb2 = compile_application_modules(&modules)
         .map_err(|error| format!("Hoplite bytecode compilation failed: {error}"))?;
-    app::load(&project, settings.profile.as_deref(), settings.production)?;
+    let app_config = app::load(&project, settings.profile.as_deref(), settings.production)?;
+    let manifest = app::manifest(&app_config)?;
+    application_bundle::encode(&manifest, &hbb2)
+        .map_err(|error| format!("cannot encode Hoplite application bundle: {error}"))?;
     platform::load(&project, settings.profile.as_deref())?;
     Ok(project)
 }
@@ -319,16 +323,19 @@ fn build(root: &Path, settings: &BuildSettings) -> Result<PathBuf, String> {
     let sources = source_files(&project)?;
     let modules = application_modules(&sources)?;
     let runtime_source = runtime_application_modules(&modules)?;
-    let bytecode = compile_application_modules(&modules)
+    let hbb2 = compile_application_modules(&modules)
         .map_err(|error| format!("Hoplite bytecode compilation failed: {error}"))?;
     let app_config = app::load(&project, settings.profile.as_deref(), settings.production)?;
+    let manifest = app::manifest(&app_config)?;
+    let bundle = application_bundle::encode(&manifest, &hbb2)
+        .map_err(|error| format!("cannot encode Hoplite application bundle: {error}"))?;
     let platform_config = platform::load(&project, settings.profile.as_deref())?;
     let output = project.root.join(".hoplite");
     let configuration = output.join("conf");
     fs::create_dir_all(&configuration).map_err(io)?;
     fs::write(output.join("app.hal"), &runtime_source).map_err(io)?;
-    fs::write(output.join("app.hbx"), bytecode).map_err(io)?;
-    fs::write(output.join("apps.hta"), app::manifest(&app_config)?).map_err(io)?;
+    fs::write(output.join("app.hbx"), bundle).map_err(io)?;
+    fs::write(output.join("apps.hta"), manifest).map_err(io)?;
     fs::write(
         output.join("platform.edn"),
         platform::readable_manifest(&platform_config),
@@ -1149,7 +1156,7 @@ mod tests {
     }
 
     #[test]
-    fn compiles_a_multi_namespace_application_bundle() {
+    fn compiles_hara_bytecode_and_wraps_the_hoplite_application_contract() {
         let modules = [
             module("(ns example.dependency) (defn answer [] 42)"),
             module(
@@ -1157,8 +1164,18 @@ mod tests {
                  (defn answer [] (dependency/answer))",
             ),
         ];
-        let bundle = compile_application_modules(&modules).unwrap();
-        assert_eq!(&bundle[..4], b"HBB2");
+        let hbb2 = compile_application_modules(&modules).unwrap();
+        assert_eq!(&hbb2[..4], b"HBB2");
+
+        let manifest = b"exact-app-manifest";
+        let bundle = application_bundle::encode(manifest, &hbb2).unwrap();
+        assert_eq!(&bundle[..4], application_bundle::MAGIC);
+        assert_eq!(
+            application_bundle::decode(&bundle, manifest)
+                .unwrap()
+                .bytecode(),
+            hbb2
+        );
     }
 
     #[test]

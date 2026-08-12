@@ -940,6 +940,7 @@ dependencies = [
  "getrandom 0.2.17",
  "hara-wasm",
  "home",
+ "hoplite-application-bundle",
  "hoplite-auth-store-abi",
  "hoplite-store-sqlite",
  "p256",
@@ -947,6 +948,13 @@ dependencies = [
  "rustyline",
  "semver",
  "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "hoplite-application-bundle"
+version = "0.1.0"
+dependencies = [
  "sha2 0.10.9",
 ]
 
@@ -982,6 +990,7 @@ dependencies = [
  "ed25519-dalek",
  "getrandom 0.2.17",
  "hara-wasm",
+ "hoplite-application-bundle",
  "hoplite-data-plane-abi",
  "hoplite-data-plane-ffi",
  "hoplite-data-plane-registry",

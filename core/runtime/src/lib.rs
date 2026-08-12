@@ -4,6 +4,7 @@
 mod host_intrinsics;
 
 use hara_wasm::{core, hta, kernel, vm};
+use hoplite_application_bundle as application_bundle;
 use hoplite_data_plane_abi::{BodyLimits, ResourceHandle};
 use hoplite_data_plane_ffi::HopliteRequestBodyV1;
 use hoplite_data_plane_registry::ResourceRegistry;
@@ -16,7 +17,7 @@ use std::ptr;
 use std::rc::Rc;
 use std::{ffi::c_void, slice, str};
 
-const ABI_VERSION: u32 = 4;
+const ABI_VERSION: u32 = application_bundle::RUNTIME_ABI_VERSION;
 const MAX_CHILD_DRIVE_PASSES: usize = 64;
 type HostCall = (u64, Promise, String, String, Vec<Value>);
 
@@ -1181,6 +1182,75 @@ impl HopliteRuntime {
         vm::eval_eager_bytecode_bundle_with_registries(&self.namespaces, &self.protocols, bundle)
     }
 
+    fn pristine_for_application_bootstrap(&self) -> bool {
+    self.next_handler == 1
+        && self.next_work == 1
+        && self.next_call == 1
+        && self.next_request == 1
+        && self.next_response == 1
+        && self.events.borrow().is_empty()
+        && self.ready.borrow().is_empty()
+        && self.call_owners.is_empty()
+        && self.handlers.is_empty()
+        && self.apps.is_empty()
+        && self.works.is_empty()
+        && self.requests.borrow().is_empty()
+        && self.raw_builders.borrow().is_empty()
+        && self.responses.is_empty()
+        && self.host_pending.borrow().is_empty()
+        && *self.host_next.borrow() == 1
+}
+
+fn validate_application_in_isolated_thread(
+    bytecode: Vec<u8>,
+    manifest: Vec<u8>,
+) -> Result<(), String> {
+    let validation = std::thread::Builder::new()
+        .name("hoplite-application-preflight".into())
+        .spawn(move || {
+            let manifest = hta::decode(&manifest).map_err(|error| {
+                format!("hoplite/application-manifest-invalid: {error}")
+            })?;
+            let mut runtime = HopliteRuntime::new();
+            runtime.bootstrap_bytecode(&bytecode)?;
+            runtime.apps_prepare(manifest)
+        })
+        .map_err(|error| {
+            format!("hoplite/application-preflight-unavailable: {error}")
+        })?;
+    validation
+        .join()
+        .map_err(|_| "hoplite/application-preflight-panicked".to_string())?
+}
+
+fn bootstrap_application(&mut self, bundle: &[u8], manifest: &[u8]) -> Result<(), String> {
+    if !self.pristine_for_application_bootstrap() {
+        return Err(
+            "hoplite/application-bootstrap-stateful-runtime: use a fresh runtime"
+                .into(),
+        );
+    }
+
+    let decoded = application_bundle::decode(bundle, manifest)
+        .map_err(|error| error.to_string())?;
+    Self::validate_application_in_isolated_thread(
+        decoded.bytecode().to_vec(),
+        manifest.to_vec(),
+    )?;
+
+    let manifest = hta::decode(manifest)
+        .map_err(|error| format!("hoplite/application-manifest-invalid: {error}"))?;
+    let mut staged = HopliteRuntime::new();
+    staged.bootstrap_bytecode(decoded.bytecode()).map_err(|error| {
+        format!("hoplite/application-bootstrap-invariant: {error}")
+    })?;
+    staged.apps_prepare(manifest).map_err(|error| {
+        format!("hoplite/application-bootstrap-invariant: {error}")
+    })?;
+    *self = staged;
+    Ok(())
+}
+
     fn work_call(&mut self, handler: HandlerId, binding: Value) -> Result<WorkId, ()> {
         let call = self.handlers.get(&handler).cloned().ok_or(())?;
         let work = self.open_work();
@@ -1201,37 +1271,53 @@ impl HopliteRuntime {
     }
 
     fn apps_prepare(&mut self, manifest: Value) -> Result<(), String> {
-        let format = map_optional_number(&manifest, "format").unwrap_or(1);
-        if !matches!(format, 1 | 2) {
-            return Err("unsupported Hoplite app manifest format".into());
-        }
-        let legacy = format == 1;
-        let mut apps = HashMap::new();
-        for app in map_sequence(&manifest, "apps")? {
-            let id = map_number(&app, "id")? as u64;
-            let mut routes = Vec::new();
-            for route in map_sequence(&app, "routes")? {
-                let method = map_string(&route, "method")?;
-                let path = map_string(&route, "path")?;
-                let function = map_string(&route, "handler")?;
-                let adapter = RouteAdapter::parse(map_optional_string(&route, "adapter"), legacy)?;
-                if map_value(&route, "auth").is_some() {
-                    return Err("route auth policy belongs in the HAL handler".into());
+        let previous_next_handler = self.next_handler;
+        let previous_handlers = self.handlers.clone();
+        let previous_apps = std::mem::take(&mut self.apps);
+        let result = (|| {
+            let format = map_optional_number(&manifest, "format").unwrap_or(1);
+            if !matches!(format, 1 | 2) {
+                return Err("unsupported Hoplite app manifest format".into());
+            }
+            let legacy = format == 1;
+            let mut apps = HashMap::new();
+            for app in map_sequence(&manifest, "apps")? {
+                let id = map_number(&app, "id")? as u64;
+                let mut routes = Vec::new();
+                for route in map_sequence(&app, "routes")? {
+                    let method = map_string(&route, "method")?;
+                    let path = map_string(&route, "path")?;
+                    let function = map_string(&route, "handler")?;
+                    let adapter =
+                        RouteAdapter::parse(map_optional_string(&route, "adapter"), legacy)?;
+                    if map_value(&route, "auth").is_some() {
+                        return Err("route auth policy belongs in the HAL handler".into());
+                    }
+                    let handler = self.handler_prepare(&function)?;
+                    routes.push(AppRoute {
+                        method,
+                        path,
+                        handler,
+                        adapter,
+                    });
                 }
-                let handler = self.handler_prepare(&function)?;
-                routes.push(AppRoute {
-                    method,
-                    path,
-                    handler,
-                    adapter,
-                });
+                if apps.insert(id, AppRouter { routes }).is_some() {
+                    return Err(format!("duplicate app id {id}"));
+                }
             }
-            if apps.insert(id, AppRouter { routes }).is_some() {
-                return Err(format!("duplicate app id {id}"));
+            self.apps = apps;
+            Ok(())
+        })();
+
+        match result {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.next_handler = previous_next_handler;
+                self.handlers = previous_handlers;
+                self.apps = previous_apps;
+                Err(error)
             }
         }
-        self.apps = apps;
-        Ok(())
     }
 
     fn app_call(&mut self, app: AppId, request: Value) -> Result<WorkId, ()> {
@@ -1734,6 +1820,29 @@ pub unsafe extern "C" fn hoplite_bootstrap_bytecode(
         let bundle = bytes(bundle_ptr, bundle_len)?;
         if let Err(error) = runtime.bootstrap_bytecode(bundle) {
             eprintln!("hoplite bytecode bootstrap: {error}");
+            return Err(());
+        }
+        Ok::<i32, ()>(0)
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_bootstrap_application_v1(
+    runtime: *mut HopliteRuntime,
+    bundle_ptr: *const u8,
+    bundle_len: usize,
+    manifest_ptr: *const u8,
+    manifest_len: usize,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        let bundle = bytes(bundle_ptr, bundle_len)?;
+        let manifest = bytes(manifest_ptr, manifest_len)?;
+        if let Err(error) = runtime.bootstrap_application(bundle, manifest) {
+            eprintln!("hoplite application bootstrap: {error}");
             return Err(());
         }
         Ok::<i32, ()>(0)
@@ -2318,7 +2427,7 @@ mod tests {
     }
 
     #[test]
-    fn bytecode_bootstrap_is_hbx_alpha_and_transactional() {
+    fn bytecode_bootstrap_uses_hara_hbb2_and_is_transactional() {
         let mut compiler = hara_wasm::Runtime::new();
         let successful = bytecode_module(&mut compiler, "example.bytecode", "(defn answer [] 42)");
         let bundle = vm::encode_bytecode_bundle(&[successful]).unwrap();
@@ -2339,6 +2448,47 @@ mod tests {
         assert!(runtime.bootstrap_bytecode(&failing).is_err());
         assert!(runtime.namespaces.find("example.rollback").is_none());
         assert!(runtime.namespaces.find("example.failure").is_none());
+    }
+
+    #[test]
+    fn application_bundle_binds_manifest_and_rolls_back_route_failure() {
+        let mut compiler = hara_wasm::Runtime::new();
+        let module = bytecode_module(
+            &mut compiler,
+            "example.application",
+            "(defn show [_request] {:status 200 :body \"ready\"})",
+        );
+        let hbb2 = vm::encode_bytecode_bundle(&[module]).unwrap();
+        let manifest = hta::encode(&manifest_v2("example.application/show", "request")).unwrap();
+        let bundle = application_bundle::encode(&manifest, &hbb2).unwrap();
+        assert_eq!(&bundle[..4], application_bundle::MAGIC);
+
+        let mut runtime = HopliteRuntime::new();
+        runtime.bootstrap_application(&bundle, &manifest).unwrap();
+        assert!(runtime.namespaces.find("example.application").is_some());
+        assert!(runtime.apps.contains_key(&1));
+
+        let substituted =
+            hta::encode(&manifest_v2("example.application/show", "raw")).unwrap();
+        let mut rejected = HopliteRuntime::new();
+        let error = rejected
+            .bootstrap_application(&bundle, &substituted)
+            .unwrap_err();
+        assert!(error.contains("application-manifest-mismatch"), "{error}");
+        assert!(rejected.namespaces.find("example.application").is_none());
+        assert!(rejected.apps.is_empty());
+        assert!(rejected.handlers.is_empty());
+
+        let invalid_manifest = hta::encode(&manifest_v2("missing/handler", "request")).unwrap();
+        let invalid_bundle = application_bundle::encode(&invalid_manifest, &hbb2).unwrap();
+        let mut rolled_back = HopliteRuntime::new();
+        let error = rolled_back
+            .bootstrap_application(&invalid_bundle, &invalid_manifest)
+            .unwrap_err();
+        assert!(error.contains("unknown") || error.contains("missing"), "{error}");
+        assert!(rolled_back.namespaces.find("example.application").is_none());
+        assert!(rolled_back.apps.is_empty());
+        assert!(rolled_back.handlers.is_empty());
     }
 
     #[test]

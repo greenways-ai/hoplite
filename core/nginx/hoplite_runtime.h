@@ -68,10 +68,23 @@ void hoplite_runtime_free(hoplite_runtime_t *runtime);
 int hoplite_bootstrap_modules(hoplite_runtime_t *runtime,
                               const uint8_t *source,
                               size_t source_len);
-/* Transactionally load a deterministic alpha HBX application bundle. */
+/*
+ * Transactionally load a Hara HBB2 bundle. This lower-level compatibility
+ * entry point does not bind or prepare a Hoplite route manifest.
+ */
 int hoplite_bootstrap_bytecode(hoplite_runtime_t *runtime,
                                const uint8_t *bundle,
                                size_t bundle_len);
+
+/*
+ * Validate one HAB1 bundle against the exact route manifest, load its embedded
+ * HBB2 modules, and prepare every app route as one transactional startup.
+ */
+int hoplite_bootstrap_application_v1(hoplite_runtime_t *runtime,
+                                     const uint8_t *bundle,
+                                     size_t bundle_len,
+                                     const uint8_t *manifest,
+                                     size_t manifest_len);
 
 uint64_t hoplite_handler_prepare(hoplite_runtime_t *runtime,
                                  const uint8_t *function,
