@@ -1183,73 +1183,69 @@ impl HopliteRuntime {
     }
 
     fn pristine_for_application_bootstrap(&self) -> bool {
-    self.next_handler == 1
-        && self.next_work == 1
-        && self.next_call == 1
-        && self.next_request == 1
-        && self.next_response == 1
-        && self.events.borrow().is_empty()
-        && self.ready.borrow().is_empty()
-        && self.call_owners.is_empty()
-        && self.handlers.is_empty()
-        && self.apps.is_empty()
-        && self.works.is_empty()
-        && self.requests.borrow().is_empty()
-        && self.raw_builders.borrow().is_empty()
-        && self.responses.is_empty()
-        && self.host_pending.borrow().is_empty()
-        && *self.host_next.borrow() == 1
-}
-
-fn validate_application_in_isolated_thread(
-    bytecode: Vec<u8>,
-    manifest: Vec<u8>,
-) -> Result<(), String> {
-    let validation = std::thread::Builder::new()
-        .name("hoplite-application-preflight".into())
-        .spawn(move || {
-            let manifest = hta::decode(&manifest).map_err(|error| {
-                format!("hoplite/application-manifest-invalid: {error}")
-            })?;
-            let mut runtime = HopliteRuntime::new();
-            runtime.bootstrap_bytecode(&bytecode)?;
-            runtime.apps_prepare(manifest)
-        })
-        .map_err(|error| {
-            format!("hoplite/application-preflight-unavailable: {error}")
-        })?;
-    validation
-        .join()
-        .map_err(|_| "hoplite/application-preflight-panicked".to_string())?
-}
-
-fn bootstrap_application(&mut self, bundle: &[u8], manifest: &[u8]) -> Result<(), String> {
-    if !self.pristine_for_application_bootstrap() {
-        return Err(
-            "hoplite/application-bootstrap-stateful-runtime: use a fresh runtime"
-                .into(),
-        );
+        self.next_handler == 1
+            && self.next_work == 1
+            && self.next_call == 1
+            && self.next_request == 1
+            && self.next_response == 1
+            && self.events.borrow().is_empty()
+            && self.ready.borrow().is_empty()
+            && self.call_owners.is_empty()
+            && self.handlers.is_empty()
+            && self.apps.is_empty()
+            && self.works.is_empty()
+            && self.requests.borrow().is_empty()
+            && self.raw_builders.borrow().is_empty()
+            && self.responses.is_empty()
+            && self.host_pending.borrow().is_empty()
+            && *self.host_next.borrow() == 1
     }
 
-    let decoded = application_bundle::decode(bundle, manifest)
-        .map_err(|error| error.to_string())?;
-    Self::validate_application_in_isolated_thread(
-        decoded.bytecode().to_vec(),
-        manifest.to_vec(),
-    )?;
+    fn validate_application_in_isolated_thread(
+        bytecode: Vec<u8>,
+        manifest: Vec<u8>,
+    ) -> Result<(), String> {
+        let validation = std::thread::Builder::new()
+            .name("hoplite-application-preflight".into())
+            .spawn(move || {
+                let manifest = hta::decode(&manifest)
+                    .map_err(|error| format!("hoplite/application-manifest-invalid: {error}"))?;
+                let mut runtime = HopliteRuntime::new();
+                runtime.bootstrap_bytecode(&bytecode)?;
+                runtime.apps_prepare(manifest)
+            })
+            .map_err(|error| format!("hoplite/application-preflight-unavailable: {error}"))?;
+        validation
+            .join()
+            .map_err(|_| "hoplite/application-preflight-panicked".to_string())?
+    }
 
-    let manifest = hta::decode(manifest)
-        .map_err(|error| format!("hoplite/application-manifest-invalid: {error}"))?;
-    let mut staged = HopliteRuntime::new();
-    staged.bootstrap_bytecode(decoded.bytecode()).map_err(|error| {
-        format!("hoplite/application-bootstrap-invariant: {error}")
-    })?;
-    staged.apps_prepare(manifest).map_err(|error| {
-        format!("hoplite/application-bootstrap-invariant: {error}")
-    })?;
-    *self = staged;
-    Ok(())
-}
+    fn bootstrap_application(&mut self, bundle: &[u8], manifest: &[u8]) -> Result<(), String> {
+        if !self.pristine_for_application_bootstrap() {
+            return Err(
+                "hoplite/application-bootstrap-stateful-runtime: use a fresh runtime".into(),
+            );
+        }
+
+        let decoded =
+            application_bundle::decode(bundle, manifest).map_err(|error| error.to_string())?;
+        Self::validate_application_in_isolated_thread(
+            decoded.bytecode().to_vec(),
+            manifest.to_vec(),
+        )?;
+
+        let manifest = hta::decode(manifest)
+            .map_err(|error| format!("hoplite/application-manifest-invalid: {error}"))?;
+        let mut staged = HopliteRuntime::new();
+        staged
+            .bootstrap_bytecode(decoded.bytecode())
+            .map_err(|error| format!("hoplite/application-bootstrap-invariant: {error}"))?;
+        staged
+            .apps_prepare(manifest)
+            .map_err(|error| format!("hoplite/application-bootstrap-invariant: {error}"))?;
+        *self = staged;
+        Ok(())
+    }
 
     fn work_call(&mut self, handler: HandlerId, binding: Value) -> Result<WorkId, ()> {
         let call = self.handlers.get(&handler).cloned().ok_or(())?;
@@ -2468,8 +2464,7 @@ mod tests {
         assert!(runtime.namespaces.find("example.application").is_some());
         assert!(runtime.apps.contains_key(&1));
 
-        let substituted =
-            hta::encode(&manifest_v2("example.application/show", "raw")).unwrap();
+        let substituted = hta::encode(&manifest_v2("example.application/show", "raw")).unwrap();
         let mut rejected = HopliteRuntime::new();
         let error = rejected
             .bootstrap_application(&bundle, &substituted)
@@ -2485,7 +2480,10 @@ mod tests {
         let error = rolled_back
             .bootstrap_application(&invalid_bundle, &invalid_manifest)
             .unwrap_err();
-        assert!(error.contains("unknown") || error.contains("missing"), "{error}");
+        assert!(
+            error.contains("unknown") || error.contains("missing"),
+            "{error}"
+        );
         assert!(rolled_back.namespaces.find("example.application").is_none());
         assert!(rolled_back.apps.is_empty());
         assert!(rolled_back.handlers.is_empty());
