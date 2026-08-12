@@ -6,17 +6,16 @@ ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 MANIFEST="$ROOT/core/runtime/Cargo.toml"
 HEADER="$ROOT/core/nginx/hoplite_runtime.h"
 INVENTORY="$ROOT/docs/native-symbols.txt"
-TARGET="$ROOT/core/target/release"
 WORK="$(mktemp -d)"
+TARGET="$WORK/target"
+STATIC_LIBRARY="$TARGET/release/libhoplite_runtime.a"
 trap 'rm -rf "$WORK"' EXIT
 
-cargo run \
-  --manifest-path "$MANIFEST" \
-  --locked \
-  --release \
-  --example embed
-
-cargo rustc \
+# Use an isolated target directory and ask rustc for the native link set before
+# running the Rust fixture. This guarantees rustc executes with
+# --print=native-static-libs instead of Cargo reusing a release artifact built
+# by an earlier CI step and emitting no link metadata.
+CARGO_TARGET_DIR="$TARGET" cargo rustc \
   --manifest-path "$MANIFEST" \
   --locked \
   --release \
@@ -32,10 +31,21 @@ if [[ -z "$native_static_libs" ]]; then
 fi
 read -r -a native_link_args <<<"$native_static_libs"
 
+test -f "$STATIC_LIBRARY" || {
+  echo "Rust did not build the Hoplite static library" >&2
+  exit 1
+}
+
+CARGO_TARGET_DIR="$TARGET" cargo run \
+  --manifest-path "$MANIFEST" \
+  --locked \
+  --release \
+  --example embed
+
 cc -std=c11 -Wall -Wextra -Werror \
   -I "$ROOT/core/nginx" \
   "$ROOT/core/runtime/examples/embed.c" \
-  "$TARGET/libhoplite_runtime.a" \
+  "$STATIC_LIBRARY" \
   "${native_link_args[@]}" \
   -o "$WORK/hoplite-c-embed"
 "$WORK/hoplite-c-embed"
@@ -44,7 +54,7 @@ grep -Eo 'hoplite_[a-z0-9_]+\(' "$HEADER" \
   | tr -d '(' \
   | LC_ALL=C sort -u > "$WORK/header-symbols.txt"
 
-nm -g --defined-only --format=posix "$TARGET/libhoplite_runtime.a" \
+nm -g --defined-only --format=posix "$STATIC_LIBRARY" \
   | awk '$1 ~ /^hoplite_/ { print $1 }' \
   | LC_ALL=C sort -u > "$WORK/binary-symbols.txt"
 
