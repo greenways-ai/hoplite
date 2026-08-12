@@ -1,0 +1,50 @@
+name: Format the HAB1 runtime implementation
+
+on:
+  push:
+    branches:
+      - agent/hoplite-application-bundle-v1
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/hoplite-application-bundle-v1
+          path: hoplite
+          fetch-depth: 0
+      - name: Resolve the reviewed Hara revision
+        id: hara
+        working-directory: hoplite
+        run: echo "revision=$(tr -d '[:space:]' < packaging/hara-revision)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ steps.hara.outputs.revision }}
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format the runtime crate and verify the workspace
+        working-directory: hoplite
+        run: |
+          cargo fmt --manifest-path core/runtime/Cargo.toml
+          test "$(git diff --name-only)" = "core/runtime/src/lib.rs"
+          git diff --check
+          cargo test --manifest-path core/Cargo.toml --workspace --locked
+          cargo metadata --manifest-path core/Cargo.toml --locked --no-deps >/dev/null
+      - name: Commit the formatted runtime
+        working-directory: hoplite
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add core/runtime/src/lib.rs
+          git commit -m "Format the HAB1 runtime staging path"
+          git push origin HEAD:agent/hoplite-application-bundle-v1
