@@ -136,6 +136,32 @@ jobs:
               raise SystemExit('bundle test insertion point was not found')
           bundle_path.write_text(bundle.replace(marker, negative_test + marker, 1))
 
+          runtime_path = Path('core/runtime/src/lib.rs')
+          runtime = runtime_path.read_text()
+          running_arm = '\n'.join([
+              '            vm::VmFiberState::Running => {',
+              '                self.reject_work(',
+              '                    work,',
+              '                    error_value("fiber/invalid-state", "running fiber escaped".into()),',
+              '                );',
+              '            }',
+          ])
+          yielded_and_running = '\n'.join([
+              '            vm::VmFiberState::Yielded(_) => {',
+              '                self.reject_work(',
+              '                    work,',
+              '                    error_value(',
+              '                        "fiber/yield-unsupported",',
+              '                        "yielded outside a coroutine driver".into(),',
+              '                    ),',
+              '                );',
+              '            }',
+              running_arm,
+          ])
+          if runtime.count(running_arm) != 1:
+              raise SystemExit('runtime running-state arm did not match exactly once')
+          runtime_path.write_text(runtime.replace(running_arm, yielded_and_running, 1))
+
           header_path = Path('core/nginx/hoplite_runtime.h')
           header = header_path.read_text()
           old_header = '\n'.join([
