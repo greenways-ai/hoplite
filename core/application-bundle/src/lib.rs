@@ -1,5 +1,8 @@
 use sha2::{Digest, Sha256};
 use std::fmt;
+use std::fs::File;
+use std::io::{self, Read};
+use std::path::{Path, PathBuf};
 
 pub const FORMAT: &str = "hoplite.application-bundle/1";
 pub const MAGIC: &[u8; 4] = b"HAB1";
@@ -83,6 +86,83 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+#[derive(Debug)]
+pub enum FileError {
+    Io {
+        class: &'static str,
+        operation: &'static str,
+        path: PathBuf,
+        source: io::Error,
+    },
+    NotRegular {
+        class: &'static str,
+        path: PathBuf,
+    },
+    TooLarge {
+        class: &'static str,
+        path: PathBuf,
+        actual: u64,
+        maximum: usize,
+    },
+    Changed {
+        class: &'static str,
+        path: PathBuf,
+        expected: u64,
+        actual: usize,
+    },
+}
+
+impl fmt::Display for FileError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Io {
+                class,
+                operation,
+                path,
+                source,
+            } => write!(
+                formatter,
+                "hoplite/{class}-file-{operation}: {}: {source}",
+                path.display()
+            ),
+            Self::NotRegular { class, path } => write!(
+                formatter,
+                "hoplite/{class}-file-not-regular: {}",
+                path.display()
+            ),
+            Self::TooLarge {
+                class,
+                path,
+                actual,
+                maximum,
+            } => write!(
+                formatter,
+                "hoplite/{class}-file-too-large: {} is {actual} bytes; maximum is {maximum}",
+                path.display()
+            ),
+            Self::Changed {
+                class,
+                path,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "hoplite/{class}-file-changed: {} was {expected} bytes and read as {actual}",
+                path.display()
+            ),
+        }
+    }
+}
+
+impl std::error::Error for FileError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io { source, .. } => Some(source),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Decoded<'a> {
     bytecode: &'a [u8],
@@ -97,6 +177,69 @@ impl<'a> Decoded<'a> {
     pub fn manifest_digest(self) -> [u8; CHECKSUM_BYTES] {
         self.manifest_digest
     }
+}
+
+pub fn read_bundle_file(path: impl AsRef<Path>) -> Result<Vec<u8>, FileError> {
+    read_bounded(path.as_ref(), MAX_BUNDLE_BYTES, "application-bundle")
+}
+
+pub fn read_manifest_file(path: impl AsRef<Path>) -> Result<Vec<u8>, FileError> {
+    read_bounded(path.as_ref(), MAX_MANIFEST_BYTES, "application-manifest")
+}
+
+fn read_bounded(path: &Path, maximum: usize, class: &'static str) -> Result<Vec<u8>, FileError> {
+    let path = path.to_path_buf();
+    let file = File::open(&path).map_err(|source| FileError::Io {
+        class,
+        operation: "open",
+        path: path.clone(),
+        source,
+    })?;
+    let metadata = file.metadata().map_err(|source| FileError::Io {
+        class,
+        operation: "metadata",
+        path: path.clone(),
+        source,
+    })?;
+    if !metadata.is_file() {
+        return Err(FileError::NotRegular { class, path });
+    }
+    if metadata.len() > maximum as u64 {
+        return Err(FileError::TooLarge {
+            class,
+            path,
+            actual: metadata.len(),
+            maximum,
+        });
+    }
+
+    let expected = metadata.len();
+    let mut bytes = Vec::with_capacity(expected as usize);
+    file.take(maximum as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|source| FileError::Io {
+            class,
+            operation: "read",
+            path: path.clone(),
+            source,
+        })?;
+    if bytes.len() > maximum {
+        return Err(FileError::TooLarge {
+            class,
+            path,
+            actual: bytes.len() as u64,
+            maximum,
+        });
+    }
+    if bytes.len() as u64 != expected {
+        return Err(FileError::Changed {
+            class,
+            path,
+            expected,
+            actual: bytes.len(),
+        });
+    }
+    Ok(bytes)
 }
 
 pub fn encode(manifest: &[u8], bytecode: &[u8]) -> Result<Vec<u8>, Error> {
@@ -210,9 +353,7 @@ fn digest(bytes: &[u8]) -> [u8; CHECKSUM_BYTES] {
 }
 
 fn take_u32(input: &mut &[u8]) -> Result<u32, Error> {
-    Ok(u32::from_le_bytes(
-        take(input, 4)?.try_into().unwrap(),
-    ))
+    Ok(u32::from_le_bytes(take(input, 4)?.try_into().unwrap()))
 }
 
 fn take<'a>(input: &mut &'a [u8], length: usize) -> Result<&'a [u8], Error> {
@@ -274,10 +415,7 @@ mod tests {
     fn rejects_tampering_and_trailing_bytes() {
         let mut tampered = encode(b"manifest", &hbb2()).unwrap();
         *tampered.last_mut().unwrap() ^= 1;
-        assert_eq!(
-            decode(&tampered, b"manifest"),
-            Err(Error::ChecksumMismatch)
-        );
+        assert_eq!(decode(&tampered, b"manifest"), Err(Error::ChecksumMismatch));
 
         let mut trailing = encode(b"manifest", &hbb2()).unwrap();
         trailing.push(0);
@@ -304,5 +442,28 @@ mod tests {
                 actual: MAX_MANIFEST_BYTES + 1
             })
         );
+    }
+
+    #[test]
+    fn bounded_file_reads_preserve_exact_bytes_and_reject_oversize() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let path = std::env::temp_dir().join(format!(
+            "hoplite-hab1-file-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::write(&path, b"exact").unwrap();
+        assert_eq!(read_bounded(&path, 5, "test").unwrap(), b"exact");
+        assert!(matches!(
+            read_bounded(&path, 4, "test"),
+            Err(FileError::TooLarge {
+                actual: 5,
+                maximum: 4,
+                ..
+            })
+        ));
+        std::fs::remove_file(path).unwrap();
     }
 }
