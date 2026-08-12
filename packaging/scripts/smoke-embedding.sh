@@ -11,12 +11,11 @@ STATIC_LIBRARY="$TARGET/libhoplite_runtime.a"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# Remove only the runtime package's release outputs. Dependencies remain cached,
-# but rustc must execute the static-library build below and therefore always
-# emits the native link set instead of Cargo silently reusing an earlier output.
+# Remove only this package's existing outputs. Dependencies remain cached, but
+# rustc must execute the static-library build below and therefore always emits
+# the native link set instead of Cargo silently reusing an earlier output.
 cargo clean \
   --manifest-path "$MANIFEST" \
-  --release \
   --package hoplite-runtime
 
 cargo rustc \
