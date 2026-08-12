@@ -105,5 +105,5 @@ if [[ "$last_status" != 200 ]] \
   exit 1
 fi
 
-printf 'Validated three-module HAB1 dispatch through %s on port %s.\n' \
+printf 'Validated three-module HAB0 dispatch through %s on port %s.\n' \
   "$image" "$port"

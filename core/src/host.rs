@@ -274,12 +274,12 @@ mod tests {
         install(&mut runtime);
         let value = runtime
             .eval_native_value(
-                "(ns host-test (:require [hoplite.host :as host]\n\
+                "(ns host-test (:require [hoplite.host :as hoplite-host]\n\
                                          [std.foundation.string :as str]))\n\
-                 [(count (host/random-bytes 32))\n\
-                  (count (host/hash \"sha256\" (str/encode-utf8 \"hoplite\")))\n\
-                  (count (host/canonical-value-digest {:ready true}))\n\
-                  (number? (host/now))]",
+                 [(count (hoplite-host/random-bytes 32))\n\
+                  (count (hoplite-host/hash \"sha256\" (str/encode-utf8 \"hoplite\")))\n\
+                  (count (hoplite-host/canonical-value-digest {:ready true}))\n\
+                  (number? (hoplite-host/now))]",
             )
             .expect("host calls evaluate");
         assert_eq!(value.display(), "[32 32 71 true]");
@@ -321,7 +321,7 @@ mod tests {
         let mut runtime = Runtime::new();
         install(&mut runtime);
         let error = runtime
-            .eval_native("(ns host-secret (:require [hoplite.host :as host])) (host/secret \"auth/signing-key\")")
+            .eval_native("(ns host-secret (:require [hoplite.host :as hoplite-host])) (hoplite-host/secret \"auth/signing-key\")")
             .expect_err("secret access must fail closed");
         assert!(error.contains("requires an installed secret provider"));
     }

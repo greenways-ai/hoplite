@@ -125,7 +125,23 @@ deployment configuration chooses extensions; ordinary request values do not.
 - Compatibility and benchmark evidence are retained separately from required
   merge gates.
 
-## Roadmap to 0.2
+### Versioning during alpha
+
+- Distribution artifacts use ordinary pre-1.0 semantic versions such as
+  `0.1.x`.
+- Evolving portable contracts use explicit alpha identities: Hara `HBC0` and
+  `HBX0`, and Hoplite `hoplite.application-bundle/0-alpha` / `HAB0`.
+- Native runtime ABI values and suffixes such as `_v1` describe binary call
+  shapes and are independent of portable-document maturity.
+- No evolving portable surface is promoted to a stable-looking major version
+  until that individual contract is deliberately frozen.
+- An incompatible alpha change updates code, fixtures, documentation, and a
+  migration note together.
+
+The complete rule is documented in
+[Versioning during alpha](versioning.md).
+
+## Alpha roadmap
 
 ### 1. Restore a trustworthy green baseline
 

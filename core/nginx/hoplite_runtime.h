@@ -69,7 +69,7 @@ int hoplite_bootstrap_modules(hoplite_runtime_t *runtime,
                               const uint8_t *source,
                               size_t source_len);
 /*
- * Transactionally load a Hara HBB2 bundle. This lower-level compatibility
+ * Transactionally load a Hara HBX0 bundle. This lower-level compatibility
  * entry point does not bind or prepare a Hoplite route manifest.
  */
 int hoplite_bootstrap_bytecode(hoplite_runtime_t *runtime,
@@ -77,8 +77,11 @@ int hoplite_bootstrap_bytecode(hoplite_runtime_t *runtime,
                                size_t bundle_len);
 
 /*
- * Validate one HAB1 bundle against the exact route manifest, load its embedded
- * HBB2 modules, and prepare every app route as one transactional startup.
+ * The `_v1` suffix on these exported bootstrap symbols identifies the first C
+ * function shape. It is independent of the alpha document epoch below.
+ *
+ * Validate one HAB0 bundle against the exact route manifest, load its embedded
+ * HBX0 modules, and prepare every app route as one transactional startup.
  */
 int hoplite_bootstrap_application_v1(hoplite_runtime_t *runtime,
                                      const uint8_t *bundle,
@@ -87,7 +90,7 @@ int hoplite_bootstrap_application_v1(hoplite_runtime_t *runtime,
                                      size_t manifest_len);
 
 /*
- * Read the configured HAB1 and manifest as bounded regular files,
+ * Read the configured HAB0 and manifest as bounded regular files,
  * then perform the same combined transactional startup.
  */
 int hoplite_bootstrap_application_files_v1(

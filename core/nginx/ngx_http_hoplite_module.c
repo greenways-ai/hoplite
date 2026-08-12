@@ -1874,7 +1874,7 @@ ngx_http_hoplite_bootstrap(ngx_cycle_t *cycle,
             manifest_path->len) != 0)
     {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
-                      "hoplite HAB1 application bootstrap loading failed");
+                      "hoplite HAB0 application bootstrap loading failed");
         return NGX_ERROR;
     }
     return NGX_OK;
