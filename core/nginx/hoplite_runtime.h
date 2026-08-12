@@ -84,7 +84,7 @@ int hoplite_bootstrap_application_v1(hoplite_runtime_t *runtime,
                                      const uint8_t *bundle,
                                      size_t bundle_len,
                                      const uint8_t *manifest,
-                           size_t manifest_len);
+                                     size_t manifest_len);
 
 /*
  * Read the configured HAB1 and manifest as bounded regular files,

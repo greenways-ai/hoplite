@@ -50,10 +50,10 @@ The bundle records the exact Hoplite runtime ABI. Changing the envelope layout,
 manifest-binding law, or required runtime ABI requires a new HAB format and a
 documented migration path.
 
-The lower-level `hoplite_bootstrap_bytecode` and `hoplite_apps_prepare` symbols
-remain available for embedding compatibility, but the generated Nginx
-production configuration uses `hoplite_bootstrap_application_v1`.
-
+The lower-level `hoplite_bootstrap_bytecode`, `hoplite_apps_prepare`, and
+byte-oriented `hoplite_bootstrap_application_v1` symbols remain available for
+embedding compatibility. Generated Nginx production configuration uses the
+bounded file-based `hoplite_bootstrap_application_files_v1` entry point.
 
 ## Source-free verification
 
