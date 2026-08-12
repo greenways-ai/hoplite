@@ -7,8 +7,7 @@
 ;; SHA-256 identity and canonical HTA encoding before returning a value.
 ;; ==========================================================================
 (ns hoplite.value
-  (:require [std.foundation :refer :all]
-            [std.foundation.string :as string]))
+  (:require [std.foundation :refer :all]))
 
 (def service
   "hoplite.value")
@@ -46,13 +45,13 @@
   (and
    (string? value)
    (= 71 (count value))
-   (= "sha256:" (string/slice value 0 7))
+   (= "sha256:" (str/slice value 0 7))
    (loop [index 7]
      (if
       (= index 71)
       true
       (if
-       (has? hex-digits (string/slice value index (inc index)))
+       (has? hex-digits (str/slice value index (inc index)))
        (recur (inc index))
        false)))))
 
