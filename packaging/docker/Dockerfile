@@ -9,7 +9,9 @@ WORKDIR /src
 COPY hoplite hoplite
 COPY hara hara
 RUN make -C hoplite/core embedded-cli server-cli
-RUN cp -R hoplite/core/examples /app \
+ARG HOPLITE_APP=core/examples
+RUN test -f "hoplite/${HOPLITE_APP}/project.edn" \
+    && cp -R "hoplite/${HOPLITE_APP}" /app \
     && hoplite/core/target/release/hoplite serve build --mode prod /app
 
 FROM debian:bookworm-slim
