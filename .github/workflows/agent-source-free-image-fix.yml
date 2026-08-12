@@ -1,0 +1,133 @@
+name: Apply source-free production edits by section
+
+on:
+  push:
+    branches:
+      - agent/source-free-production-image
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hoplite-source-free-production-image-sections
+  cancel-in-progress: true
+
+jobs:
+  implement:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/source-free-production-image
+          path: hoplite
+          fetch-depth: 0
+      - name: Resolve the reviewed Hara revision
+        id: hara
+        working-directory: hoplite
+        run: echo "revision=$(tr -d '[:space:]' < packaging/hara-revision)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ steps.hara.outputs.revision }}
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply source-free projection and section-safe documentation
+        working-directory: hoplite
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          workflow = Path(".github/workflows/agent-source-free-image.yml").read_text()
+          payload = workflow.split("          python3 - <<'PY'\n", 1)[1].split(
+              "          PY\n", 1
+          )[0]
+          try:
+              exec(compile(textwrap.dedent(payload), "source-free-image", "exec"), {})
+          except SystemExit as error:
+              if "README.md: expected one match, found 0" not in str(error):
+                  raise
+
+          def replace_between(path: str, start: str, end: str, replacement: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              start_at = text.find(start)
+              end_at = text.find(end, start_at + len(start))
+              if start_at < 0 or end_at < 0:
+                  raise SystemExit(f"{path}: section markers not found")
+              file.write_text(text[:start_at] + replacement + text[end_at:])
+
+          replace_between(
+              "README.md",
+              "Production build output is isolated under `.hoplite/`:\n",
+              "## Runtime model\n",
+              '''Production build output is isolated under `.hoplite/`:
+
+          ```text
+          .hoplite/
+            app.hbx
+            apps.hta
+            platform.edn
+            platform.hta
+            conf/nginx.conf
+            openapi/<app-name>.json
+          ```
+
+          `app.hbx` is the deterministic HAB1 application bundle loaded transactionally
+          by a worker. Development builds may also emit `.hoplite/app.hal` for inspection;
+          production builds remove that source projection. Verify a built application
+          without executing it with `hoplite verify .`.
+
+          ## Runtime model
+          ''',
+          )
+
+          with Path("docs/application-bundle.md").open("a") as file:
+              file.write('''
+
+          ## Production artifact projection
+
+          Development builds may emit `.hoplite/app.hal` as an inspectable projection.
+          Production builds remove that file and retain only versioned serving artifacts,
+          generated configuration, platform documents and API descriptions under
+          `.hoplite/`.
+
+          The generic container image copies only `/app/.hoplite` from the builder stage.
+          Application `.hal` files, `project.edn`, the development `hoplite` CLI, Cargo,
+          Rust and native build tools are absent from the final image. The production image
+          gate verifies this composition before exercising the real Nginx serving path.
+          ''')
+          PY
+          chmod +x packaging/scripts/assert-production-image.sh
+          rustfmt --edition 2021 core/src/main.rs
+          git diff --check
+      - name: Prove development and production output separation
+        working-directory: hoplite
+        run: |
+          cargo test --manifest-path core/Cargo.toml --workspace --locked
+          rm -rf core/examples/.hoplite
+          cargo run --manifest-path core/Cargo.toml -- serve build --mode dev core/examples
+          test -f core/examples/.hoplite/app.hal
+          cargo run --manifest-path core/Cargo.toml -- serve build --mode prod core/examples
+          test ! -e core/examples/.hoplite/app.hal
+          cargo run --manifest-path core/Cargo.toml -- verify core/examples
+          rm -rf core/examples/.hoplite
+      - name: Commit the validated implementation
+        working-directory: hoplite
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add core/src/main.rs packaging/docker/Dockerfile \
+            packaging/scripts/assert-production-image.sh README.md \
+            docs/application-bundle.md
+          git diff --cached --quiet && {
+            echo "source-free production implementation produced no changes" >&2
+            exit 1
+          }
+          git commit -m "Make the production image source-free"
+          git push origin HEAD:agent/source-free-production-image
