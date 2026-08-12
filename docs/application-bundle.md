@@ -44,11 +44,11 @@ byte contract for one small deterministic envelope. The test suite requires the
 current encoder to reproduce all 95 bytes and requires the decoder to recover
 the exact manifest-bound `HBX0` payload.
 
-`hab1-migration-rejected.hex` preserves the same payload with only the outer
-marker changed to `HAB1`. The current decoder must reject that fixture. A future
-alpha epoch therefore cannot become an accidental alias: it must add its own
-format identity, decoder, golden bytes, migration note, and explicit acceptance
-policy while retaining the old fixture as compatibility evidence.
+`hab1-migration-rejected.hex` preserves the same payload with only the final
+outer-marker byte incremented. The current decoder must reject that fixture. A
+future alpha epoch therefore cannot become an accidental alias: it must add its
+own format identity, decoder, golden bytes, migration note, and explicit
+acceptance policy while retaining the old fixture as compatibility evidence.
 
 Golden fixtures are append-only compatibility records. Changing the current
 encoder requires a new epoch fixture rather than rewriting the bytes that
