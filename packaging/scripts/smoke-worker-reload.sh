@@ -57,7 +57,7 @@ master_pid() {
 worker_pids() {
   docker top "$container" -eo pid,ppid,args \
     | awk 'NR > 1 && /nginx: worker process/ && !/worker process is shutting down/ { print $1 }' \
-    | LC_ALL=C sort -n
+    | LC_ALL=C sort
 }
 
 artifact_manifest() {
@@ -193,10 +193,11 @@ reload_generation() {
 }
 
 start_container
+initial_container_id="$(docker inspect -f '{{.Id}}' "$container")"
 initial_master="$(master_pid)"
 initial_artifacts="$(artifact_manifest)"
-if [[ -z "$initial_master" ]]; then
-  echo 'Could not identify the initial Nginx master process.' >&2
+if [[ -z "$initial_container_id" || -z "$initial_master" ]]; then
+  echo 'Could not identify the initial container or Nginx master process.' >&2
   diagnose
   exit 1
 fi
@@ -209,10 +210,12 @@ reload_generation 2 "$initial_master" "$initial_artifacts"
 # exact manifest, or Nginx configuration.
 docker rm -f "$container" >/dev/null
 start_container
+recreated_container_id="$(docker inspect -f '{{.Id}}' "$container")"
 recreated_master="$(master_pid)"
 recreated_artifacts="$(artifact_manifest)"
-if [[ -z "$recreated_master" ]] \
-  || [[ "$recreated_master" == "$initial_master" ]] \
+if [[ -z "$recreated_container_id" ]] \
+  || [[ -z "$recreated_master" ]] \
+  || [[ "$recreated_container_id" == "$initial_container_id" ]] \
   || [[ "$recreated_artifacts" != "$initial_artifacts" ]]; then
   echo 'Fresh container recreation did not preserve immutable startup evidence.' >&2
   diagnose
