@@ -10,9 +10,17 @@ COPY hoplite hoplite
 COPY hara hara
 RUN make -C hoplite/core embedded-cli server-cli
 ARG HOPLITE_APP=core/examples
-RUN test -f "hoplite/${HOPLITE_APP}/project.edn" \
+ARG HOPLITE_REPRODUCIBILITY_NONCE=default
+RUN test -n "$HOPLITE_REPRODUCIBILITY_NONCE" \
+    && test -f "hoplite/${HOPLITE_APP}/project.edn" \
     && cp -R "hoplite/${HOPLITE_APP}" /app \
     && hoplite/core/target/release/hoplite serve build --mode prod /app
+
+# Export only the generated source-free application directory. Tests can build
+# this target with distinct nonces to force independent application compilation
+# while reusing the reviewed Rust, Hara and Nginx toolchain layers.
+FROM scratch AS application-artifacts
+COPY --from=builder /app/.hoplite/ /
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
