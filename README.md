@@ -126,7 +126,6 @@ Production build output is isolated under `.hoplite/`:
 
 ```text
 .hoplite/
-  app.hal
   app.hbx
   apps.hta
   platform.edn
@@ -135,10 +134,14 @@ Production build output is isolated under `.hoplite/`:
   openapi/<app-name>.json
 ```
 
-`app.hbx` is the deterministic application bundle loaded transactionally by a
-worker. `app.hal` remains inspectable build output and a development input; it
-is not the production worker bootstrap artifact.
+`app.hbx` is the deterministic HAB1 application bundle loaded transactionally
+by a worker. Development builds may also emit `.hoplite/app.hal` for inspection;
+production builds remove that source projection. Generated `.hoplite` output is
+never registered as application input, even when a project uses
+`:project/source-paths ["."]`. Verify a built application without executing it
+with `hoplite verify .`.
 
+## Runtime model
 ## Runtime model
 
 There is one Hoplite runtime per Nginx worker. Bootstrap loads the application

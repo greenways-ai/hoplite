@@ -66,3 +66,17 @@ embedded HBB2 size without executing application code.
 The Nginx module passes configured paths to the Rust runtime rather than
 allocating files in C. Bundle and manifest limits are therefore checked before
 allocation from one library-owned implementation.
+
+
+## Production artifact projection
+
+Development builds may emit `.hoplite/app.hal` as an inspectable projection.
+Hoplite excludes the entire generated `.hoplite` tree from application source
+registration, including projects whose source path is the project root.
+Production builds remove `app.hal` and retain only versioned serving artifacts,
+generated configuration, platform documents and API descriptions.
+
+The generic container image copies only `/app/.hoplite` from the builder stage.
+Application `.hal` files, `project.edn`, the development `hoplite` CLI, Cargo,
+Rust and native build tools are absent from the final image. The production image
+gate verifies this composition before exercising the real Nginx serving path.

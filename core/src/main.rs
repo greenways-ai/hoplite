@@ -446,11 +446,33 @@ fn reject_legacy_extension_manifest(root: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn write_runtime_source_projection(
+    output: &Path,
+    runtime_source: Option<&str>,
+) -> Result<(), String> {
+    let path = output.join("app.hal");
+    match runtime_source {
+        Some(source) => fs::write(&path, source).map_err(io),
+        None => match fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(format!(
+                "cannot remove production source projection {}: {error}",
+                path.display()
+            )),
+        },
+    }
+}
+
 fn build(root: &Path, settings: &BuildSettings) -> Result<PathBuf, String> {
     let project = check(root, settings)?;
     let sources = source_files(&project)?;
     let modules = application_modules(&sources)?;
-    let runtime_source = runtime_application_modules(&modules)?;
+    let runtime_source = if settings.production {
+        None
+    } else {
+        Some(runtime_application_modules(&modules)?)
+    };
     let hbb2 = compile_application_modules(&modules)
         .map_err(|error| format!("Hoplite bytecode compilation failed: {error}"))?;
     let app_config = app::load(&project, settings.profile.as_deref(), settings.production)?;
@@ -461,7 +483,7 @@ fn build(root: &Path, settings: &BuildSettings) -> Result<PathBuf, String> {
     let output = project.root.join(".hoplite");
     let configuration = output.join("conf");
     fs::create_dir_all(&configuration).map_err(io)?;
-    fs::write(output.join("app.hal"), &runtime_source).map_err(io)?;
+    write_runtime_source_projection(&output, runtime_source.as_deref())?;
     fs::write(output.join("app.hbx"), bundle).map_err(io)?;
     fs::write(output.join("apps.hta"), manifest).map_err(io)?;
     fs::write(
@@ -1414,5 +1436,23 @@ mod tests {
         assert_eq!(lower_hex(&verified.manifest_digest).len(), 64);
 
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn production_projection_removes_stale_development_source() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let output = std::env::temp_dir().join(format!(
+            "hoplite-source-projection-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&output).unwrap();
+        write_runtime_source_projection(&output, Some("(ns demo)")).unwrap();
+        assert!(output.join("app.hal").is_file());
+        write_runtime_source_projection(&output, None).unwrap();
+        assert!(!output.join("app.hal").exists());
+        fs::remove_dir_all(output).unwrap();
     }
 }

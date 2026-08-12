@@ -1,7 +1,10 @@
 use hara_wasm::core::{self, Value};
+use hara_wasm::kernel::{parse_forms, Form};
 use hara_wasm::project::{self, Project};
 use hara_wasm::Runtime;
 use serde_json::{json, Map as JsonMap, Value as JsonValue};
+use std::fs;
+use std::path::Path;
 
 pub const CORE_SOURCE: &str = include_str!("../lib/src/hoplite/core.hal");
 #[cfg(feature = "legacy-management")]
@@ -112,6 +115,40 @@ pub fn register_resources(runtime: &mut Runtime) {
     register_contract_resources(runtime);
 }
 
+fn generated_output(path: &Path) -> bool {
+    path.components()
+        .any(|component| component.as_os_str().to_str() == Some(".hoplite"))
+}
+
+fn declared_namespace(source: &str) -> Result<Option<String>, String> {
+    Ok(parse_forms(source)?.into_iter().find_map(|form| match form {
+        Form::List(values)
+            if matches!(values.first(), Some(Form::Symbol(head)) if head == "ns" || head == "ns+") =>
+        {
+            match values.get(1) {
+                Some(Form::Symbol(namespace)) => Some(namespace.clone()),
+                _ => None,
+            }
+        }
+        _ => None,
+    }))
+}
+
+fn register_project_sources(project: &Project, runtime: &mut Runtime) -> Result<(), String> {
+    for path in project::files_in(&project.root, &project.source_paths)?
+        .into_iter()
+        .filter(|path| !generated_output(path))
+    {
+        let source = fs::read_to_string(&path)
+            .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+        let namespace = declared_namespace(&source)
+            .map_err(|error| format!("{}: {error}", path.display()))?
+            .ok_or_else(|| format!("{} does not declare an ns or ns+ namespace", path.display()))?;
+        runtime.register_resource(&namespace, &source);
+    }
+    Ok(())
+}
+
 pub fn load(project: &Project, profile: Option<&str>, production: bool) -> Result<Config, String> {
     if project.root.join("server.edn").is_file() || project.root.join("routes.edn").is_file() {
         return Err("server.edn and routes.edn are no longer supported; define a hoplite.core/app and select it with :project/profiles".into());
@@ -132,7 +169,7 @@ pub fn load(project: &Project, profile: Option<&str>, production: bool) -> Resul
         .ok_or("Hoplite profile main must be a qualified app var such as app.core/app")?;
     let mut runtime = Runtime::new();
     register_resources(&mut runtime);
-    project::register_sources(project, &mut runtime)?;
+    register_project_sources(project, &mut runtime)?;
     let source = format!(
         "(ns hoplite.build (:require [{namespace}]))\n{}",
         selected.main
@@ -904,5 +941,38 @@ mod tests {
             runtime.eval_native_value(AUTH_TEST_SOURCE).unwrap(),
             Value::Bool(true)
         );
+    }
+
+    #[test]
+    fn generated_hoplite_output_is_never_registered_as_application_source() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "hoplite-generated-source-filter-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(root.join(".hoplite")).unwrap();
+        fs::write(
+    root.join("project.edn"),
+    r#"{:hara/type :project :hara/version "1.0.0" :project/id demo/app :project/version "0.1.0" :project/source-paths ["."] :project/test-paths [] :project/extension-paths [] :project/capabilities #{} :project/main demo.app :project/default-profile :server :project/profiles {:server {:profile/language :hoplite :profile/main demo.app/app}}}"#,
+        )
+        .unwrap();
+        fs::write(
+    root.join("app.hal"),
+    r#"(ns demo.app (:require [hoplite.core :as h])) (defn hello [_request] {:status 200 :body "ok"}) (def app (h/app {:name "demo" :resources [["/hello" {:get {:handler #'hello}}]]}))"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join(".hoplite/app.hal"),
+            "this generated projection is deliberately not valid HAL",
+        )
+        .unwrap();
+
+        let project = project::read(&root).unwrap();
+        let config = load(&project, None, true).unwrap();
+        assert_eq!(config.apps[0].name, "demo");
+        fs::remove_dir_all(root).unwrap();
     }
 }
