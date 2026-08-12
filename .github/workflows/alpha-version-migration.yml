@@ -168,8 +168,9 @@ jobs:
 
           migration.unlink()
           PY
-      - name: Format and test the complete Hoplite workspace
+      - name: Refresh, format and test the complete Hoplite workspace
         run: |
+          cargo generate-lockfile --manifest-path hoplite/core/Cargo.toml
           cargo fmt --manifest-path hoplite/core/Cargo.toml -- --check
           cargo test --manifest-path hoplite/core/Cargo.toml --workspace --locked
       - name: Commit the aligned alpha epoch
