@@ -329,6 +329,11 @@
       "summary": "Response-source range and streaming smoke."
     },
     {
+      "path": "packaging/scripts/smoke-worker-reload.sh",
+      "status": "core",
+      "summary": "Proves graceful worker replacement and fresh source-free process recreation without application artifact drift."
+    },
+    {
       "path": "packaging/scripts/validate-benchmark-data.sh",
       "status": "internal-evidence",
       "summary": "Benchmark evidence schema and regression validation."

@@ -208,6 +208,8 @@ jobs:
         run: |
           docker run --rm hoplite-ci version
           bash hoplite/packaging/scripts/smoke-request-body-v3.sh hoplite-ci
+      - name: Prove graceful worker reload and process recreation
+        run: bash hoplite/packaging/scripts/smoke-worker-reload.sh hoplite-ci
       - name: Build the three-module production fixture
         run: |
           docker build \
