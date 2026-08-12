@@ -25,6 +25,7 @@ base64 = "0.22"
 ed25519-dalek = "2.2"
 getrandom = "0.2"
 hara-wasm = { path = "../../../hara/core/rust", features = ["bytecode-vm"] }
+hoplite-application-bundle = { path = "../application-bundle" }
 hoplite-data-plane-abi = { path = "../abi/data-plane" }
 hoplite-data-plane-ffi = { path = "../abi/data-plane-ffi" }
 hoplite-data-plane-registry = { path = "../abi/data-plane-registry" }

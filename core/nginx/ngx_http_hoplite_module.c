@@ -1904,22 +1904,31 @@ ngx_http_hoplite_read_file(ngx_cycle_t *cycle, const ngx_str_t *path,
 }
 
 static ngx_int_t
-ngx_http_hoplite_bootstrap(ngx_cycle_t *cycle, const ngx_str_t *path)
+ngx_http_hoplite_bootstrap(ngx_cycle_t *cycle,
+                           const ngx_str_t *bundle_path,
+                           const ngx_str_t *manifest_path)
 {
-    ngx_str_t source;
+    ngx_str_t bundle, manifest;
 
-    if (ngx_http_hoplite_read_file(cycle, path, &source, 0) != NGX_OK) {
+    if (ngx_http_hoplite_read_file(cycle, bundle_path, &bundle, 0) != NGX_OK) {
         return NGX_ERROR;
     }
-    if (hoplite_bootstrap_bytecode(ngx_http_hoplite_runtime,
-                                   source.data, source.len) != 0)
+    if (ngx_http_hoplite_read_file(cycle, manifest_path, &manifest, 0) != NGX_OK) {
+        ngx_free(bundle.data);
+        return NGX_ERROR;
+    }
+    if (hoplite_bootstrap_application_v1(ngx_http_hoplite_runtime,
+                                         bundle.data, bundle.len,
+                                         manifest.data, manifest.len) != 0)
     {
-        ngx_free(source.data);
+        ngx_free(manifest.data);
+        ngx_free(bundle.data);
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
-                      "hoplite HBB2 bootstrap loading failed");
+                      "hoplite HAB1 application bootstrap loading failed");
         return NGX_ERROR;
     }
-    ngx_free(source.data);
+    ngx_free(manifest.data);
+    ngx_free(bundle.data);
     return NGX_OK;
 }
 
@@ -1946,24 +1955,20 @@ ngx_http_hoplite_init_process(ngx_cycle_t *cycle)
     }
 
     conf = ngx_http_cycle_get_module_main_conf(cycle, ngx_http_hoplite_module);
-    if (conf != NULL && conf->bootstrap.len != 0
-        && ngx_http_hoplite_bootstrap(cycle, &conf->bootstrap) != NGX_OK)
+    if (conf != NULL
+        && (conf->bootstrap.len != 0 || conf->manifest.len != 0))
     {
-        return NGX_ERROR;
-    }
-    if (conf != NULL && conf->manifest.len != 0) {
-        ngx_str_t manifest;
-        if (ngx_http_hoplite_read_file(cycle, &conf->manifest, &manifest, 0) != NGX_OK) {
-            return NGX_ERROR;
-        }
-        if (hoplite_apps_prepare(ngx_http_hoplite_runtime,
-                                 manifest.data, manifest.len) != 0) {
-            ngx_free(manifest.data);
+        if (conf->bootstrap.len == 0 || conf->manifest.len == 0) {
             ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
-                          "hoplite could not prepare app manifest %V", &conf->manifest);
+                          "hoplite_bootstrap and hoplite_manifest must be configured together");
             return NGX_ERROR;
         }
-        ngx_free(manifest.data);
+        if (ngx_http_hoplite_bootstrap(cycle,
+                                       &conf->bootstrap,
+                                       &conf->manifest) != NGX_OK)
+        {
+            return NGX_ERROR;
+        }
     }
     return NGX_OK;
 }

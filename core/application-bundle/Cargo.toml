@@ -1,0 +1,10 @@
+[package]
+name = "hoplite-application-bundle"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.78"
+description = "Versioned application bundle envelope for Hoplite"
+
+[dependencies]
+sha2 = "0.10"
