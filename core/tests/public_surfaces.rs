@@ -101,6 +101,30 @@ fn public_surface_registry_is_well_formed_and_complete() {
                     "{section_name} entry {identity} points at missing file {path}"
                 );
             }
+            if let Some(path) = entry.get("symbol_inventory").and_then(Value::as_str) {
+                assert!(
+                    root.join(path).is_file(),
+                    "{section_name} entry {identity} points at missing symbol inventory {path}"
+                );
+            }
+            if let Some(conformance) = entry.get("conformance") {
+                let paths = conformance.as_array().unwrap_or_else(|| {
+                    panic!("{section_name} entry {identity} conformance must be an array")
+                });
+                assert!(
+                    !paths.is_empty(),
+                    "{section_name} entry {identity} must list conformance evidence"
+                );
+                for path in paths {
+                    let path = path.as_str().unwrap_or_else(|| {
+                        panic!("{section_name} entry {identity} conformance path must be a string")
+                    });
+                    assert!(
+                        root.join(path).is_file(),
+                        "{section_name} entry {identity} points at missing conformance file {path}"
+                    );
+                }
+            }
         }
     }
 
@@ -146,6 +170,20 @@ fn public_surface_registry_is_well_formed_and_complete() {
             Some(name),
             "native header name and path must agree"
         );
+        if name == "hoplite_runtime.h" {
+            assert_eq!(
+                entry.get("symbol_inventory").and_then(Value::as_str),
+                Some("docs/native-symbols.txt"),
+                "the public runtime header must bind one exact native symbol inventory"
+            );
+            assert!(
+                entry
+                    .get("conformance")
+                    .and_then(Value::as_array)
+                    .is_some_and(|paths| paths.len() >= 3),
+                "the public runtime header must name executable Rust, C, and gate evidence"
+            );
+        }
     }
 
     let registered_program_paths = registered_paths(&document, "cli_programs");
