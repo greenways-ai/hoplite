@@ -44,20 +44,22 @@ cargo tree \
   --prefix none >"$TREE_FILE"
 
 direct_packages="$(awk '{print $1}' "$TREE_FILE" | LC_ALL=C sort -u)"
-for required in hara-wasm hoplite-application-bundle; do
+for required in \
+  base64 \
+  ed25519-dalek \
+  getrandom \
+  hara-wasm \
+  hoplite-application-bundle \
+  p256; do
   grep -Fxq "$required" <<<"$direct_packages" || {
-    echo "default Hoplite dependency tree is missing $required" >&2
+    echo "default Hoplite dependency tree is missing generic runtime dependency $required" >&2
     exit 1
   }
 done
 
 for forbidden in \
-  base64 \
-  ed25519-dalek \
-  getrandom \
   hoplite-auth-store-abi \
   hoplite-store-sqlite \
-  p256 \
   rusqlite; do
   if grep -Fxq "$forbidden" <<<"$direct_packages"; then
     echo "default Hoplite dependency tree contains migration-only dependency $forbidden" >&2
@@ -67,4 +69,5 @@ done
 
 printf '%s\n' \
   "default product binaries: hoplite, hoplite-server" \
-  "default product dependency boundary: verified"
+  "generic host cryptography: present" \
+  "application-authentication and database products: absent"
