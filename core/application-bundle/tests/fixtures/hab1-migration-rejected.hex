@@ -1,0 +1,4 @@
+# reserved next-epoch migration boundary
+# identical to hab0-golden.hex except for the incremented outer magic byte
+# the current 0-alpha decoder must reject these bytes rather than aliasing them
+48414231b72b20bdb76ab1ec995ad954fc03828b91a2465112444eebff8fcf9dcebc5e2504000000fb91e9cce82b7cafb788091e5b2a9d7d4721ce9816c1e2b2a5084f7fba9afc5b1300000048425830676f6c64656e2d62797465636f6465

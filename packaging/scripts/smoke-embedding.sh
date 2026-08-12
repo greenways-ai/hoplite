@@ -9,7 +9,20 @@ INVENTORY="$ROOT/docs/native-symbols.txt"
 TARGET="$ROOT/core/target/debug"
 STATIC_LIBRARY="$TARGET/libhoplite_runtime.a"
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+
+finish() {
+  local status=$?
+  trap - EXIT
+  if [[ "$status" -ne 0 && -f "$WORK/output.log" ]]; then
+    tail -c 10000 "$WORK/output.log" > "$WORK/output.tail"
+    encoded="$(base64 -w0 "$WORK/output.tail")"
+    echo "::error file=packaging/scripts/smoke-embedding.sh,title=embedding-log-base64::$encoded"
+  fi
+  rm -rf "$WORK"
+  exit "$status"
+}
+trap finish EXIT
+exec > >(tee "$WORK/output.log") 2>&1
 
 # Remove only this package's existing outputs. The workspace test has already
 # warmed the debug dependency graph, but rustc must execute the static-library
