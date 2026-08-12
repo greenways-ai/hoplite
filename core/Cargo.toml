@@ -6,6 +6,7 @@ license = "Apache-2.0"
 rust-version = "1.78"
 description = "Hara application server for Nginx"
 default-run = "hoplite"
+autobins = false
 
 [workspace]
 members = [
@@ -29,14 +30,53 @@ tracing-jit = ["bytecode-vm", "hara-wasm/tracing-jit"]
 native-jit = ["tracing-jit", "hara-wasm/native-jit"]
 cli-host = []
 embedded-nginx = []
+internal-evidence = []
+legacy-provider-products = []
 legacy-management = [
+  "dep:base64",
+  "dep:ed25519-dalek",
+  "dep:getrandom",
   "dep:hoplite-auth-store-abi",
   "dep:hoplite-store-sqlite",
+  "dep:p256",
   "dep:rusqlite",
 ]
 
+[[bin]]
+name = "hoplite"
+path = "src/main.rs"
+
+[[bin]]
+name = "hoplite-server"
+path = "src/bin/hoplite-server.rs"
+
+[[bin]]
+name = "hoplite-bytecode-loading"
+path = "src/bin/hoplite-bytecode-loading.rs"
+required-features = ["internal-evidence"]
+
+[[bin]]
+name = "hoplite-object-backend-lock"
+path = "src/bin/hoplite-object-backend-lock.rs"
+required-features = ["legacy-provider-products"]
+
+[[bin]]
+name = "hoplite-provider-lock"
+path = "src/bin/hoplite-provider-lock.rs"
+required-features = ["legacy-provider-products"]
+
+[[bin]]
+name = "hoplite-provider-manifest"
+path = "src/bin/hoplite-provider-manifest.rs"
+required-features = ["legacy-provider-products"]
+
+[[bin]]
+name = "hoplite-provider-set-lock"
+path = "src/bin/hoplite-provider-set-lock.rs"
+required-features = ["legacy-provider-products"]
+
 [dependencies]
-base64 = "0.22"
+base64 = { version = "0.22", optional = true }
 hara-wasm = { path = "../../hara/core/rust", features = ["bytecode-vm"] }
 hoplite-application-bundle = { path = "application-bundle" }
 hoplite-auth-store-abi = { path = "abi/auth-store", optional = true }
@@ -45,9 +85,9 @@ rustyline = "14.0.0"
 home = "=0.5.9"
 serde_json = "1.0"
 semver = "1.0"
-ed25519-dalek = "2.2"
-p256 = { version = "0.13", features = ["ecdsa"] }
-getrandom = "0.2"
+ed25519-dalek = { version = "2.2", optional = true }
+p256 = { version = "0.13", features = ["ecdsa"], optional = true }
+getrandom = { version = "0.2", optional = true }
 rusqlite = { version = "0.32", features = ["bundled"], optional = true }
 sha2 = "0.10"
 
