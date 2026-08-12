@@ -131,35 +131,35 @@
       "name": "hoplite-bytecode-loading",
       "path": "core/src/bin/hoplite-bytecode-loading.rs",
       "status": "internal",
-      "availability": "development-evidence",
+      "availability": "internal-evidence",
       "summary": "Internal bytecode-loading evidence and measurement program, not a supported user command."
     },
     {
       "name": "hoplite-object-backend-lock",
       "path": "core/src/bin/hoplite-object-backend-lock.rs",
       "status": "migration-only",
-      "availability": "source-build-only",
+      "availability": "legacy-provider-products",
       "summary": "Historical object-backend product lock generator retained for extraction."
     },
     {
       "name": "hoplite-provider-lock",
       "path": "core/src/bin/hoplite-provider-lock.rs",
       "status": "migration-only",
-      "availability": "source-build-only",
+      "availability": "legacy-provider-products",
       "summary": "Historical provider-product lock generator retained for extraction."
     },
     {
       "name": "hoplite-provider-manifest",
       "path": "core/src/bin/hoplite-provider-manifest.rs",
       "status": "migration-only",
-      "availability": "source-build-only",
+      "availability": "legacy-provider-products",
       "summary": "Historical provider-product manifest generator retained for extraction."
     },
     {
       "name": "hoplite-provider-set-lock",
       "path": "core/src/bin/hoplite-provider-set-lock.rs",
       "status": "migration-only",
-      "availability": "source-build-only",
+      "availability": "legacy-provider-products",
       "summary": "Historical provider-set lock generator retained for extraction."
     }
   ],

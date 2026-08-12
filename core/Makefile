@@ -5,12 +5,6 @@ NGINX_ARCHIVE := $(SOURCE_ROOT)/nginx-$(NGINX_VERSION).tar.gz
 DEFAULT_NGINX_SRC := $(SOURCE_ROOT)/nginx-$(NGINX_VERSION)
 NGINX_SRC ?= $(DEFAULT_NGINX_SRC)
 RUNTIME_DIR := $(CURDIR)/target/release
-VALUE_STORE_PROVIDER_MANIFEST := $(CURDIR)/abi/value-store-provider-ffi/Cargo.toml
-VALUE_STORE_PROVIDER_DIR := $(CURDIR)/abi/value-store-provider-ffi/target/release
-VALUE_PROVIDER_MANIFEST := $(CURDIR)/abi/value-provider-filesystem-ffi/Cargo.toml
-VALUE_PROVIDER_DIR := $(CURDIR)/abi/value-provider-filesystem-ffi/target/release
-BLOB_STORE_PROVIDER_MANIFEST := $(CURDIR)/abi/blob-store-provider-ffi/Cargo.toml
-BLOB_STORE_PROVIDER_DIR := $(CURDIR)/abi/blob-store-provider-ffi/target/release
 UNAME_S := $(shell uname -s)
 HOPLITE_VERSION := $(shell grep -m1 '^version = ' $(CURDIR)/Cargo.toml | cut -d'"' -f2)
 HOST_TARGET ?= $(shell rustc -vV | sed -n 's/^host: //p')
@@ -33,7 +27,7 @@ NGINX_CC_OPT ?= -I$(OPENSSL_PREFIX)/include -I$(PCRE2_PREFIX)/include
 NGINX_LD_OPT ?= $(PCRE2_PREFIX)/lib/libpcre2-8.a $(OPENSSL_PREFIX)/lib/libssl.a $(OPENSSL_PREFIX)/lib/libcrypto.a -framework Security -framework CoreFoundation -framework SystemConfiguration -Wl,-dead_strip_dylibs
 endif
 
-.PHONY: help setup check runtime value-store-provider value-provider blob-store-provider cli embedded-cli server-cli test nginx nginx-source docker \
+.PHONY: help setup check runtime cli embedded-cli server-cli test nginx nginx-source docker \
 	check-macos macos macos-package osx install uninstall example-check \
 	example-build example-dev example-prod benchmark-bytecode
 
@@ -42,7 +36,7 @@ PREFIX ?= /usr/local
 help:
 	@printf '%s\n' \
 		'Hoplite development' \
-		'  make setup              Install macOS build dependencies and fetch crates' \
+		'  make setup              Install macOS build dependencies and fetch core crates' \
 		'  make check              Run the complete Rust workspace test suite' \
 		'  make embedded-cli       Build the all-in-one CLI and production server' \
 		'  make server-cli         Build the slim production server' \
@@ -56,26 +50,12 @@ setup: check-macos
 	brew install rust openssl@3 pcre2
 	cargo fetch --manifest-path Cargo.toml
 	cargo fetch --manifest-path runtime/Cargo.toml
-	cargo fetch --manifest-path $(VALUE_STORE_PROVIDER_MANIFEST)
-	cargo fetch --manifest-path $(VALUE_PROVIDER_MANIFEST)
-	cargo fetch --manifest-path $(BLOB_STORE_PROVIDER_MANIFEST) --locked
 
 check:
 	cargo test --workspace
 
 runtime:
 	cargo build --manifest-path runtime/Cargo.toml --release
-
-# These crates are intentionally standalone FFI workspaces. Their path
-# dependencies are supplied by the reviewed source checkout used for the build.
-value-store-provider:
-	cargo build --manifest-path $(VALUE_STORE_PROVIDER_MANIFEST) --release
-
-value-provider:
-	cargo build --manifest-path $(VALUE_PROVIDER_MANIFEST) --release
-
-blob-store-provider:
-	cargo build --manifest-path $(BLOB_STORE_PROVIDER_MANIFEST) --release --locked
 
 cli:
 	cargo build --manifest-path Cargo.toml --release --bin hoplite
@@ -110,7 +90,8 @@ example-prod:
 	cargo run --release -- serve foreground --mode prod examples
 
 benchmark-bytecode:
-	cargo run --release --bin hoplite-bytecode-loading -- 1000 --check
+	cargo run --release --features internal-evidence \
+		--bin hoplite-bytecode-loading -- 1000 --check
 
 $(NGINX_ARCHIVE):
 	mkdir -p $(SOURCE_ROOT)

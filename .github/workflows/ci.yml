@@ -43,14 +43,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Check formatting and the committed dependency graph
+      - name: Check Rust formatting
+        working-directory: hoplite
+        run: cargo fmt --manifest-path core/Cargo.toml -- --check
+      - name: Verify the committed dependency graph
         run: |
-          cargo fmt --manifest-path hoplite/core/Cargo.toml -- --check
           cargo metadata \
             --manifest-path hoplite/core/Cargo.toml \
             --locked --no-deps >/dev/null
       - name: Test the complete Hoplite core workspace
         run: cargo test --manifest-path hoplite/core/Cargo.toml --workspace --locked
+      - name: Verify the default product boundary
+        run: bash hoplite/packaging/scripts/verify-default-product.sh
       - name: Compile the public data-plane header
         run: |
           cat > /tmp/hoplite-public-header.c <<'EOF'

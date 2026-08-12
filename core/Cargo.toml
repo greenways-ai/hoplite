@@ -6,6 +6,7 @@ license = "Apache-2.0"
 rust-version = "1.78"
 description = "Hara application server for Nginx"
 default-run = "hoplite"
+autobins = false
 
 [workspace]
 members = [
@@ -29,11 +30,46 @@ tracing-jit = ["bytecode-vm", "hara-wasm/tracing-jit"]
 native-jit = ["tracing-jit", "hara-wasm/native-jit"]
 cli-host = []
 embedded-nginx = []
+internal-evidence = []
+legacy-provider-products = []
 legacy-management = [
   "dep:hoplite-auth-store-abi",
   "dep:hoplite-store-sqlite",
   "dep:rusqlite",
 ]
+
+[[bin]]
+name = "hoplite"
+path = "src/main.rs"
+
+[[bin]]
+name = "hoplite-server"
+path = "src/bin/hoplite-server.rs"
+
+[[bin]]
+name = "hoplite-bytecode-loading"
+path = "src/bin/hoplite-bytecode-loading.rs"
+required-features = ["internal-evidence"]
+
+[[bin]]
+name = "hoplite-object-backend-lock"
+path = "src/bin/hoplite-object-backend-lock.rs"
+required-features = ["legacy-provider-products"]
+
+[[bin]]
+name = "hoplite-provider-lock"
+path = "src/bin/hoplite-provider-lock.rs"
+required-features = ["legacy-provider-products"]
+
+[[bin]]
+name = "hoplite-provider-manifest"
+path = "src/bin/hoplite-provider-manifest.rs"
+required-features = ["legacy-provider-products"]
+
+[[bin]]
+name = "hoplite-provider-set-lock"
+path = "src/bin/hoplite-provider-set-lock.rs"
+required-features = ["legacy-provider-products"]
 
 [dependencies]
 base64 = "0.22"
