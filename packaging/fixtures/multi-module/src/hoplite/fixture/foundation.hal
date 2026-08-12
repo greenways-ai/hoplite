@@ -1,0 +1,9 @@
+(ns hoplite.fixture.foundation)
+
+;; These Vars deliberately live in a dependency namespace. The production
+;; proof consumes one through an alias and one through :refer.
+(def foundation-label "foundation")
+
+(defn aliased-label
+  []
+  "alias")

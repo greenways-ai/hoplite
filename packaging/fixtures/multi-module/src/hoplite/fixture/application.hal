@@ -1,0 +1,28 @@
+(ns hoplite.fixture.application
+  (:require [hoplite.core :as h]
+            [hoplite.fixture.composition
+             :as composition
+             :refer [composition-label]]))
+
+(def application-label "application")
+
+(defn hello
+  [_request]
+  {:status 200
+   :headers {"content-type" "text/plain; charset=utf-8"
+             "x-hoplite-fixture" "multi-module"}
+   :body (str (composition/proof)
+              "|"
+              composition-label
+              "|"
+              application-label
+              "\n")})
+
+(def app
+  (h/app
+    {:name "multi-module"
+     :resources
+     [["/hello"
+       {:get {:name "multi-module-proof"
+              :summary "Proves aliases, referred Vars and ordered namespaces"
+              :handler #'hello}}]]}))
