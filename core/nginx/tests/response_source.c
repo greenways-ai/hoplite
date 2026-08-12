@@ -120,11 +120,14 @@ static int
 test_descriptor_validation(void)
 {
     hoplite_response_source_descriptor_v1_t value = descriptor(17, 4, 9);
-    static const uint8_t wrong_protocol[] = "hoplite.response-source/0-alpha";
+    uint8_t wrong_protocol[] = HOPLITE_RESPONSE_SOURCE_PROTOCOL;
 
     CHECK(hoplite_response_source_descriptor_validate_v1(&value)
           == HOPLITE_RESPONSE_SOURCE_OK);
 
+    /* Keep the negative fixture aligned with the active protocol length while
+     * proving that validation compares the exact protocol bytes. */
+    wrong_protocol[sizeof(wrong_protocol) - 2] ^= 1;
     value.protocol = wrong_protocol;
     value.protocol_len = sizeof(wrong_protocol) - 1;
     CHECK(hoplite_response_source_descriptor_validate_v1(&value)

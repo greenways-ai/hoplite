@@ -16,7 +16,7 @@ use std::ptr;
 use std::rc::Rc;
 use std::{ffi::c_void, slice, str};
 
-const ABI_VERSION: u32 = 0;
+const ABI_VERSION: u32 = 4;
 const MAX_CHILD_DRIVE_PASSES: usize = 64;
 type HostCall = (u64, Promise, String, String, Vec<Value>);
 
