@@ -43,9 +43,22 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Check formatting and the committed dependency graph
+      - name: Check Rust formatting
+        working-directory: hoplite
         run: |
-          cargo fmt --manifest-path hoplite/core/Cargo.toml -- --check
+          if ! cargo fmt --manifest-path core/Cargo.toml -- --check; then
+            cargo fmt --manifest-path core/Cargo.toml
+            {
+              echo '### Rust formatting diff'
+              echo '```diff'
+              git diff -- core
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            git diff -- core
+            exit 1
+          fi
+      - name: Verify the committed dependency graph
+        run: |
           cargo metadata \
             --manifest-path hoplite/core/Cargo.toml \
             --locked --no-deps >/dev/null
