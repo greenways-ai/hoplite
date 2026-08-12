@@ -67,29 +67,38 @@ fn public_surface_registry_is_well_formed_and_complete() {
     for section_name in [
         "hal_namespaces",
         "native_headers",
+        "cli_programs",
         "cli_commands",
         "portable_documents",
     ] {
-        let mut names = BTreeSet::new();
+        let mut identities = BTreeSet::new();
         for entry in section(&document, section_name) {
             let name = field(entry, section_name, "name");
             let status = field(entry, section_name, "status");
             let summary = field(entry, section_name, "summary");
+            let identity = if section_name == "cli_commands" {
+                format!("{} {name}", field(entry, section_name, "program"))
+            } else {
+                name.to_owned()
+            };
 
-            assert!(names.insert(name), "duplicate {section_name} entry: {name}");
+            assert!(
+                identities.insert(identity.clone()),
+                "duplicate {section_name} entry: {identity}"
+            );
             assert!(
                 ALLOWED_STATUSES.contains(&status),
-                "unsupported status {status} for {section_name} entry {name}"
+                "unsupported status {status} for {section_name} entry {identity}"
             );
             assert!(
                 !summary.trim().is_empty(),
-                "{section_name} entry {name} must explain its compatibility role"
+                "{section_name} entry {identity} must explain its compatibility role"
             );
 
             if let Some(path) = entry.get("path").and_then(Value::as_str) {
                 assert!(
                     root.join(path).is_file(),
-                    "{section_name} entry {name} points at missing file {path}"
+                    "{section_name} entry {identity} points at missing file {path}"
                 );
             }
         }
@@ -139,11 +148,51 @@ fn public_surface_registry_is_well_formed_and_complete() {
         );
     }
 
+    let registered_program_paths = registered_paths(&document, "cli_programs");
+    let mut actual_program_paths = immediate_files(&root.join("core/src/bin"), "rs", &root);
+    actual_program_paths.insert("core/src/main.rs".to_owned());
+    assert_eq!(
+        registered_program_paths, actual_program_paths,
+        "every compiled Hoplite binary target must receive an explicit compatibility status"
+    );
+
+    let registered_program_names = section(&document, "cli_programs")
+        .iter()
+        .map(|entry| field(entry, "cli_programs", "name"))
+        .collect::<BTreeSet<_>>();
+    for entry in section(&document, "cli_programs") {
+        let name = field(entry, "cli_programs", "name");
+        let path = field(entry, "cli_programs", "path");
+        let expected = if path == "core/src/main.rs" {
+            "hoplite".to_owned()
+        } else {
+            Path::new(path)
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .expect("CLI program path must have a UTF-8 file stem")
+                .to_owned()
+        };
+        assert_eq!(name, expected, "CLI program name and path must agree");
+        assert!(
+            !field(entry, "cli_programs", "availability")
+                .trim()
+                .is_empty(),
+            "CLI program {name} must declare its build availability"
+        );
+    }
+
     for entry in section(&document, "cli_commands") {
+        let program = field(entry, "cli_commands", "program");
         let name = field(entry, "cli_commands", "name");
         assert!(
-            !field(entry, "cli_commands", "availability").trim().is_empty(),
-            "CLI command {name} must declare its build availability"
+            registered_program_names.contains(program),
+            "CLI command {program} {name} refers to an unregistered program"
+        );
+        assert!(
+            !field(entry, "cli_commands", "availability")
+                .trim()
+                .is_empty(),
+            "CLI command {program} {name} must declare its build availability"
         );
     }
 
