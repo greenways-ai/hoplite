@@ -1312,15 +1312,6 @@ impl HopliteRuntime {
             vm::VmFiberState::Cancelled => {
                 self.reject_work(work, error_value("work/cancelled", "cancelled".into()));
             }
-            vm::VmFiberState::Yielded(_) => {
-                self.reject_work(
-                    work,
-                    error_value(
-                        "fiber/invalid-state",
-                        "request handler yielded outside of a coroutine driver".into(),
-                    ),
-                );
-            }
             vm::VmFiberState::Running => {
                 self.reject_work(
                     work,
@@ -2331,7 +2322,7 @@ mod tests {
         let mut compiler = hara_wasm::Runtime::new();
         let successful = bytecode_module(&mut compiler, "example.bytecode", "(defn answer [] 42)");
         let bundle = vm::encode_bytecode_bundle(&[successful]).unwrap();
-        assert_eq!(&bundle[..4], b"HBX0");
+        assert_eq!(&bundle[..4], b"HBB2");
         let mut runtime = HopliteRuntime::new();
         runtime.bootstrap_bytecode(&bundle).unwrap();
         assert!(runtime

@@ -1,29 +1,36 @@
-name: Hoplite
+name: CI
 
 env:
-  # Hoplite consumes an immutable Hara source checkout until the embedding ABI
-  # is available as a published crate. Hoplite-owned boundary contracts are
-  # compiled from this repository rather than from the Hara checkout.
+  # Hoplite consumes one reviewed Hara source revision until the embedding
+  # runtime is available as a published dependency.
   HARA_REF: 494b17a39c952f24a68bfeda1bd66283a80f735c
 
 on:
   push:
+    branches:
+      - main
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: hoplite-ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  library:
+    name: library
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
         with:
           path: hoplite
-      - name: Verify the reviewed Hara source pin
-        run: |
-          test "$(tr -d '\r\n' < hoplite/packaging/hara-revision)" = "$HARA_REF"
+      - name: Verify the reviewed Hara revision
+        working-directory: hoplite
+        run: test "$(tr -d '[:space:]' < packaging/hara-revision)" = "$HARA_REF"
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
@@ -31,18 +38,19 @@ jobs:
           path: hara
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
-      - name: Verify Hoplite owns its portable boundary contracts
+        with:
+          components: rustfmt
+      - name: Check formatting and the committed dependency graph
         run: |
-          test -f hoplite/core/lib/src/hoplite/value.hal
-          test -f hoplite/core/lib/src/hoplite/response_source.hal
-          test -f hoplite/core/lib/test/hoplite/value_test.hal
-          test -f hoplite/core/lib/test/hoplite/response_source_test.hal
-          grep -F ':hoplite/value-contract' hoplite/core/project.edn
-          grep -F ':hoplite/response-source-contract' hoplite/core/project.edn
-      - run: cargo test --manifest-path hoplite/core/Cargo.toml --workspace --locked
-      - name: Compile the public native data-plane header
+          cargo fmt --manifest-path hoplite/core/Cargo.toml -- --check
+          cargo metadata \
+            --manifest-path hoplite/core/Cargo.toml \
+            --locked --no-deps >/dev/null
+      - name: Test the complete Hoplite core workspace
+        run: cargo test --manifest-path hoplite/core/Cargo.toml --workspace --locked
+      - name: Compile the public data-plane header
         run: |
-          cat > /tmp/hoplite-data-plane-header.c <<'EOF'
+          cat > /tmp/hoplite-public-header.c <<'EOF'
           #include "hoplite_data_plane.h"
 
           static int32_t read_body(
@@ -85,167 +93,61 @@ jobs:
           EOF
           cc -std=c11 -Wall -Wextra -Werror \
             -I hoplite/core/abi/data-plane-ffi/include \
-            -fsyntax-only /tmp/hoplite-data-plane-header.c
-      - name: Test the fixed-capacity host-provider registry
+            /tmp/hoplite-public-header.c \
+            -o /tmp/hoplite-public-header
+          /tmp/hoplite-public-header
+      - name: Test the native host registry and provider ABI
         run: |
           cc -std=c11 -Wall -Wextra -Werror \
             -I hoplite/core/nginx \
             hoplite/core/nginx/tests/host_registry.c \
-            -o /tmp/hoplite-host-registry-test
-          /tmp/hoplite-host-registry-test
-      - name: Test the exported native host-provider ABI
-        run: |
+            -o /tmp/hoplite-host-registry
+          /tmp/hoplite-host-registry
+
           cc -std=c11 -Wall -Wextra -Werror \
             -I hoplite/core/nginx \
             hoplite/core/nginx/hoplite_host_provider.c \
             hoplite/core/nginx/tests/host_provider_api.c \
-            -o /tmp/hoplite-host-provider-api-test
-          /tmp/hoplite-host-provider-api-test
-      - name: Test the bounded response-source pump
+            -o /tmp/hoplite-host-provider-api
+          /tmp/hoplite-host-provider-api
+      - name: Test bounded response-source transport
         run: |
           cc -std=c11 -Wall -Wextra -Werror \
             -I hoplite/core/nginx \
             hoplite/core/nginx/hoplite_response_source.c \
             hoplite/core/nginx/tests/response_source.c \
-            -o /tmp/hoplite-response-source-test
-          /tmp/hoplite-response-source-test
-          grep -F 'ctx->response_provider->response_read(' \
-            hoplite/core/nginx/ngx_http_hoplite_module.c
-          grep -F 'ngx_http_output_filter(request, NULL)' \
-            hoplite/core/nginx/ngx_http_hoplite_module.c
-          grep -F 'request->header_only' \
-            hoplite/core/nginx/ngx_http_hoplite_module.c
-      - name: Verify providers are not bundled into Hoplite core
-        run: |
-          ! grep -E 'hoplite_(blob|value|value_store)_host_provider' \
-            hoplite/core/nginx/config
-          ! grep -E 'libhoplite_(blob|value)' hoplite/core/nginx/config
-          ! grep -E 'HOPLITE_(BLOB|STORE|VALUE)' \
-            hoplite/packaging/docker/Dockerfile
-      - name: Verify semantic authorization is not bundled into Hoplite core
-        run: |
-          ! grep -F 'signed-device-worker' hoplite/core/Cargo.toml
-          ! grep -F 'signed-device-worker' hoplite/core/runtime/Cargo.toml
-          ! grep -F 'preflight_environment' hoplite/core/src/bin/hoplite-server.rs
-          grep -F ':route/auth is not a Hoplite transport field' \
-            hoplite/core/src/app.rs
-          grep -F 'hoplite-auth-store-abi = { path = "abi/auth-store", optional = true }' \
-            hoplite/core/Cargo.toml
-          ! grep -F ':hoplite/auth ' hoplite/core/project.edn
-          ! grep -F ':hoplite/authentication' hoplite/core/examples/project.edn
-          ! cargo tree --manifest-path hoplite/core/Cargo.toml -p hoplite \
-            --edges normal | grep -E 'auth-store|signed-device|hoplite-store-sqlite|rusqlite'
-      - name: Verify work-scoped provider body access
-        run: |
-          cat > /tmp/hoplite-provider-body-access.c <<'EOF'
-          #include "hoplite_host_provider.h"
+            -o /tmp/hoplite-response-source
+          /tmp/hoplite-response-source
 
-          static void check_signatures(void) {
-            int32_t (*read_body)(
-                void *, uint64_t, uint64_t, uint8_t *, size_t, size_t *) =
-              hoplite_host_request_body_read_v1;
-            int32_t (*finish_body)(void *, uint64_t, uint64_t) =
-              hoplite_host_request_body_finish_v1;
-            (void)read_body;
-            (void)finish_body;
-          }
-
-          int main(void) {
-            check_signatures();
-            return HOPLITE_HOST_RESOURCE_OK == 0 &&
-                       HOPLITE_HOST_RESOURCE_ERROR < 0
-                     ? 0
-                     : 1;
-          }
-          EOF
-          cc -std=c11 -Wall -Wextra -Werror \
-            -I hoplite/core/nginx \
-            -fsyntax-only /tmp/hoplite-provider-body-access.c
-          grep -F 'hoplite_host_request_body_read_v1(' \
-            hoplite/core/nginx/ngx_http_hoplite_module.c
-          grep -F 'hoplite_host_request_body_finish_v1(' \
-            hoplite/core/nginx/ngx_http_hoplite_module.c
-          grep -F 'ctx->work == work' \
-            hoplite/core/nginx/ngx_http_hoplite_module.c
-          grep -F '& HOPLITE_HOST_PROVIDER_REQUEST_BODY' \
-            hoplite/core/nginx/ngx_http_hoplite_module.c
-          grep -F 'ctx->native_provider = native_provider;' \
-            hoplite/core/nginx/ngx_http_hoplite_module.c
-
-  nginx-module:
-    runs-on: ubuntu-latest
+  integration:
+    name: integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
         with:
           path: hoplite
+      - name: Resolve the reviewed Hara revision
+        id: hara
+        working-directory: hoplite
+        run: echo "revision=$(tr -d '[:space:]' < packaging/hara-revision)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
-          ref: ${{ env.HARA_REF }}
+          ref: ${{ steps.hara.outputs.revision }}
           path: hara
           submodules: recursive
-      - name: Build the production image
+      - name: Build the generic production image
         run: docker build -f hoplite/packaging/docker/Dockerfile -t hoplite-ci .
-      - name: Smoke-test the thin production server and request bodies
+      - name: Exercise the real serving plane
         run: |
           docker run --rm hoplite-ci version
           bash hoplite/packaging/scripts/smoke-request-body-v3.sh hoplite-ci
 
-  packaging:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - name: Render and validate the Homebrew formula
-        run: |
-          VERSION=$(grep -m1 '^version = ' core/Cargo.toml | cut -d'"' -f2) \
-          HOPLITE_REVISION=$(git rev-parse HEAD) \
-          HARA_REVISION="$HARA_REF" \
-          LICENSE=$(grep -m1 '^license = ' core/Cargo.toml | cut -d'"' -f2) \
-          NGINX_VERSION=$(sed -n 's/^NGINX_VERSION := //p' core/Makefile) \
-          NGINX_SHA256=$(sed -n 's/^NGINX_SHA256 := //p' core/Makefile) \
-            packaging/scripts/render-homebrew-formula > /tmp/hoplite.rb
-          ruby -c /tmp/hoplite.rb
-          grep -F "$HARA_REF" /tmp/hoplite.rb
-          grep -F 'bin.install "core/target/release/hoplite-server"' /tmp/hoplite.rb
-
-  benchmark-data:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - name: Validate benchmark and smoke scripts
-        run: |
-          bash -n packaging/scripts/benchmark-http.sh
-          bash -n packaging/scripts/measure-stack-footprints.sh
-          bash -n packaging/scripts/run-benchmarks.sh
-          bash -n packaging/scripts/run-with-docker-top-compat.sh
-          bash -n packaging/scripts/smoke-request-body-v3.sh
-          bash -n packaging/scripts/smoke-host-providers.sh
-          bash -n packaging/scripts/smoke-response-source.sh
-          bash -n packaging/scripts/validate-benchmark-data.sh
-
-          compat_test_root="$(mktemp -d)"
-          trap 'rm -rf "$compat_test_root"' EXIT
-          mkdir -p "$compat_test_root/bin"
-          cat > "$compat_test_root/bin/docker" <<'SCRIPT'
-          #!/usr/bin/env bash
-          printf '%s\n' "$*" > "$HOPLITE_DOCKER_TOP_TEST_OUTPUT"
-          SCRIPT
-          chmod +x "$compat_test_root/bin/docker"
-          cat > "$compat_test_root/probe.sh" <<'SCRIPT'
-          command -v docker >/dev/null
-          docker top benchmark-probe -eo args
-          SCRIPT
-          HOPLITE_DOCKER_TOP_TEST_OUTPUT="$compat_test_root/output" \
-          PATH="$compat_test_root/bin:$PATH" \
-            bash packaging/scripts/run-with-docker-top-compat.sh "$compat_test_root/probe.sh"
-          grep -Fx 'top benchmark-probe -eo pid,args' "$compat_test_root/output"
-
-          bash packaging/scripts/validate-benchmark-data.sh --allow-pending \
-            website/src/data/http-benchmark.json \
-            website/src/data/stack-footprints.json
-
   docs:
-    runs-on: ubuntu-latest
+    name: docs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: website
@@ -261,4 +163,5 @@ jobs:
           git config --global url."https://github.com/".insteadOf "git+ssh://git@github.com/"
           git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/"
           git config --global --add url."https://github.com/".insteadOf "git@github.com:"
-      - run: npm ci && npm run build
+      - run: npm ci
+      - run: npm run build

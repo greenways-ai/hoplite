@@ -198,7 +198,8 @@ fn bind_lock(project: &Project, config: &mut Config) -> Result<(), String> {
     })?;
     let form = parse(&source).map_err(|error| format!("{}: {error}", path.display()))?;
     let lock = form_map(&form, "project.lock.edn must be an EDN map")?;
-    if !matches!(lookup(lock, "lock/format"), Some(Form::String(version)) if version == "0.0.0-alpha") {
+    if !matches!(lookup(lock, "lock/format"), Some(Form::String(version)) if version == "0.0.0-alpha")
+    {
         return Err("project.lock.edn requires :lock/format \"0.0.0-alpha\"".into());
     }
     let packages = form_map(

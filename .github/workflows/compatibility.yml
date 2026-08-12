@@ -1,34 +1,53 @@
-name: hoplite.store provider FFI conformance
+name: Compatibility
 
 on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 3 * * 1"
   pull_request:
     paths:
-      - ".github/workflows/value-store-provider-ffi.yml"
+      - ".github/workflows/compatibility.yml"
+      - "core/abi/blob-store/**"
+      - "core/abi/blob-store-filesystem/**"
+      - "core/abi/blob-store-conformance/**"
       - "core/abi/provider-hta/**"
       - "core/abi/value-store/**"
+      - "core/abi/value-store-sqlite/**"
       - "core/abi/value-store-provider/**"
       - "core/abi/value-store-provider-ffi/**"
-      - "core/abi/value-store-sqlite/**"
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/value-store-provider-ffi.yml"
-      - "core/abi/provider-hta/**"
-      - "core/abi/value-store/**"
-      - "core/abi/value-store-provider/**"
-      - "core/abi/value-store-provider-ffi/**"
-      - "core/abi/value-store-sqlite/**"
 
 permissions:
   contents: read
 
 concurrency:
-  group: value-store-provider-ffi-${{ github.ref }}
+  group: hoplite-compatibility-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  conformance:
+  reference-interfaces:
+    name: ${{ matrix.package }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: provider-hta
+            manifest: core/abi/provider-hta/Cargo.toml
+          - package: blob-store
+            manifest: core/abi/blob-store/Cargo.toml
+          - package: blob-store-filesystem
+            manifest: core/abi/blob-store-filesystem/Cargo.toml
+          - package: blob-store-conformance
+            manifest: core/abi/blob-store-conformance/Cargo.toml
+          - package: value-store
+            manifest: core/abi/value-store/Cargo.toml
+          - package: value-store-sqlite
+            manifest: core/abi/value-store-sqlite/Cargo.toml
+          - package: value-store-provider
+            manifest: core/abi/value-store-provider/Cargo.toml
+          - package: value-store-provider-ffi
+            manifest: core/abi/value-store-provider-ffi/Cargo.toml
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -36,12 +55,19 @@ jobs:
           toolchain: 1.78.0
           components: rustfmt,clippy
       - name: Check formatting
-        run: cargo fmt --manifest-path core/abi/value-store-provider-ffi/Cargo.toml --all -- --check
+        run: cargo fmt --manifest-path "${{ matrix.manifest }}" --all -- --check
       - name: Reject warnings
-        run: cargo clippy --manifest-path core/abi/value-store-provider-ffi/Cargo.toml --all-targets --locked -- -D warnings
-      - name: Run FFI conformance
-        run: cargo test --manifest-path core/abi/value-store-provider-ffi/Cargo.toml --all-targets --locked
-      - name: Compile the public C header
+        run: cargo clippy --manifest-path "${{ matrix.manifest }}" --all-targets --locked -- -D warnings
+      - name: Run conformance tests
+        run: cargo test --manifest-path "${{ matrix.manifest }}" --all-targets --locked
+
+  public-store-header:
+    name: public store header
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Compile the public C interface
         run: |
           cat > /tmp/hoplite-value-store-provider.c <<'EOF'
           #include "hoplite_value_store_provider.h"
