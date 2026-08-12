@@ -3,19 +3,75 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+MANIFEST="$ROOT/core/runtime/Cargo.toml"
+HEADER="$ROOT/core/nginx/hoplite_runtime.h"
+INVENTORY="$ROOT/docs/native-symbols.txt"
+TARGET="$ROOT/core/target/debug"
+STATIC_LIBRARY="$TARGET/libhoplite_runtime.a"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-set +e
-bash "$ROOT/.github/scripts/smoke-embedding-impl.sh" > "$WORK/output.log" 2>&1
-status=$?
-set -e
+# `rustc --print native-static-libs` writes linker arguments to the compiler
+# diagnostic stream. Disable terminal colouring before capturing that line so
+# an ANSI reset sequence can never become part of the final library name.
+export CARGO_TERM_COLOR=never
 
-cat "$WORK/output.log"
-if [[ "$status" -ne 0 ]]; then
-  echo "::error file=packaging/scripts/smoke-embedding.sh,title=embedding-stage-exit::implementation exited with status $status"
-  tail -c 800 "$WORK/output.log" > "$WORK/output.tail"
-  encoded="$(base64 -w0 "$WORK/output.tail")"
-  echo "::error file=packaging/scripts/smoke-embedding.sh,title=embedding-log-tail-base64::$encoded"
+# Remove only this package's outputs. The workspace test has already warmed the
+# debug dependency graph, while rebuilding the static library guarantees rustc
+# emits the native link set instead of Cargo reusing an earlier artifact.
+cargo clean \
+  --manifest-path "$MANIFEST" \
+  --package hoplite-runtime
+
+cargo rustc \
+  --manifest-path "$MANIFEST" \
+  --locked \
+  --lib \
+  -- --print native-static-libs 2>&1 | tee "$WORK/rustc.log"
+
+native_static_libs="$({
+  sed -n 's/^.*native-static-libs: //p' "$WORK/rustc.log"
+} | tail -n 1)"
+if [[ -z "$native_static_libs" ]]; then
+  echo "Rust did not report the native static-library link set" >&2
+  exit 1
 fi
-exit "$status"
+if [[ "$native_static_libs" == *$'\033'* ]]; then
+  echo "Rust native static-library output contains a terminal escape sequence" >&2
+  exit 1
+fi
+read -r -a native_link_args <<<"$native_static_libs"
+
+test -f "$STATIC_LIBRARY" || {
+  echo "Rust did not build the Hoplite static library" >&2
+  exit 1
+}
+
+cargo run \
+  --manifest-path "$MANIFEST" \
+  --locked \
+  --example embed
+
+cc -std=c11 -Wall -Wextra -Werror \
+  -I "$ROOT/core/nginx" \
+  "$ROOT/core/runtime/examples/embed.c" \
+  "$STATIC_LIBRARY" \
+  "${native_link_args[@]}" \
+  -o "$WORK/hoplite-c-embed"
+"$WORK/hoplite-c-embed"
+
+grep -Eo 'hoplite_[a-z0-9_]+\(' "$HEADER" \
+  | tr -d '(' \
+  | LC_ALL=C sort -u > "$WORK/header-symbols.txt"
+
+nm -g --defined-only --format=posix "$STATIC_LIBRARY" \
+  | awk '$1 ~ /^hoplite_/ { print $1 }' \
+  | LC_ALL=C sort -u > "$WORK/binary-symbols.txt"
+
+diff -u "$INVENTORY" "$WORK/header-symbols.txt"
+diff -u "$INVENTORY" "$WORK/binary-symbols.txt"
+
+printf '%s\n' \
+  "Rust embedding fixture: passed" \
+  "C embedding fixture: passed" \
+  "public native header and binary symbols: exact"
