@@ -1,5 +1,5 @@
 {
-  "format": "hoplite.public-surfaces/1",
+  "format": "hoplite.public-surfaces/0-alpha",
   "hal_namespaces": [
     {
       "name": "hoplite.auth",
@@ -91,7 +91,7 @@
       "name": "hoplite_runtime.h",
       "path": "core/nginx/hoplite_runtime.h",
       "status": "public",
-      "summary": "Hoplite runtime lifecycle, HAB1 bootstrap, handler, work and request embedding ABI."
+      "summary": "Hoplite runtime lifecycle, HAB0 alpha bootstrap, handler, work and request embedding ABI."
     },
     {
       "name": "hoplite_store_host_provider.h",
@@ -153,7 +153,7 @@
       "name": "verify",
       "status": "public",
       "availability": "default",
-      "summary": "Verify a built HAB1 application and exact manifest without executing source."
+      "summary": "Verify a built HAB0 alpha application and exact manifest without executing source."
     },
     {
       "name": "version",
@@ -164,10 +164,10 @@
   ],
   "portable_documents": [
     {
-      "name": "hoplite.application-bundle/1",
+      "name": "hoplite.application-bundle/0-alpha",
       "path": "docs/application-bundle.md",
       "status": "public",
-      "summary": "HAB1 production application bundle and exact-manifest binding."
+      "summary": "HAB0 alpha production application bundle and exact-manifest binding."
     },
     {
       "name": "hoplite.provider-hta/1",
