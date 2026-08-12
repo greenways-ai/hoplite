@@ -146,6 +146,60 @@ jobs:
           submodules: recursive
       - name: Build the generic production image
         run: docker build -f hoplite/packaging/docker/Dockerfile -t hoplite-ci .
+      - name: Prove reproducible source-free application output
+        env:
+          REPRODUCIBILITY_SEED: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          first="$work/first"
+          second="$work/second"
+
+          for label in first second; do
+            output="$work/$label"
+            mkdir -p "$output"
+            docker build \
+              -f hoplite/packaging/docker/Dockerfile \
+              --target application-artifacts \
+              --build-arg HOPLITE_APP=packaging/fixtures/multi-module \
+              --build-arg "HOPLITE_REPRODUCIBILITY_NONCE=${REPRODUCIBILITY_SEED}-${label}" \
+              --output "type=local,dest=$output" \
+              .
+          done
+
+          for output in "$first" "$second"; do
+            for required in app.hbx apps.hta conf/nginx.conf; do
+              test -f "$output/$required" || {
+                echo "generated application is missing $required" >&2
+                exit 1
+              }
+            done
+
+            if find "$output" -type f \
+                \( -name '*.hal' -o -name project.edn -o -name hara.extension.edn \) \
+                -print -quit | grep -q .; then
+              echo "generated application artifact contains source input" >&2
+              find "$output" -type f \
+                \( -name '*.hal' -o -name project.edn -o -name hara.extension.edn \) \
+                -print >&2
+              exit 1
+            fi
+          done
+
+          (
+            cd "$first"
+            find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum
+          ) > "$work/first.sha256"
+          (
+            cd "$second"
+            find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum
+          ) > "$work/second.sha256"
+
+          diff -u "$work/first.sha256" "$work/second.sha256"
+          diff -r --no-dereference "$first" "$second"
+          echo "independent application builds are byte-identical"
+          cat "$work/first.sha256"
       - name: Verify the source-free production image
         run: bash hoplite/packaging/scripts/assert-production-image.sh hoplite-ci
       - name: Exercise the real serving plane
