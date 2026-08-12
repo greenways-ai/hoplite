@@ -149,6 +149,18 @@ if runtime.count(running_arm) != 1:
     raise SystemExit("runtime running-state arm did not match exactly once")
 runtime_path.write_text(runtime.replace(running_arm, yielded_and_running, 1))
 
+host_path = Path("core/src/host.rs")
+host = host_path.read_text()
+old_alias = "[hoplite.host :as host]"
+new_alias = "[hoplite.host :as hoplite-host]"
+if host.count(old_alias) != 2:
+    raise SystemExit("Hoplite host test aliases did not match exactly twice")
+host = host.replace(old_alias, new_alias)
+if host.count("(host/") < 5:
+    raise SystemExit("Hoplite host test calls were not found")
+host = host.replace("(host/", "(hoplite-host/")
+host_path.write_text(host)
+
 header_path = Path("core/nginx/hoplite_runtime.h")
 header = header_path.read_text()
 old_header = "\n".join(
