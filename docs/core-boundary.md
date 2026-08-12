@@ -22,6 +22,12 @@ application composition, package activation, route preparation, the Hara runtime
 Nginx integration, request/response transport, generic host services, production
 bootstrap, verification, and development tooling.
 
+The generic `hoplite.host` boundary includes bounded Base64 decoding, secure
+randomness, hashing, canonical HTA digests, P-256 JWK conversion, and Ed25519 and
+P-256 signature verification. The cryptographic libraries needed to implement
+those provider-independent operations are therefore core runtime dependencies,
+not application-authentication product dependencies.
+
 Cargo automatic binary discovery is disabled. Adding a file under
 `core/src/bin` therefore cannot silently add another shipped program. Every
 binary target must be declared deliberately and classified in both the public
@@ -41,10 +47,11 @@ Three non-default features make retained source explicit:
 | `legacy-management` | Enables the historical application-authentication and management implementation while it is extracted. |
 | `legacy-provider-products` | Enables historical provider manifest and lock generators while release/product material is extracted. |
 
-Authentication crypto, randomness, SQLite, the auth-store ABI, and the external
-SQLite store implementation are optional dependencies activated only by
+The authentication-store ABI, the external SQLite store implementation, and
+Rust SQLite integration are optional dependencies activated only by
 `legacy-management`. They are not direct dependencies of the default Hoplite
-product.
+product. Generic host cryptography remains available without enabling historical
+application policy or database storage.
 
 The legacy features are temporary migration seams, not extension points and not
 release promises. New generic runtime code must not depend on them.
@@ -73,10 +80,11 @@ to build all default binary targets. It requires the resulting executable set to
 be exactly `hoplite` and `hoplite-server`.
 
 The same check reads Cargo's resolved direct dependency tree. It positively
-requires the Hara runtime and Hoplite application-bundle library and rejects the
-migration-only authentication, database, and provider dependencies from the
-default package. This is dependency and build evidence, not a source-text
-approximation.
+requires the Hara runtime, Hoplite application-bundle library, and the generic
+host cryptography dependencies. It rejects the migration-only authentication
+store ABI, external SQLite store product, and direct SQLite database dependency
+from the default package. This is dependency and build evidence, not a
+source-text approximation.
 
 The production image remains independently checked by
 `assert-production-image.sh`; only `hoplite-server` and built `.hoplite` output
