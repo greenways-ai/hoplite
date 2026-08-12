@@ -16,6 +16,7 @@ on:
         type: string
 
 permissions:
+  checks: read
   contents: write
   packages: write
 
@@ -41,6 +42,7 @@ jobs:
           path: hara
           submodules: recursive
           fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
       - name: Resolve immutable release inputs
         id: metadata
         working-directory: hoplite
@@ -83,6 +85,43 @@ jobs:
           echo "license=$(grep -m1 '^license = ' core/Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
           echo "nginx_version=$(sed -n 's/^NGINX_VERSION := //p' core/Makefile)" >> "$GITHUB_OUTPUT"
           echo "nginx_sha256=$(sed -n 's/^NGINX_SHA256 := //p' core/Makefile)" >> "$GITHUB_OUTPUT"
+      - name: Verify alpha contracts and the committed dependency graph
+        working-directory: hoplite
+        run: |
+          bash packaging/scripts/verify-alpha-versioning.sh
+          cargo metadata \
+            --manifest-path core/Cargo.toml \
+            --locked --no-deps >/dev/null
+          jq -e \
+            '.format == "hoplite.public-surfaces/0-alpha"' \
+            docs/public-surfaces.json >/dev/null
+          jq -e \
+            '.format == "hoplite.core-boundary/0-alpha"' \
+            docs/core-boundary.json >/dev/null
+      - name: Require successful permanent CI on the tag commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HOPLITE_REVISION: ${{ steps.metadata.outputs.hoplite_revision }}
+        run: |
+          checks=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/$GITHUB_REPOSITORY/commits/$HOPLITE_REVISION/check-runs?per_page=100")
+
+          for required in library integration docs; do
+            if ! jq -e \
+              --arg name "$required" \
+              --arg sha "$HOPLITE_REVISION" \
+              '[.check_runs[]
+                | select(.name == $name)
+                | select(.head_sha == $sha)
+                | select(.status == "completed")
+                | select(.conclusion == "success")]
+               | length >= 1' <<<"$checks" >/dev/null; then
+              echo "tag commit lacks successful required check: $required" >&2
+              exit 1
+            fi
+          done
 
   harp:
     needs: prepare
