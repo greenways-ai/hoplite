@@ -13,8 +13,9 @@ set -e
 
 cat "$WORK/output.log"
 if [[ "$status" -ne 0 ]]; then
-  tail -c 3500 "$WORK/output.log" > "$WORK/output.tail"
+  echo "::error file=packaging/scripts/smoke-embedding.sh,title=embedding-stage-exit::implementation exited with status $status"
+  tail -c 800 "$WORK/output.log" > "$WORK/output.tail"
   encoded="$(base64 -w0 "$WORK/output.tail")"
-  echo "::error file=packaging/scripts/smoke-embedding.sh,title=embedding-log-base64::$encoded"
+  echo "::error file=packaging/scripts/smoke-embedding.sh,title=embedding-log-tail-base64::$encoded"
 fi
 exit "$status"
