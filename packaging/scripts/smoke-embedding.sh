@@ -2,11 +2,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 set +e
-bash "$SCRIPT_DIR/smoke-embedding-impl.sh" > "$WORK/output.log" 2>&1
+bash "$ROOT/.github/scripts/smoke-embedding-impl.sh" > "$WORK/output.log" 2>&1
 status=$?
 set -e
 
