@@ -51,8 +51,22 @@ jobs:
           cargo metadata \
             --manifest-path hoplite/core/Cargo.toml \
             --locked --no-deps >/dev/null
-      - name: Test the complete Hoplite core workspace
-        run: cargo test --manifest-path hoplite/core/Cargo.toml --workspace --locked
+      - name: Diagnose the complete Hoplite core workspace
+        run: |
+          set +e
+          cargo test \
+            --manifest-path hoplite/core/Cargo.toml \
+            --workspace \
+            --locked 2>&1 | tee /tmp/hoplite-workspace-tests.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [[ "$status" -eq 0 ]]; then
+            exit 0
+          fi
+          tail -c 32000 /tmp/hoplite-workspace-tests.log > /tmp/hoplite-workspace-tests.tail
+          encoded="$(base64 -w0 /tmp/hoplite-workspace-tests.tail)"
+          echo "::error file=core/tests/core_boundary.rs,title=cargo-test-base64::$encoded"
+          exit "$status"
       - name: Verify the default product boundary
         run: bash hoplite/packaging/scripts/verify-default-product.sh
       - name: Compile the public data-plane header
