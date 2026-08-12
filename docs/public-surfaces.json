@@ -1,0 +1,191 @@
+{
+  "format": "hoplite.public-surfaces/1",
+  "hal_namespaces": [
+    {
+      "name": "hoplite.auth",
+      "path": "core/lib/src/hoplite/auth.hal",
+      "status": "migration-only",
+      "summary": "Historical application-authentication helpers retained only for extraction and compatibility."
+    },
+    {
+      "name": "hoplite.core",
+      "path": "core/lib/src/hoplite/core.hal",
+      "status": "public",
+      "summary": "Application, resource, router and route composition for Hara HTTP applications."
+    },
+    {
+      "name": "hoplite.dev",
+      "path": "core/lib/src/hoplite/dev.hal",
+      "status": "experimental",
+      "summary": "Development-console helpers that are not part of the production worker contract."
+    },
+    {
+      "name": "hoplite.host",
+      "path": "core/lib/src/hoplite/host.hal",
+      "status": "experimental",
+      "summary": "Generic host-service calls and provider-facing convenience functions."
+    },
+    {
+      "name": "hoplite.internal",
+      "path": "core/lib/src/hoplite/internal.hal",
+      "status": "internal",
+      "summary": "Implementation helpers with no compatibility promise."
+    },
+    {
+      "name": "hoplite.raw",
+      "path": "core/lib/src/hoplite/raw.hal",
+      "status": "public",
+      "summary": "Raw request, route-adapter and response-map construction."
+    },
+    {
+      "name": "hoplite.response-source",
+      "path": "core/lib/src/hoplite/response_source.hal",
+      "status": "experimental",
+      "summary": "Bounded response-source values for ranged and streaming response bodies."
+    },
+    {
+      "name": "hoplite.value",
+      "path": "core/lib/src/hoplite/value.hal",
+      "status": "migration-only",
+      "summary": "Historical blob and value provider convenience functions awaiting extraction from core."
+    }
+  ],
+  "native_headers": [
+    {
+      "name": "hoplite_data_plane.h",
+      "path": "core/abi/data-plane-ffi/include/hoplite_data_plane.h",
+      "status": "public",
+      "summary": "Portable request-body and response-body callback descriptors for embedders."
+    },
+    {
+      "name": "hoplite_blob_host_provider.h",
+      "path": "core/nginx/hoplite_blob_host_provider.h",
+      "status": "migration-only",
+      "summary": "Historical blob-product provider adapter retained for extraction."
+    },
+    {
+      "name": "hoplite_host_provider.h",
+      "path": "core/nginx/hoplite_host_provider.h",
+      "status": "experimental",
+      "summary": "Generic native host-service provider ABI."
+    },
+    {
+      "name": "hoplite_host_registry.h",
+      "path": "core/nginx/hoplite_host_registry.h",
+      "status": "internal",
+      "summary": "Nginx worker-local provider registry implementation."
+    },
+    {
+      "name": "hoplite_hta.h",
+      "path": "core/nginx/hoplite_hta.h",
+      "status": "internal",
+      "summary": "Native HTA decoding helpers used by the Nginx module."
+    },
+    {
+      "name": "hoplite_response_source.h",
+      "path": "core/nginx/hoplite_response_source.h",
+      "status": "experimental",
+      "summary": "Bounded native response-source transport and exactly-once close contract."
+    },
+    {
+      "name": "hoplite_runtime.h",
+      "path": "core/nginx/hoplite_runtime.h",
+      "status": "public",
+      "summary": "Hoplite runtime lifecycle, HAB1 bootstrap, handler, work and request embedding ABI."
+    },
+    {
+      "name": "hoplite_store_host_provider.h",
+      "path": "core/nginx/hoplite_store_host_provider.h",
+      "status": "migration-only",
+      "summary": "Historical durable-store product adapter retained for extraction."
+    },
+    {
+      "name": "hoplite_value_host_provider.h",
+      "path": "core/nginx/hoplite_value_host_provider.h",
+      "status": "migration-only",
+      "summary": "Historical value-product provider adapter retained for extraction."
+    },
+    {
+      "name": "hoplite_value_store_host_provider.h",
+      "path": "core/nginx/hoplite_value_store_host_provider.h",
+      "status": "migration-only",
+      "summary": "Historical composed value/store product adapter retained for extraction."
+    }
+  ],
+  "cli_commands": [
+    {
+      "name": "auth",
+      "status": "migration-only",
+      "availability": "legacy-management",
+      "summary": "Historical management authentication command available only in legacy builds."
+    },
+    {
+      "name": "eval",
+      "status": "public",
+      "availability": "default",
+      "summary": "Evaluate one Hara expression in the development runtime."
+    },
+    {
+      "name": "package",
+      "status": "experimental",
+      "availability": "default",
+      "summary": "Inspect, build, install and verify Hoplite package artifacts."
+    },
+    {
+      "name": "repl",
+      "status": "public",
+      "availability": "default",
+      "summary": "Start the interactive Hoplite Hara REPL."
+    },
+    {
+      "name": "run",
+      "status": "public",
+      "availability": "default",
+      "summary": "Evaluate one Hara source file in the development runtime."
+    },
+    {
+      "name": "serve",
+      "status": "public",
+      "availability": "default",
+      "summary": "Check, build and operate a Hoplite application server."
+    },
+    {
+      "name": "verify",
+      "status": "public",
+      "availability": "default",
+      "summary": "Verify a built HAB1 application and exact manifest without executing source."
+    },
+    {
+      "name": "version",
+      "status": "public",
+      "availability": "default",
+      "summary": "Report Hoplite, Hara and Nginx version information."
+    }
+  ],
+  "portable_documents": [
+    {
+      "name": "hoplite.application-bundle/1",
+      "path": "docs/application-bundle.md",
+      "status": "public",
+      "summary": "HAB1 production application bundle and exact-manifest binding."
+    },
+    {
+      "name": "hoplite.provider-hta/1",
+      "path": "docs/data-plane/provider-hta.md",
+      "status": "migration-only",
+      "summary": "Historical provider artifact document retained for extraction compatibility."
+    },
+    {
+      "name": "hoplite.request-body/3",
+      "path": "docs/data-plane/request-body-v3.md",
+      "status": "public",
+      "summary": "Opaque bounded request-body authority projected into Hara handlers."
+    },
+    {
+      "name": "hoplite.response-source/0-alpha",
+      "path": "core/nginx/response-source-streaming.md",
+      "status": "experimental",
+      "summary": "Pre-1.0 ranged and streaming response-source ownership contract."
+    }
+  ]
+}
