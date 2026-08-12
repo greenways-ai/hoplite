@@ -52,18 +52,26 @@ jobs:
             --manifest-path hoplite/core/Cargo.toml \
             --locked --no-deps >/dev/null
       - name: Diagnose the complete Hoplite core workspace
+        env:
+          CARGO_TERM_COLOR: never
         run: |
           set +e
           cargo test \
             --manifest-path hoplite/core/Cargo.toml \
             --workspace \
-            --locked 2>&1 | tee /tmp/hoplite-workspace-tests.log
-          status=${PIPESTATUS[0]}
+            --locked > /tmp/hoplite-workspace-tests.log 2>&1
+          status=$?
           set -e
+          cat /tmp/hoplite-workspace-tests.log
           if [[ "$status" -eq 0 ]]; then
             exit 0
           fi
-          tail -c 32000 /tmp/hoplite-workspace-tests.log > /tmp/hoplite-workspace-tests.tail
+          {
+            grep -E '(^error|error\[|panicked at|failures:|test result:|assertion|left:|right:|could not compile|failed to compile)' \
+              /tmp/hoplite-workspace-tests.log || true
+            echo '--- final workspace output ---'
+            tail -n 100 /tmp/hoplite-workspace-tests.log
+          } | tail -c 7000 > /tmp/hoplite-workspace-tests.tail
           encoded="$(base64 -w0 /tmp/hoplite-workspace-tests.tail)"
           echo "::error file=core/tests/core_boundary.rs,title=cargo-test-base64::$encoded"
           exit "$status"
