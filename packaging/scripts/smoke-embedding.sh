@@ -6,14 +6,15 @@ ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 MANIFEST="$ROOT/core/runtime/Cargo.toml"
 HEADER="$ROOT/core/nginx/hoplite_runtime.h"
 INVENTORY="$ROOT/docs/native-symbols.txt"
-TARGET="$ROOT/core/target/release"
+TARGET="$ROOT/core/target/debug"
 STATIC_LIBRARY="$TARGET/libhoplite_runtime.a"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# Remove only this package's existing outputs. Dependencies remain cached, but
-# rustc must execute the static-library build below and therefore always emits
-# the native link set instead of Cargo silently reusing an earlier output.
+# Remove only this package's existing outputs. The workspace test has already
+# warmed the debug dependency graph, but rustc must execute the static-library
+# build below so it always emits the native link set instead of Cargo silently
+# reusing an earlier output.
 cargo clean \
   --manifest-path "$MANIFEST" \
   --package hoplite-runtime
@@ -21,7 +22,6 @@ cargo clean \
 cargo rustc \
   --manifest-path "$MANIFEST" \
   --locked \
-  --release \
   --lib \
   -- --print native-static-libs 2>&1 | tee "$WORK/rustc.log"
 
@@ -42,7 +42,6 @@ test -f "$STATIC_LIBRARY" || {
 cargo run \
   --manifest-path "$MANIFEST" \
   --locked \
-  --release \
   --example embed
 
 cc -std=c11 -Wall -Wextra -Werror \
