@@ -31,6 +31,9 @@ The library job protects Hoplite-owned source and public boundaries:
 - Rust formatting is clean;
 - the committed dependency graph resolves with `--locked`;
 - the complete core workspace test suite passes;
+- the default executable and direct dependency boundary remains product-clean;
+- minimal Rust and C embedders execute against the public runtime ABI and the
+  header declarations exactly match the native symbol inventory;
 - public C headers compile as C11;
 - the fixed-capacity host registry, exported provider interface, and bounded
   response-source pump pass their native fixtures.
@@ -50,9 +53,27 @@ regenerating dependencies implicitly.
 The integration job protects the actual generic production path:
 
 - the provider-neutral production image builds from reviewed source;
+- two independently forced application compilations produce byte-identical,
+  source-free serving artifacts;
+- the final image is non-root and contains no application source, project input,
+  development CLI, compiler, or build toolchain;
 - `hoplite-server version` runs in the final image;
 - a generic Hoplite application becomes ready;
-- ordinary requests and bounded request bodies complete through Nginx.
+- ordinary requests and bounded request bodies complete through Nginx;
+- two intentional Nginx reloads replace the complete worker generation while
+  preserving the master process, immutable HAB0/manifest/configuration bytes,
+  and repeated dispatch;
+- removing the serving process and starting a fresh container recreates the
+  application from the same immutable source-free image;
+- a three-module application proves aliases, referred Vars, namespace-local
+  Vars, dependency order, and repeated prepared-handler dispatch.
+
+`packaging/scripts/smoke-worker-reload.sh` reproduces the reload and process
+recreation check against an already built image:
+
+```sh
+bash packaging/scripts/smoke-worker-reload.sh hoplite-ci
+```
 
 This job must use a generic application. It must not require a database,
 application identity model, provider release, or another repository.
