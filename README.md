@@ -1,27 +1,36 @@
 # Hoplite
 
-Hoplite is a Hara application server built directly into Nginx. Applications
-are immutable resource trees, handlers are Hara Vars, and each Nginx worker
-resolves and compiles its route handlers once during startup.
+Hoplite is the Hara HTTP runtime for Nginx. It turns immutable route data and
+Hara handler Vars into a worker-local serving plane with prepared dispatch,
+bounded host boundaries, asynchronous suspension, and streaming responses.
 
 ```text
-request -> nginx worker -> cached Hara handler -> native response
+request -> Nginx -> prepared Hoplite route -> Hara handler -> native response
 ```
 
-HTA remains available as an explicit portability adapter; it is no longer the
-mandatory boundary for every request.
+Hoplite is developed as a **library-first project**. Its product is the public
+application API, runtime behaviour, embedding ABI, diagnostics, compatibility,
+and performance. Storage products, application-specific authorization policy,
+and downstream product release acceptance are deliberately outside the core
+release gate.
 
-Hoplite supports macOS and Linux. Tagged releases publish the all-in-one
-`hoplite` control CLI and the slim `hoplite-server` production executable for
-Apple Silicon, Intel macOS, ARM64 Linux and x86-64 Linux, alongside a Homebrew
-formula and the `ghcr.io/greenways-ai/hoplite` OCI image.
+## Why Hoplite
+
+Hoplite is designed to make a small Hara service easy to understand without
+placing a ceiling on production use:
+
+- routes are immutable data and handlers are ordinary Hara Vars;
+- route handlers are resolved and prepared once per Nginx worker;
+- synchronous handlers keep a direct fast path;
+- suspended handlers can await bounded host services without blocking a worker;
+- request bodies remain request-scoped capabilities rather than ambient bytes;
+- large and ranged responses stream with backpressure and bounded ownership;
+- production workers boot from a deterministic, checksummed bytecode bundle;
+- the development CLI and the production server remain separate surfaces.
 
 ## Install
 
 ### Homebrew
-
-Use the fully qualified formula so Homebrew trusts only the selected Greenways
-tap entry:
 
 ```shell
 brew install greenways-ai/tap/hoplite
@@ -31,39 +40,30 @@ hoplite-server version
 
 ### Release installer
 
-Install the published macOS or Linux executables without a package manager:
-
 ```shell
 curl -fsSL https://raw.githubusercontent.com/greenways-ai/hoplite/main/packaging/scripts/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 hoplite version
-hoplite-server version
 ```
 
 ### Container
-
-Run the published starter image immediately:
 
 ```shell
 docker run --rm -p 8080:8080 ghcr.io/greenways-ai/hoplite:latest
 curl -i http://127.0.0.1:8080/hello
 ```
 
-The container builds its application in the builder stage. The final image
-contains only `hoplite-server`, immutable build output, and required native
-libraries.
-
 ## Create an application
 
-Generate the two-file starter without cloning or building Hoplite:
+Generate the starter project:
 
 ```shell
 curl -fsSL https://raw.githubusercontent.com/greenways-ai/hoplite/main/packaging/scripts/new-app.sh | sh -s -- hello
 cd hello
 ```
 
-A project selects one app Var. Routes are data; calling a handler is a runtime
-operation, while referring to it with `#'` is declarative configuration.
+A Hoplite application selects one app Var. Routes are declared as data, and
+referring to a handler with `#'` preserves the Var for worker preparation.
 
 `app.hal`:
 
@@ -72,7 +72,7 @@ operation, while referring to it with `#'` is declarative configuration.
   (:require [hoplite.core :as h]))
 
 (defn hello
-  [request]
+  [_request]
   {:status 200
    :headers {"content-type" "text/plain; charset=utf-8"}
    :body "Hello from Hoplite\n"})
@@ -107,18 +107,7 @@ operation, while referring to it with `#'` is declarative configuration.
            :profile/options {:port 8080}}}}
 ```
 
-Account and session management are not part of the default Hoplite build.
-Application HAL validates its own signed request envelope and semantic
-coordinates through generic host cryptography and time calls. Tahto owns that
-policy for Tahto applications. The `legacy-management` Cargo feature exists
-only to validate migration compatibility and is not enabled in release images.
-
-See [`core/examples/app.hal`](core/examples/app.hal) and
-[`core/examples/project.edn`](core/examples/project.edn) for the complete starter.
-
-## Run it
-
-Check the project, build it, and start the development service:
+## Build and run
 
 ```shell
 hoplite serve check .
@@ -126,41 +115,14 @@ hoplite serve build --mode dev .
 hoplite serve foreground --mode dev .
 ```
 
-In another terminal:
-
-```shell
-curl -i http://127.0.0.1:8080/hello
-```
-
-### Production server
-
-Build once, then run the slim serving plane:
+For the slim production serving plane:
 
 ```shell
 hoplite serve build --mode prod --profile server .
 hoplite-server .
 ```
 
-`hoplite-server` validates the generated Nginx configuration, materializes its
-stripped embedded Nginx/Hara server when necessary, and replaces itself with
-Nginx. It does not retain the compiler, REPL, package tooling, authentication
-store, or management gateway in the production process tree.
-
-The core server also does not bundle storage, blob, canonical-value, or
-application authorization providers. It owns only the `hoplite.store`,
-`hoplite.blob`, `hoplite.value`, and `hoplite.response-source` host boundaries
-and the provider-neutral request/response transport. Tahto distributions may
-compose implementations of those boundaries as separate packages.
-
-The portable `hoplite.value` and `hoplite.response-source` request, result, and
-descriptor validators live in Hoplite's HAL source tree. Applications compile
-and test them through Hoplite; Hara supplies only the product-neutral value,
-HTA, host-call, and coroutine substrate.
-
-`hoplite serve foreground --mode prod` runs Nginx in the foreground; it does
-not start an account, session, or application-authorization service.
-
-Build output is placed under the application's `.hoplite/` directory:
+Production build output is isolated under `.hoplite/`:
 
 ```text
 .hoplite/
@@ -173,146 +135,25 @@ Build output is placed under the application's `.hoplite/` directory:
   openapi/<app-name>.json
 ```
 
-`platform.edn` is the inspectable compiled module plan; `platform.hta` is the
-equivalent runtime transport. Both are produced from the selected profile in
-`project.edn`.
-
-`app.hbx` is the production startup artifact: a deterministic, checksummed
-HBX0 bundle of eager HBC0 modules. Nginx worker startup passes those bytes
-through Hoplite runtime ABI V4, validates every module before mutation, and
-loads the bundle transactionally. `app.hal` remains inspectable build output;
-workers do not parse or compile it.
-
-## Development console
-
-Running `hoplite` without arguments opens a Hara REPL with the project
-namespaces and `hoplite.dev` service installed:
-
-```clojure
-(ns user
-  (:require [example.app :as app]
-            [hoplite.dev :as dev]))
-
-(dev/start #'app/app {:project "." :profile :server})
-(dev/list-all)
-(dev/status #'app/app)
-(dev/logs #'app/app {:bytes 4096})
-(dev/restart #'app/app)
-(dev/stop #'app/app)
-```
-
-The console accepts only an app Var selected by a project profile. It does not
-execute arbitrary server definitions or shell commands. Multiple projects can
-be tracked by the same console.
-
-## Multiple applications
-
-The normal `hoplite.core/app` interface describes one router. Advanced hosting
-uses `hoplite.internal/config` to place several declared apps into one Nginx
-configuration:
-
-```clojure
-(ns example.host
-  (:require [example.api :as api]
-            [example.admin :as admin]
-            [hoplite.internal :as internal]))
-
-(def config
-  (internal/config
-    {:worker-processes 4
-     :apps [{:id :api
-             :app #'api/app
-             :port 8080
-             :hostnames ["api.example.test"]}
-            {:id :admin
-             :app #'admin/app
-             :port 8081
-             :hostnames ["admin.example.test"]}]}))
-```
-
-Point the selected profile's `:profile/main` at `example.host/config`.
-
-## Commands
-
-```shell
-hoplite                         # development console and control plane
-hoplite eval '(+ 19 23)'
-hoplite run file.hal
-hoplite serve check PROJECT
-hoplite serve build --mode dev PROJECT
-hoplite serve foreground --mode prod PROJECT
-hoplite serve start PROJECT
-hoplite serve status PROJECT
-hoplite serve reload PROJECT
-hoplite serve stop PROJECT
-hoplite serve install PROJECT   # macOS LaunchAgent
-hoplite serve uninstall PROJECT
-hoplite-server PROJECT          # prebuilt production data plane
-```
-
-Set `HOPLITE_NGINX` only when deliberately selecting an external development
-Nginx executable. `HOPLITE_SERVER_CACHE` selects where `hoplite-server`
-materializes its embedded serving binary.
-
-## Contributor build and test
-
-Source code and build tooling live under `core/`. All `make` targets below are run
-from that directory:
-
-```shell
-cd core
-make setup
-make check
-make runtime
-make nginx
-make server-cli
-make macos
-make benchmark-bytecode
-```
-
-`core/Makefile` downloads the pinned Nginx source, verifies its checksum,
-statically links the Hoplite module and Rust runtime, strips the native server,
-and embeds that serving plane into both executables. `hoplite-server` is a thin
-launcher; `hoplite` additionally contains the control and development surfaces.
-
-The bytecode loading benchmark compares HAL compilation, HBC decoding, and
-already-decoded execution for `hoplite.core`, `hoplite.internal`, and
-`hoplite.dev`. It also performs a paired cold-start comparison using a fresh
-runtime for every sample: complete `.hal` module evaluation versus validated,
-transactional HBX0 loading of its eager HBC0 module. Production startup uses
-that same shared HBC0/HBX0 loader. The Make target runs with `--check` and fails
-if either HBC decoding does not beat HAL compilation or HBX0 module loading does
-not beat HAL module loading for every library. This startup gate is independent
-of the VM execution-throughput comparisons in `hara-benchmarks`.
-
-## Homebrew releases
-
-The tagged release workflow:
-
-1. verifies that the tag matches `core/Cargo.toml` and resolves immutable Hoplite and Hara commits;
-2. builds the deterministic HARP package and slim production container image;
-3. builds and smoke-tests `hoplite` and `hoplite-server` for both macOS architectures and both Linux architectures;
-4. creates or updates the GitHub release without replacing the tag;
-5. renders a source formula pinned to the exact release inputs;
-6. updates `greenways-ai/homebrew-tap` when `HOMEBREW_TAP_TOKEN` is set.
-
-The workflow can be dispatched manually for an existing tag when release
-infrastructure changes. Tap setup and local formula instructions live in
-[`packaging/homebrew/README.md`](packaging/homebrew/README.md).
+`app.hbx` is the deterministic application bundle loaded transactionally by a
+worker. `app.hal` remains inspectable build output and a development input; it
+is not the production worker bootstrap artifact.
 
 ## Runtime model
 
-The `hoplite` command is the build and control plane. The production
-`hoplite-server` artifact replaces itself with Nginx, leaving only the Nginx
-master and worker processes resident.
+There is one Hoplite runtime per Nginx worker. Bootstrap loads the application
+bundle, constructs the worker-local router, and prepares every selected handler.
+A request then performs method/path matching and invokes the prepared program.
+Runtime values, fibers, promises, and handles never cross between workers.
 
-There is one Hoplite runtime per Nginx worker. Bootstrap loads application
-definitions, then `apps.hta` prepares a worker-local router and compiles every
-handler call once. A request performs method/path matching and executes the
-cached program. Runtime Values, fibers, promises, and handler handles remain
-inside their worker.
+Routes choose a boundary adapter:
 
-Asynchronous handlers can await Nginx host services without blocking:
+- `:raw` exposes the borrowed Nginx exchange and the lowest-level response API;
+- `:request` exposes a lazy request view and accepts ordinary response maps;
+- `:request+hta` materializes a portable HTA request when portability is worth
+  the extra allocation.
+
+Asynchronous handlers use the same application model:
 
 ```clojure
 (defn delayed
@@ -322,15 +163,57 @@ Asynchronous handlers can await Nginx host services without blocking:
   {:status 200 :body "resumed\n"})
 ```
 
-Hara infers suspension from `await`. A normal handler stays on the direct path
-until it actually suspends, so `^:async` is optional and no promise/work record
-is allocated for a synchronous response.
+Hara infers suspension from `await`; a synchronous request does not allocate an
+asynchronous work record merely because another route can suspend.
 
-Routes select one of three boundary adapters: `:raw` exposes the borrowed Nginx
-exchange and `hoplite.raw` response operations, `:request` exposes a lazy
-map-like request and returns response maps, and `:request+hta` materializes an
-HTA request for portability and compatibility. See the routing-adapters guide
-for the detailed contract and trade-offs.
+## Public surfaces
+
+Before 1.0, Hoplite treats the following as intentional public surfaces:
+
+- the `hoplite.core` application and routing API;
+- the documented route adapters and request/response contracts;
+- the production bundle and worker-startup contract for a release line;
+- the native data-plane and host-provider ABIs;
+- the `hoplite` control CLI and `hoplite-server` serving CLI.
+
+Breaking changes to these surfaces require a migration note, focused fixtures,
+and a deliberate version change. Internal provider implementations, downstream
+application policy, and historical migration code are not promoted to public
+API merely because they remain in the repository during extraction.
+
+## Project boundaries
+
+Hoplite owns HTTP application composition, Nginx integration, worker lifecycle,
+request/response transport, asynchronous execution, streaming, bytecode startup,
+and the interfaces required to embed or extend those capabilities.
+
+Hoplite does **not** own application account models, authorization semantics,
+replay policy, database products, object-storage products, or another project's
+release proof. Extensions may implement Hoplite interfaces, but their publishing
+and product acceptance do not determine whether the core library is healthy.
+
+See [Project direction](docs/project-direction.md) and
+[CI gates](docs/ci-gates.md) for the complete decision rules.
+
+## Contributor workflow
+
+Source and native build tooling live under `core/`:
+
+```shell
+cd core
+make setup
+make check
+make runtime
+make nginx
+make server-cli
+make benchmark-bytecode
+```
+
+The required pull-request gates cover the locked Rust/Hara workspace, public C
+headers and registries, a real generic production image, request-body smoke
+coverage, and the documentation build. Compatibility matrices and benchmarks
+run separately so they provide evidence without turning extension publication
+into a core merge gate.
 
 ## License
 

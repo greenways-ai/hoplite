@@ -1916,7 +1916,7 @@ ngx_http_hoplite_bootstrap(ngx_cycle_t *cycle, const ngx_str_t *path)
     {
         ngx_free(source.data);
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
-                      "hoplite HBX0 bootstrap loading failed");
+                      "hoplite HBB2 bootstrap loading failed");
         return NGX_ERROR;
     }
     ngx_free(source.data);

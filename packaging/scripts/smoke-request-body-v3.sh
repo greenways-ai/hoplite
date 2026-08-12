@@ -21,6 +21,10 @@ diagnose() {
   docker inspect "$container" --format '{{json .State}}' >&2 || true
   echo '--- container logs ---' >&2
   docker logs "$container" >&2 || true
+  echo '--- Hoplite error log ---' >&2
+  docker exec "$container" sh -c 'cat /app/.hoplite/error.log 2>/dev/null || true' >&2 || true
+  echo '--- Hoplite access log ---' >&2
+  docker exec "$container" sh -c 'cat /app/.hoplite/access.log 2>/dev/null || true' >&2 || true
   echo '--- generated nginx configuration ---' >&2
   docker exec "$container" sh -c 'cat /app/.hoplite/conf/nginx.conf 2>/dev/null || true' >&2 || true
   echo '--- container processes ---' >&2
@@ -66,7 +70,13 @@ base="http://127.0.0.1:${port}"
 ready=false
 last_status='000'
 for _ in $(seq 1 60); do
-  last_status="$(request GET "$base/hello" || true)"
+  last_status="$(curl --silent --show-error \
+    --connect-timeout 1 \
+    --max-time 1 \
+    --dump-header "$headers_file" \
+    --output "$body_file" \
+    --write-out '%{http_code}' \
+    "$base/hello" || true)"
   if [[ "$last_status" == 200 ]] \
     && [[ "$(cat "$body_file")" == 'Hello from Hoplite' ]]; then
     ready=true

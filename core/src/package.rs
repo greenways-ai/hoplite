@@ -203,7 +203,8 @@ fn verify_root(root: &Path, coordinate: &str, version: &Version) -> Result<(), S
             manifest_path.display()
         ));
     };
-    if !matches!(field(&manifest, "harp/format"), Some(Form::String(version)) if version == "0.0.0-alpha") {
+    if !matches!(field(&manifest, "harp/format"), Some(Form::String(version)) if version == "0.0.0-alpha")
+    {
         return Err(format!(
             "{} has an unsupported HARP format",
             manifest_path.display()
