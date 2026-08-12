@@ -193,8 +193,8 @@ fn core_boundary_is_explicit_complete_and_consistent() {
 
     let public_source = fs::read_to_string(root.join("docs/public-surfaces.json"))
         .expect("public-surface registry must be readable");
-    let public: Value = serde_json::from_str(&public_source)
-        .expect("public-surface registry must be valid JSON");
+    let public: Value =
+        serde_json::from_str(&public_source).expect("public-surface registry must be valid JSON");
     let availability = public
         .get("cli_programs")
         .and_then(Value::as_array)
@@ -226,9 +226,6 @@ fn core_boundary_is_explicit_complete_and_consistent() {
         "hoplite-provider-manifest",
         "hoplite-provider-set-lock",
     ] {
-        assert_eq!(
-            availability.get(program),
-            Some(&"legacy-provider-products")
-        );
+        assert_eq!(availability.get(program), Some(&"legacy-provider-products"));
     }
 }
