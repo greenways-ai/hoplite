@@ -11,15 +11,28 @@ STATIC_LIBRARY="$TARGET/libhoplite_runtime.a"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
+echo 'embedding-stage: clean-runtime-package'
 cargo clean \
   --manifest-path "$MANIFEST" \
   --package hoplite-runtime
 
+echo 'embedding-stage: build-static-library'
+set +e
 cargo rustc \
   --manifest-path "$MANIFEST" \
   --locked \
   --lib \
-  -- --print native-static-libs 2>&1 | tee "$WORK/rustc.log"
+  -- --print native-static-libs > "$WORK/rustc.log" 2>&1
+rustc_status=$?
+set -e
+cat "$WORK/rustc.log"
+echo "embedding-stage-status: build-static-library=$rustc_status"
+if [[ "$rustc_status" -ne 0 ]]; then
+  echo '--- extracted rustc errors ---' >&2
+  grep -E -B 4 -A 8 '(^|[[:space:]])error(\[[^]]+\])?:|could not compile|process did not exit successfully' \
+    "$WORK/rustc.log" >&2 || true
+  exit "$rustc_status"
+fi
 
 native_static_libs="$({
   sed -n 's/^.*native-static-libs: //p' "$WORK/rustc.log"
@@ -35,19 +48,24 @@ test -f "$STATIC_LIBRARY" || {
   exit 1
 }
 
+echo 'embedding-stage: run-rust-fixture'
 cargo run \
   --manifest-path "$MANIFEST" \
   --locked \
   --example embed
 
+echo 'embedding-stage: link-c-fixture'
 cc -std=c11 -Wall -Wextra -Werror \
   -I "$ROOT/core/nginx" \
   "$ROOT/core/runtime/examples/embed.c" \
   "$STATIC_LIBRARY" \
   "${native_link_args[@]}" \
   -o "$WORK/hoplite-c-embed"
+
+echo 'embedding-stage: run-c-fixture'
 "$WORK/hoplite-c-embed"
 
+echo 'embedding-stage: compare-symbol-inventory'
 grep -Eo 'hoplite_[a-z0-9_]+\(' "$HEADER" \
   | tr -d '(' \
   | LC_ALL=C sort -u > "$WORK/header-symbols.txt"
