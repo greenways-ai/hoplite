@@ -13,8 +13,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  issues: write
+  contents: write
 
 concurrency:
   group: hoplite-ci-${{ github.event.pull_request.number || github.ref }}
@@ -44,31 +43,22 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Check Rust formatting
+      - name: Apply Rust formatting once
         working-directory: hoplite
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           cargo fmt --manifest-path core/Cargo.toml
           if git diff --quiet -- core; then
             exit 0
           fi
-          git diff -- core > /tmp/hoplite-rustfmt.diff
-          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
-            {
-              echo '<!-- hoplite-rustfmt-diagnostic -->'
-              echo 'Rustfmt requires the following patch:'
-              echo
-              echo '```diff'
-              cat /tmp/hoplite-rustfmt.diff
-              echo '```'
-            } > /tmp/hoplite-rustfmt-comment.md
-            gh api \
-              "repos/$GITHUB_REPOSITORY/issues/${{ github.event.pull_request.number }}/comments" \
-              --method POST \
-              --raw-field body="$(cat /tmp/hoplite-rustfmt-comment.md)"
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
+            git diff -- core
+            exit 1
           fi
-          cat /tmp/hoplite-rustfmt.diff
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add core
+          git commit -m "Apply rustfmt"
+          git push origin "HEAD:${GITHUB_HEAD_REF}"
           exit 1
       - name: Verify the committed dependency graph
         run: |
