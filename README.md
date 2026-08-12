@@ -8,6 +8,13 @@ bounded host boundaries, asynchronous suspension, and streaming responses.
 request -> Nginx -> prepared Hoplite route -> Hara handler -> native response
 ```
 
+> **Alpha versioning:** Hoplite follows Hara's pre-release contract epoch.
+> Production application envelopes are `hoplite.application-bundle/0-alpha`
+> (`HAB0`) and carry Hara `HBX0` bundles. Package versions remain ordinary
+> pre-1.0 semantic versions, while runtime ABI numbers and `_v1` symbol suffixes
+> describe separate native call shapes. See
+> [Versioning during alpha](docs/versioning.md).
+
 Hoplite is developed as a **library-first project**. Its product is the public
 application API, runtime behaviour, embedding ABI, diagnostics, compatibility,
 and performance. Storage products, application-specific authorization policy,
@@ -134,14 +141,13 @@ Production build output is isolated under `.hoplite/`:
   openapi/<app-name>.json
 ```
 
-`app.hbx` is the deterministic HAB0 application bundle loaded transactionally
-by a worker. Development builds may also emit `.hoplite/app.hal` for inspection;
-production builds remove that source projection. Generated `.hoplite` output is
-never registered as application input, even when a project uses
-`:project/source-paths ["."]`. Verify a built application without executing it
-with `hoplite verify .`.
+`app.hbx` is the deterministic `HAB0` alpha application envelope loaded
+transactionally by a worker. Development builds may also emit
+`.hoplite/app.hal` for inspection; production builds remove that source
+projection. Generated `.hoplite` output is never registered as application
+input, even when a project uses `:project/source-paths ["."]`. Verify a built
+application without executing it with `hoplite verify .`.
 
-## Runtime model
 ## Runtime model
 
 There is one Hoplite runtime per Nginx worker. Bootstrap loads the application
@@ -175,12 +181,12 @@ Before 1.0, Hoplite treats the following as intentional public surfaces:
 
 - the `hoplite.core` application and routing API;
 - the documented route adapters and request/response contracts;
-- the production bundle and worker-startup contract for a release line;
+- the alpha application-bundle and worker-startup contract;
 - the native data-plane and host-provider ABIs;
 - the `hoplite` control CLI and `hoplite-server` serving CLI.
 
 Breaking changes to these surfaces require a migration note, focused fixtures,
-and a deliberate version change. Internal provider implementations, downstream
+and a deliberate version decision. Internal provider implementations, downstream
 application policy, and historical migration code are not promoted to public
 API merely because they remain in the repository during extraction.
 
@@ -195,7 +201,8 @@ replay policy, database products, object-storage products, or another project's
 release proof. Extensions may implement Hoplite interfaces, but their publishing
 and product acceptance do not determine whether the core library is healthy.
 
-See [Project direction](docs/project-direction.md) and
+See [Project direction](docs/project-direction.md),
+[Versioning during alpha](docs/versioning.md), and
 [CI gates](docs/ci-gates.md) for the complete decision rules.
 
 ## Contributor workflow
