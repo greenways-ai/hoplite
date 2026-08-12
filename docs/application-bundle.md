@@ -60,7 +60,7 @@ promote the application document out of alpha.
 
 An incompatible change to the envelope, manifest-binding law, or required inner
 Hara format must change the alpha epoch or marker and include a migration note.
-The current code makes no `hoplite.application-bundle/1` claim.
+The current code makes no stable-major application-bundle claim.
 
 The lower-level `hoplite_bootstrap_bytecode`, `hoplite_apps_prepare`, and
 byte-oriented `hoplite_bootstrap_application_v1` symbols remain available for
