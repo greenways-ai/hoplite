@@ -39,8 +39,10 @@ fn committed_hab0_bytes_are_the_encoder_contract() {
 fn reserved_next_epoch_requires_an_explicit_migration() {
     let current = fixture_hex(include_str!("fixtures/hab0-golden.hex"));
     let next_epoch = fixture_hex(include_str!("fixtures/hab1-migration-rejected.hex"));
+    let mut reserved_marker = *MAGIC;
+    reserved_marker[3] = b'1';
 
-    assert_eq!(&next_epoch[..4], b"HAB1");
-    assert_eq!(&next_epoch[4..], &current[4..]);
+    assert_eq!(&next_epoch[..MAGIC.len()], &reserved_marker);
+    assert_eq!(&next_epoch[MAGIC.len()..], &current[MAGIC.len()..]);
     assert_eq!(decode(&next_epoch, MANIFEST), Err(Error::InvalidMagic));
 }
