@@ -1,3 +1,4 @@
+use hara_wasm::hta;
 use hara_wasm::kernel::{parse_forms, Form};
 use hara_wasm::project::{self, Project};
 use hara_wasm::vm::{self, BytecodeBundleModule};
@@ -55,6 +56,7 @@ fn run(arguments: Vec<String>) -> Result<(), String> {
             println!("Nginx {} ({})", NGINX_VERSION, nginx_distribution());
         }
         Some("serve") => run_serve_command(&arguments[1..])?,
+        Some("verify") => run_verify_command(&arguments[1..])?,
         #[cfg(feature = "legacy-management")]
         Some("auth") => run_auth_command(&arguments[1..])?,
         Some("package") => package::run(&arguments[1..])?,
@@ -84,9 +86,135 @@ fn usage() {
     println!("  hoplite [repl]");
     println!("  hoplite eval EXPRESSION");
     println!("  hoplite run FILE");
+    println!("  hoplite verify [--manifest FILE] [PROJECT|OUTPUT|BUNDLE]");
     println!("  hoplite package [check|build|inspect|install|verify] [OPTIONS]");
     println!("  hoplite serve [start|stop|reload|status|build|check] [PROJECT]");
     println!("  hoplite version");
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ApplicationVerification {
+    bundle_path: PathBuf,
+    manifest_path: PathBuf,
+    bundle_bytes: usize,
+    manifest_bytes: usize,
+    bytecode_bytes: usize,
+    manifest_digest: [u8; 32],
+}
+
+fn run_verify_command(arguments: &[String]) -> Result<(), String> {
+    if matches!(
+        arguments.first().map(String::as_str),
+        Some("--help" | "-h" | "help")
+    ) {
+        verify_usage();
+        return Ok(());
+    }
+
+    let mut target = None;
+    let mut manifest_override = None;
+    let mut index = 0;
+    while index < arguments.len() {
+        match arguments[index].as_str() {
+            "--manifest" => {
+                index += 1;
+                manifest_override = Some(PathBuf::from(
+                    arguments
+                        .get(index)
+                        .ok_or("verify --manifest requires a file")?,
+                ));
+            }
+            value if target.is_none() => target = Some(PathBuf::from(value)),
+            value => return Err(format!("unexpected verify argument: {value}")),
+        }
+        index += 1;
+    }
+
+    let target = target.unwrap_or(env::current_dir().map_err(io)?);
+    let (bundle_path, default_manifest_path) = verification_paths(&target);
+    let manifest_path = manifest_override.unwrap_or(default_manifest_path);
+    let verified = verify_application_bundle(&bundle_path, &manifest_path)?;
+    println!("verified {}", application_bundle::FORMAT);
+    println!(
+        "bundle: {} ({} bytes)",
+        verified.bundle_path.display(),
+        verified.bundle_bytes
+    );
+    println!(
+        "manifest: {} ({} bytes)",
+        verified.manifest_path.display(),
+        verified.manifest_bytes
+    );
+    println!("runtime ABI: {}", application_bundle::RUNTIME_ABI_VERSION);
+    println!("manifest sha256: {}", lower_hex(&verified.manifest_digest));
+    println!("embedded HBB2: {} bytes", verified.bytecode_bytes);
+    Ok(())
+}
+
+fn verify_usage() {
+    println!("Verify a built Hoplite application without executing it");
+    println!();
+    println!("usage: hoplite verify [--manifest FILE] [PROJECT|OUTPUT|BUNDLE]");
+}
+
+fn verification_paths(target: &Path) -> (PathBuf, PathBuf) {
+    let explicit_bundle = target.is_file()
+        || target
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case("hbx"));
+    if explicit_bundle {
+        let manifest = target
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("apps.hta");
+        return (target.to_path_buf(), manifest);
+    }
+
+    let is_output = target
+        .file_name()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value == ".hoplite")
+        || target.join("app.hbx").is_file()
+        || target.join("apps.hta").is_file();
+    let output = if is_output {
+        target.to_path_buf()
+    } else {
+        target.join(".hoplite")
+    };
+    (output.join("app.hbx"), output.join("apps.hta"))
+}
+
+fn verify_application_bundle(
+    bundle_path: &Path,
+    manifest_path: &Path,
+) -> Result<ApplicationVerification, String> {
+    let bundle =
+        application_bundle::read_bundle_file(bundle_path).map_err(|error| error.to_string())?;
+    let manifest =
+        application_bundle::read_manifest_file(manifest_path).map_err(|error| error.to_string())?;
+    let decoded =
+        application_bundle::decode(&bundle, &manifest).map_err(|error| error.to_string())?;
+    hta::decode(&manifest)
+        .map_err(|error| format!("hoplite/application-manifest-invalid: {error}"))?;
+    Ok(ApplicationVerification {
+        bundle_path: bundle_path.to_path_buf(),
+        manifest_path: manifest_path.to_path_buf(),
+        bundle_bytes: bundle.len(),
+        manifest_bytes: manifest.len(),
+        bytecode_bytes: decoded.bytecode().len(),
+        manifest_digest: decoded.manifest_digest(),
+    })
+}
+
+fn lower_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
 }
 
 #[cfg(feature = "legacy-management")]
@@ -1259,5 +1387,32 @@ mod tests {
         assert!(plist.contains("Hara &amp; Hoplite"));
         assert!(plist.contains("example &lt;web&gt;"));
         assert!(plist.contains("<key>KeepAlive</key><true/>"));
+    }
+
+    #[test]
+    fn verifies_a_built_application_without_source_execution() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let root = std::env::temp_dir().join(format!(
+            "hoplite-verify-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let output = root.join(".hoplite");
+        std::fs::create_dir_all(&output).unwrap();
+        let manifest = hta::encode(&hara_wasm::core::Value::Map(Default::default())).unwrap();
+        let bundle = application_bundle::encode(&manifest, b"HBB2verification").unwrap();
+        std::fs::write(output.join("app.hbx"), &bundle).unwrap();
+        std::fs::write(output.join("apps.hta"), &manifest).unwrap();
+
+        let (bundle_path, manifest_path) = verification_paths(&root);
+        let verified = verify_application_bundle(&bundle_path, &manifest_path).unwrap();
+        assert_eq!(verified.bundle_bytes, bundle.len());
+        assert_eq!(verified.manifest_bytes, manifest.len());
+        assert_eq!(verified.bytecode_bytes, b"HBB2verification".len());
+        assert_eq!(lower_hex(&verified.manifest_digest).len(), 64);
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

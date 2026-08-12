@@ -84,7 +84,18 @@ int hoplite_bootstrap_application_v1(hoplite_runtime_t *runtime,
                                      const uint8_t *bundle,
                                      size_t bundle_len,
                                      const uint8_t *manifest,
-                                     size_t manifest_len);
+                           size_t manifest_len);
+
+/*
+ * Read the configured HAB1 and manifest as bounded regular files,
+ * then perform the same combined transactional startup.
+ */
+int hoplite_bootstrap_application_files_v1(
+    hoplite_runtime_t *runtime,
+    const uint8_t *bundle_path,
+    size_t bundle_path_len,
+    const uint8_t *manifest_path,
+    size_t manifest_path_len);
 
 uint64_t hoplite_handler_prepare(hoplite_runtime_t *runtime,
                                  const uint8_t *function,

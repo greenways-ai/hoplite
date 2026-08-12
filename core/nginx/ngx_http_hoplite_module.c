@@ -1862,73 +1862,21 @@ ngx_http_hoplite_handler(ngx_http_request_t *request)
 }
 
 static ngx_int_t
-ngx_http_hoplite_read_file(ngx_cycle_t *cycle, const ngx_str_t *path,
-                           ngx_str_t *source, ngx_flag_t append_nil)
-{
-    ngx_file_t file;
-    ngx_file_info_t info;
-    ssize_t read;
-
-    ngx_memzero(&file, sizeof(file));
-    file.name = *path;
-    file.log = cycle->log;
-    file.fd = ngx_open_file(path->data, NGX_FILE_RDONLY, NGX_FILE_OPEN, 0);
-    if (file.fd == NGX_INVALID_FILE) {
-        ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_errno,
-                      "hoplite could not open bootstrap file %V", path);
-        return NGX_ERROR;
-    }
-    if (ngx_fd_info(file.fd, &info) == NGX_FILE_ERROR) {
-        ngx_close_file(file.fd);
-        return NGX_ERROR;
-    }
-
-    source->len = (size_t) ngx_file_size(&info);
-    source->data = ngx_alloc(source->len + (append_nil ? sizeof("\nnil") - 1 : 0), cycle->log);
-    if (source->data == NULL) {
-        ngx_close_file(file.fd);
-        return NGX_ERROR;
-    }
-    read = ngx_read_file(&file, source->data, source->len, 0);
-    ngx_close_file(file.fd);
-    if (read == NGX_ERROR || (size_t) read != source->len) {
-        ngx_free(source->data);
-        source->data = NULL;
-        return NGX_ERROR;
-    }
-    if (append_nil) {
-        ngx_memcpy(source->data + source->len, "\nnil", sizeof("\nnil") - 1);
-        source->len += sizeof("\nnil") - 1;
-    }
-    return NGX_OK;
-}
-
-static ngx_int_t
 ngx_http_hoplite_bootstrap(ngx_cycle_t *cycle,
                            const ngx_str_t *bundle_path,
                            const ngx_str_t *manifest_path)
 {
-    ngx_str_t bundle, manifest;
-
-    if (ngx_http_hoplite_read_file(cycle, bundle_path, &bundle, 0) != NGX_OK) {
-        return NGX_ERROR;
-    }
-    if (ngx_http_hoplite_read_file(cycle, manifest_path, &manifest, 0) != NGX_OK) {
-        ngx_free(bundle.data);
-        return NGX_ERROR;
-    }
-    if (hoplite_bootstrap_application_v1(ngx_http_hoplite_runtime,
-                                         bundle.data, bundle.len,
-                                         manifest.data, manifest.len) != 0)
+    if (hoplite_bootstrap_application_files_v1(
+            ngx_http_hoplite_runtime,
+            bundle_path->data,
+            bundle_path->len,
+            manifest_path->data,
+            manifest_path->len) != 0)
     {
-        ngx_free(manifest.data);
-        ngx_free(bundle.data);
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
                       "hoplite HAB1 application bootstrap loading failed");
         return NGX_ERROR;
     }
-    ngx_free(manifest.data);
-    ngx_free(bundle.data);
     return NGX_OK;
 }
 

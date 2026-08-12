@@ -1849,6 +1849,35 @@ pub unsafe extern "C" fn hoplite_bootstrap_application_v1(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn hoplite_bootstrap_application_files_v1(
+    runtime: *mut HopliteRuntime,
+    bundle_path_ptr: *const u8,
+    bundle_path_len: usize,
+    manifest_path_ptr: *const u8,
+    manifest_path_len: usize,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        let bundle_path = source(bundle_path_ptr, bundle_path_len)?;
+        let manifest_path = source(manifest_path_ptr, manifest_path_len)?;
+        let bundle = application_bundle::read_bundle_file(bundle_path).map_err(|error| {
+            eprintln!("hoplite application bootstrap: {error}");
+        })?;
+        let manifest = application_bundle::read_manifest_file(manifest_path).map_err(|error| {
+            eprintln!("hoplite application bootstrap: {error}");
+        })?;
+        if let Err(error) = runtime.bootstrap_application(&bundle, &manifest) {
+            eprintln!("hoplite application bootstrap: {error}");
+            return Err(());
+        }
+        Ok::<i32, ()>(0)
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(1)
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn hoplite_work_start(
     runtime: *mut HopliteRuntime,
     source_ptr: *const u8,

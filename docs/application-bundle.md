@@ -53,3 +53,16 @@ documented migration path.
 The lower-level `hoplite_bootstrap_bytecode` and `hoplite_apps_prepare` symbols
 remain available for embedding compatibility, but the generated Nginx
 production configuration uses `hoplite_bootstrap_application_v1`.
+
+
+## Source-free verification
+
+`hoplite verify [--manifest FILE] [PROJECT|OUTPUT|BUNDLE]` reads only the
+built HAB1 and its exact manifest. It applies the same regular-file and size
+limits used by production worker startup, verifies the envelope and manifest
+digest, validates the HTA document, and reports the runtime ABI, digest and
+embedded HBB2 size without executing application code.
+
+The Nginx module passes configured paths to the Rust runtime rather than
+allocating files in C. Bundle and manifest limits are therefore checked before
+allocation from one library-owned implementation.
