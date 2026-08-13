@@ -146,28 +146,28 @@
       "path": "core/src/bin/hoplite-object-backend-lock.rs",
       "status": "migration-only",
       "availability": "legacy-provider-products",
-      "summary": "Historical object-backend product lock generator retained for extraction."
+      "summary": "Migration-only wrapper for physically quarantined provider distribution tooling, available only through legacy-provider-products."
     },
     {
       "name": "hoplite-provider-lock",
       "path": "core/src/bin/hoplite-provider-lock.rs",
       "status": "migration-only",
       "availability": "legacy-provider-products",
-      "summary": "Historical provider-product lock generator retained for extraction."
+      "summary": "Migration-only wrapper for physically quarantined provider distribution tooling, available only through legacy-provider-products."
     },
     {
       "name": "hoplite-provider-manifest",
       "path": "core/src/bin/hoplite-provider-manifest.rs",
       "status": "migration-only",
       "availability": "legacy-provider-products",
-      "summary": "Historical provider-product manifest generator retained for extraction."
+      "summary": "Migration-only wrapper for physically quarantined provider distribution tooling, available only through legacy-provider-products."
     },
     {
       "name": "hoplite-provider-set-lock",
       "path": "core/src/bin/hoplite-provider-set-lock.rs",
       "status": "migration-only",
       "availability": "legacy-provider-products",
-      "summary": "Historical provider-set lock generator retained for extraction."
+      "summary": "Migration-only wrapper for physically quarantined provider distribution tooling, available only through legacy-provider-products."
     }
   ],
   "cli_commands": [

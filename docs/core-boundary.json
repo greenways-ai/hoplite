@@ -13,7 +13,7 @@
     "opt_in_features": {
       "internal-evidence": "Internal measurement programs that are not shipped as supported commands.",
       "legacy-management": "Historical application authentication and management policy retained only for migration.",
-      "legacy-provider-products": "Historical provider manifest and lock tooling retained only for extraction.",
+      "legacy-provider-products": "Historical provider manifest and lock tools physically quarantined and retained only for path-scoped extraction conformance.",
       "legacy-value-contract": "Historical hoplite.value HAL contract retained only for path-scoped migration conformance."
     }
   },
@@ -107,26 +107,6 @@
       "path": "core/src/platform.rs",
       "status": "core",
       "summary": "Application module activation with legacy policy sections feature-gated for extraction."
-    },
-    {
-      "path": "core/src/provider_lock.rs",
-      "status": "migration-only",
-      "summary": "Historical provider lock document validation."
-    },
-    {
-      "path": "core/src/provider_lock/object_backend.rs",
-      "status": "migration-only",
-      "summary": "Historical object-backend lock document validation."
-    },
-    {
-      "path": "core/src/provider_lock/provider_set.rs",
-      "status": "migration-only",
-      "summary": "Historical provider-set lock document validation."
-    },
-    {
-      "path": "core/src/provider_manifest.rs",
-      "status": "migration-only",
-      "summary": "Historical provider product manifest validation."
     },
     {
       "path": "core/src/repl.rs",
@@ -371,6 +351,11 @@
     }
   ],
   "migration_products": [
+    {
+      "path": "migration/provider-products",
+      "status": "migration-only",
+      "summary": "Physically quarantined historical provider distribution validators, CLI implementations, and focused tests."
+    },
     {
       "path": "migration/value",
       "status": "migration-only",
