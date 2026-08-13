@@ -179,6 +179,13 @@
     },
     {
       "program": "hoplite",
+      "name": "doctor",
+      "status": "public",
+      "availability": "default",
+      "summary": "Diagnose the local project, runtime, Nginx, trust, package-lock and generated-application environment with path-redacted results."
+    },
+    {
+      "program": "hoplite",
       "name": "eval",
       "status": "public",
       "availability": "default",
@@ -254,6 +261,12 @@
       "path": "docs/application-bundle.md",
       "status": "public",
       "summary": "HAB0 alpha production application bundle and exact-manifest binding."
+    },
+    {
+      "name": "hoplite.doctor/0-alpha",
+      "path": "docs/diagnostics.md",
+      "status": "public",
+      "summary": "Path-redacted local runtime health and readiness report."
     },
     {
       "name": "hoplite.inspect/0-alpha",

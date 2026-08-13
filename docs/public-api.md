@@ -205,8 +205,8 @@ implementations are extracted.
 
 ## CLI surfaces
 
-The public `hoplite` control CLI supports `repl`, `eval`, `run`, `inspect`,
-`verify`, `package`, `serve`, and `version`. `auth` exists only in builds with the
+The public `hoplite` control CLI supports `repl`, `eval`, `run`, `doctor`,
+`inspect`, `verify`, `package`, `serve`, and `version`. `auth` exists only in builds with the
 migration-only `legacy-management` feature. Unknown commands and operational
 failures exit non-zero and write an error prefixed with `hoplite:` to standard
 error. Successful commands and help exit zero.
@@ -216,6 +216,13 @@ adapter counts plus generated-artifact digests, detects source inputs beneath th
 output directory, and redacts filesystem paths unless `--show-paths` is supplied.
 Its JSON identity is `hoplite.inspect/0-alpha`; see
 [Diagnostics](diagnostics.md).
+
+`hoplite doctor` diagnoses the executable runtime, Nginx, CA trust, project
+profile and source declarations, package-lock/platform consistency, and any
+generated HAB0 application. Its default pass does not execute source; `--deep`
+explicitly performs compilation and application preflight. Paths remain redacted
+unless `--show-paths` is supplied. Its JSON identity is
+`hoplite.doctor/0-alpha`.
 
 `hoplite-server` consumes generated `.hoplite` output and supports production
 serving, a bounded worker-count override, help, and version reporting. Failures
