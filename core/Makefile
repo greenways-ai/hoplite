@@ -25,6 +25,10 @@ OPENSSL_PREFIX ?= $(shell brew --prefix openssl@3)
 PCRE2_PREFIX ?= $(shell brew --prefix pcre2)
 NGINX_CC_OPT ?= -I$(OPENSSL_PREFIX)/include -I$(PCRE2_PREFIX)/include
 NGINX_LD_OPT ?= $(PCRE2_PREFIX)/lib/libpcre2-8.a $(OPENSSL_PREFIX)/lib/libssl.a $(OPENSSL_PREFIX)/lib/libcrypto.a -framework Security -framework CoreFoundation -framework SystemConfiguration -Wl,-dead_strip -Wl,-dead_strip_dylibs
+else
+# Nginx adds -Wl,-E on ELF hosts. Hide archive-only symbols so that
+# --gc-sections can discard unreachable Hara source/compiler entry points.
+NGINX_LD_OPT ?= -Wl,--gc-sections -Wl,--exclude-libs,ALL
 endif
 
 .PHONY: help setup check runtime runtime-production cli embedded-cli server-cli test nginx nginx-source docker \
