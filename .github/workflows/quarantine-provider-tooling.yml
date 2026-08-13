@@ -1,0 +1,59 @@
+name: Quarantine provider tooling
+
+on:
+  push:
+    branches:
+      - agent/quarantine-provider-tooling-107
+
+permissions:
+  contents: write
+
+jobs:
+  quarantine:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Move provider distribution implementations out of core
+        run: python3 .github/scripts/quarantine-provider-tooling.py
+      - name: Format and validate generated changes
+        run: |
+          rustfmt --edition 2021 \
+            core/src/bin/hoplite-provider-manifest.rs \
+            core/src/bin/hoplite-provider-lock.rs \
+            core/src/bin/hoplite-object-backend-lock.rs \
+            core/src/bin/hoplite-provider-set-lock.rs \
+            migration/provider-products/src/provider_manifest.rs \
+            migration/provider-products/src/provider_lock.rs \
+            migration/provider-products/src/provider_lock/object_backend.rs \
+            migration/provider-products/src/provider_lock/provider_set.rs \
+            migration/provider-products/bin/hoplite-provider-manifest.rs \
+            migration/provider-products/bin/hoplite-provider-lock.rs \
+            migration/provider-products/bin/hoplite-object-backend-lock.rs \
+            migration/provider-products/bin/hoplite-provider-set-lock.rs
+          python3 -m json.tool docs/public-surfaces.json >/dev/null
+          python3 -m json.tool docs/core-boundary.json >/dev/null
+          test ! -e .github/workflows/quarantine-provider-tooling.yml
+          test ! -e .github/scripts/quarantine-provider-tooling.py
+          test -f migration/provider-products/src/provider_lock.rs
+          test -f migration/provider-products/src/provider_manifest.rs
+          test -f core/src/bin/hoplite-provider-lock.rs
+          test ! -e core/src/provider_lock.rs
+          test ! -e core/src/provider_manifest.rs
+          git diff --check
+      - name: Commit the quarantined tooling
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && {
+            echo "quarantine produced no changes" >&2
+            exit 1
+          }
+          git commit -m "Quarantine provider distribution tooling"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
