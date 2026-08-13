@@ -64,6 +64,10 @@ jobs:
           exit "$status"
       - name: Format and validate generated changes
         run: |
+          # The GitHub Actions app cannot update another workflow file. Preserve
+          # the validated source/docs changes here and apply compatibility.yml
+          # separately through the GitHub connector after this commit lands.
+          git checkout HEAD -- .github/workflows/compatibility.yml
           rustfmt --edition 2021 \
             core/src/app.rs \
             core/src/main.rs \
