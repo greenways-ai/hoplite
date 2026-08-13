@@ -74,6 +74,22 @@ struct ResolvedPaths {
     manifest: PathBuf,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Health {
+    pub(crate) applications: usize,
+    pub(crate) routes: usize,
+    pub(crate) source_inputs: usize,
+}
+
+pub(crate) fn health(target: &Path) -> Result<Health, String> {
+    let inspection = inspect_target(target, None, false)?;
+    Ok(Health {
+        applications: inspection.manifest.applications,
+        routes: inspection.manifest.routes,
+        source_inputs: inspection.source_inputs.count,
+    })
+}
+
 pub fn run(arguments: &[String]) -> Result<(), String> {
     if matches!(
         arguments.first().map(String::as_str),

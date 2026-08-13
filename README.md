@@ -149,7 +149,9 @@ input, even when a project uses `:project/source-paths ["."]`. Inspect the
 generated bundle, route manifest, configuration digests, and source-free status
 with `hoplite inspect .`; use `--json` for the machine-readable
 `hoplite.inspect/0-alpha` report. Verify a built application without executing it
-with `hoplite verify .`.
+with `hoplite verify .`. Diagnose the complete local project, Nginx, trust,
+package-lock, and generated-output environment with `hoplite doctor .`; add
+`--deep` only when source compilation and application preflight are intended.
 
 ## Runtime model
 
