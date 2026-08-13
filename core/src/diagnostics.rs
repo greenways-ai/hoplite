@@ -5,8 +5,8 @@ use serde_json::{json, Value as JsonValue};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
-use std::fs;
-use std::io;
+use std::fs::{self, File};
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 pub const FORMAT: &str = "hoplite.inspect/0-alpha";
@@ -298,16 +298,14 @@ fn sequence_field(value: &Value, name: &str) -> Option<Vec<Value>> {
 }
 
 fn inspect_optional_artifact(path: &Path, label: &'static str) -> Result<Artifact, String> {
-    let metadata = match fs::metadata(path) {
-        Ok(metadata) => metadata,
+    let file = match File::open(path) {
+        Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Artifact::absent()),
-        Err(error) => {
-            return Err(format!(
-                "hoplite/inspect-{label}-metadata: {}",
-                io_kind(&error)
-            ))
-        }
+        Err(error) => return Err(format!("hoplite/inspect-{label}-open: {}", io_kind(&error))),
     };
+    let metadata = file
+        .metadata()
+        .map_err(|error| format!("hoplite/inspect-{label}-metadata: {}", io_kind(&error)))?;
     if !metadata.is_file() {
         return Err(format!("hoplite/inspect-{label}-not-regular"));
     }
@@ -318,12 +316,22 @@ fn inspect_optional_artifact(path: &Path, label: &'static str) -> Result<Artifac
             MAX_INSPECTED_ARTIFACT_BYTES
         ));
     }
-    let bytes = fs::read(path)
+
+    let expected = metadata.len();
+    let mut bytes = Vec::with_capacity(expected as usize);
+    file.take(MAX_INSPECTED_ARTIFACT_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
         .map_err(|error| format!("hoplite/inspect-{label}-read: {}", io_kind(&error)))?;
-    if bytes.len() as u64 != metadata.len() {
+    if bytes.len() > MAX_INSPECTED_ARTIFACT_BYTES {
         return Err(format!(
-            "hoplite/inspect-{label}-changed: expected {} bytes, read {}",
-            metadata.len(),
+            "hoplite/inspect-{label}-too-large: {} bytes exceeds {}",
+            bytes.len(),
+            MAX_INSPECTED_ARTIFACT_BYTES
+        ));
+    }
+    if bytes.len() as u64 != expected {
+        return Err(format!(
+            "hoplite/inspect-{label}-changed: expected {expected} bytes, read {}",
             bytes.len()
         ));
     }
