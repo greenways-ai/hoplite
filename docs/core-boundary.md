@@ -45,7 +45,7 @@ Four non-default features make retained source explicit:
 | --- | --- |
 | `internal-evidence` | Enables measurement programs that are useful to Hoplite development but are not supported user commands. |
 | `legacy-management` | Enables the historical application-authentication and management implementation while it is extracted. |
-| `legacy-provider-products` | Enables historical provider manifest and lock generators while release/product material is extracted. |
+| `legacy-provider-products` | Enables tiny Cargo wrappers for provider manifest and lock implementations physically quarantined beneath `migration/provider-products`. |
 | `legacy-value-contract` | Enables the physically quarantined historical `hoplite.value` HAL contract only for migration conformance. |
 
 The authentication-store ABI, the external SQLite store implementation, and
@@ -55,7 +55,9 @@ product. Generic host cryptography remains available without enabling historical
 application policy or database storage.
 
 The legacy features are temporary migration seams, not extension points and not
-release promises. New generic runtime code must not depend on them. Ordinary
+release promises. Provider manifest/lock validators and their CLI implementations
+are physically outside `core/src`; only target-name wrappers remain for the
+documented compatibility window. New generic runtime code must not depend on them. Ordinary
 resource registration and application-bundle construction exclude `hoplite.value`;
 only the explicit `legacy-value-contract` feature can restore it for focused
 compatibility testing.

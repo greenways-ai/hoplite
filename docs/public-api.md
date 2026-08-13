@@ -234,8 +234,9 @@ not require application source, Cargo, a Hara source compiler, or the
 development CLI.
 
 `package` remains experimental while historical provider artifact operations
-are separated from generic application packaging. The object/provider lock
-generator binaries are migration-only source-build tools. The
+are separated from generic application packaging. The object/provider lock generator targets are migration-only wrappers around
+implementations physically quarantined beneath `migration/provider-products` and
+available only through `legacy-provider-products`. The
 bytecode-loading program is internal measurement evidence, not a supported user
 command.
 

@@ -13,10 +13,15 @@ on:
       - "core/Cargo.toml"
       - "core/src/app.rs"
       - "core/src/main.rs"
+      - "core/src/bin/hoplite-object-backend-lock.rs"
+      - "core/src/bin/hoplite-provider-lock.rs"
+      - "core/src/bin/hoplite-provider-manifest.rs"
+      - "core/src/bin/hoplite-provider-set-lock.rs"
       - "core/tests/core_boundary.rs"
       - "core/tests/public_surfaces.rs"
       - "docs/core-boundary.json"
       - "docs/public-surfaces.json"
+      - "migration/provider-products/**"
       - "migration/value/**"
       - "core/abi/blob-store/**"
       - "core/abi/blob-store-filesystem/**"
@@ -42,6 +47,7 @@ jobs:
     outputs:
       reference: ${{ steps.scope.outputs.reference }}
       legacy_value: ${{ steps.scope.outputs.legacy_value }}
+      legacy_provider_products: ${{ steps.scope.outputs.legacy_provider_products }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -56,12 +62,14 @@ jobs:
           if [[ "$EVENT_NAME" != pull_request ]]; then
             echo 'reference=true' >> "$GITHUB_OUTPUT"
             echo 'legacy_value=true' >> "$GITHUB_OUTPUT"
+            echo 'legacy_provider_products=true' >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           git diff --name-only "$BASE_SHA" "$GITHUB_SHA" > /tmp/changed-paths
           reference=false
           legacy_value=false
+          legacy_provider_products=false
 
           if grep -Eq '^(\.github/workflows/compatibility\.yml|core/abi/(blob-store|blob-store-filesystem|blob-store-conformance|provider-hta|value-store|value-store-sqlite|value-store-provider|value-store-provider-ffi)/)' /tmp/changed-paths; then
             reference=true
@@ -69,10 +77,15 @@ jobs:
           if grep -Eq '^(\.github/workflows/compatibility\.yml|core/Cargo\.toml|core/src/(app|main)\.rs|core/tests/(core_boundary|public_surfaces)\.rs|docs/(core-boundary|public-surfaces)\.json|migration/value/)' /tmp/changed-paths; then
             legacy_value=true
           fi
+          if grep -Eq '^(\.github/workflows/compatibility\.yml|core/Cargo\.toml|core/src/bin/hoplite-(object-backend-lock|provider-lock|provider-manifest|provider-set-lock)\.rs|docs/(core-boundary|public-surfaces)\.json|migration/provider-products/)' /tmp/changed-paths; then
+            legacy_provider_products=true
+          fi
 
           echo "reference=$reference" >> "$GITHUB_OUTPUT"
           echo "legacy_value=$legacy_value" >> "$GITHUB_OUTPUT"
-          printf 'reference=%s legacy_value=%s\n' "$reference" "$legacy_value"
+          echo "legacy_provider_products=$legacy_provider_products" >> "$GITHUB_OUTPUT"
+          printf 'reference=%s legacy_value=%s legacy_provider_products=%s\n' \
+            "$reference" "$legacy_value" "$legacy_provider_products"
           cat /tmp/changed-paths
 
   reference-interfaces:
@@ -198,3 +211,63 @@ jobs:
             --locked \
             --features legacy-value-contract \
             compatibility_application_bundle_includes_the_legacy_value_contract
+
+  legacy-provider-products:
+    name: ${{ matrix.binary }}
+    needs: scope
+    if: needs.scope.outputs.legacy_provider_products == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        binary:
+          - hoplite-provider-manifest
+          - hoplite-provider-lock
+          - hoplite-object-backend-lock
+          - hoplite-provider-set-lock
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ env.HARA_REF }}
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Verify the reviewed Hara revision
+        working-directory: hoplite
+        run: test "$(tr -d '[:space:]' < packaging/hara-revision)" = "$HARA_REF"
+      - name: Check quarantined source formatting
+        run: |
+          rustfmt --edition 2021 --check \
+            hoplite/core/src/bin/hoplite-provider-manifest.rs \
+            hoplite/core/src/bin/hoplite-provider-lock.rs \
+            hoplite/core/src/bin/hoplite-object-backend-lock.rs \
+            hoplite/core/src/bin/hoplite-provider-set-lock.rs \
+            hoplite/migration/provider-products/src/provider_manifest.rs \
+            hoplite/migration/provider-products/src/provider_lock.rs \
+            hoplite/migration/provider-products/src/provider_lock/object_backend.rs \
+            hoplite/migration/provider-products/src/provider_lock/provider_set.rs \
+            hoplite/migration/provider-products/bin/hoplite-provider-manifest.rs \
+            hoplite/migration/provider-products/bin/hoplite-provider-lock.rs \
+            hoplite/migration/provider-products/bin/hoplite-object-backend-lock.rs \
+            hoplite/migration/provider-products/bin/hoplite-provider-set-lock.rs
+      - name: Build the opt-in compatibility target
+        run: |
+          cargo build \
+            --manifest-path hoplite/core/Cargo.toml \
+            --locked \
+            --features legacy-provider-products \
+            --bin "${{ matrix.binary }}"
+      - name: Run the exact historical target tests
+        run: |
+          cargo test \
+            --manifest-path hoplite/core/Cargo.toml \
+            --locked \
+            --features legacy-provider-products \
+            --bin "${{ matrix.binary }}"
