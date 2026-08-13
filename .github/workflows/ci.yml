@@ -34,6 +34,23 @@ jobs:
       - name: Verify the alpha version policy
         working-directory: hoplite
         run: bash packaging/scripts/verify-alpha-versioning.sh
+      - name: Test worker reload failure diagnostics
+        working-directory: hoplite
+        run: |
+          set +e
+          output="$(
+            GITHUB_ACTIONS=true \
+            HOPLITE_WORKER_RELOAD_DIAGNOSTIC_CAPTURE_ONLY=1 \
+            HOPLITE_WORKER_RELOAD_DIAGNOSTIC_SELF_TEST=1 \
+            bash packaging/scripts/smoke-worker-reload.sh 2>&1
+          )"
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          test "$status" = 97
+          grep -F 'worker-reload-phase: diagnostic-self-test' <<<"$output"
+          grep -F 'worker-reload-annotation file=packaging/scripts/smoke-worker-reload.sh,title=worker-reload-diagnostic-self-test-log-base64::' <<<"$output"
+          grep -F 'worker-reload-annotation file=packaging/scripts/smoke-worker-reload.sh,title=worker-reload-diagnostic-self-test-exit::fixture exited with status 97' <<<"$output"
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
