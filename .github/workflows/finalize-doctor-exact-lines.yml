@@ -1,0 +1,42 @@
+name: Finalize doctor exact version lines
+
+on:
+  push:
+    branches:
+      - agent/hoplite-doctor-108
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply exact line matching
+        run: python3 .github/scripts/finalize-doctor-exact-lines.py
+      - name: Format and validate the implementation
+        run: |
+          rustfmt --edition 2021 core/src/doctor.rs
+          test ! -e .github/workflows/make-doctor-version-lines-exact.yml
+          test ! -e .github/scripts/make-doctor-version-lines-exact.py
+          test ! -e .github/workflows/finalize-doctor-exact-lines.yml
+          test ! -e .github/scripts/finalize-doctor-exact-lines.py
+          git diff --check
+      - name: Commit exact line matching
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && {
+            echo "finalization produced no changes" >&2
+            exit 1
+          }
+          git commit -m "Match exact doctor runtime version lines"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
