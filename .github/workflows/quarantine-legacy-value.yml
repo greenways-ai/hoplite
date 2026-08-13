@@ -20,7 +20,17 @@ jobs:
         with:
           components: rustfmt
       - name: Physically quarantine the migration-only value contract
-        run: python3 .github/scripts/quarantine-legacy-value.py
+        run: |
+          set +e
+          python3 .github/scripts/quarantine-legacy-value.py > /tmp/quarantine.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/quarantine.log
+          if [[ "$status" -ne 0 ]]; then
+            encoded="$(tail -c 3000 /tmp/quarantine.log | base64 -w0)"
+            echo "::error file=.github/scripts/quarantine-legacy-value.py,title=quarantine-log-base64::$encoded"
+          fi
+          exit "$status"
       - name: Format and validate generated changes
         run: |
           rustfmt --edition 2021 \
