@@ -19,6 +19,33 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+      - name: Repair the temporary materializer string
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/scripts/quarantine-legacy-value.py')
+          source = path.read_text()
+          start = source.index('(ROOT / "migration/value/README.md").write_text(')
+          end = source.index('\n\nreplace_once(', start)
+          replacement = '''(ROOT / "migration/value/README.md").write_text(
+              "# Legacy `hoplite.value` compatibility material\n\n"
+              "This directory contains the historical bounded canonical-value HAL contract.\n"
+              "It is migration input, not part of the default Hoplite runtime, application\n"
+              "bundle, production image, public extension model, or required merge gate.\n\n"
+              "The exact namespace remains available only with the non-default Cargo feature\n"
+              "`legacy-value-contract`. Its focused conformance runs in the path-scoped\n"
+              "Compatibility workflow. Request data cannot enable this feature or select the\n"
+              "contract at runtime.\n\n"
+              "## Compatibility window\n\n"
+              "The feature remains available for one documented pre-1.0 migration window while\n"
+              "consumers move to the owning value-provider package. New Hoplite applications\n"
+              "must not import `hoplite.value`. The eventual extraction or retirement change\n"
+              "must preserve any generic boundedness, canonical decoding, digest, corruption,\n"
+              "and failure-shape invariant at the appropriate provider or data-plane boundary.\n"
+          )'''
+          path.write_text(source[:start] + replacement + source[end:])
+          PY
       - name: Physically quarantine the migration-only value contract
         run: |
           set +e
