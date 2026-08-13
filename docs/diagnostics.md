@@ -39,7 +39,6 @@ emitted. Generated Nginx configuration, platform HTA/EDN, and OpenAPI documents
 are reported as present or absent so an operator can inspect a partial build
 without executing it. Invalid or incompatible required inputs exit non-zero.
 
-
 ## Diagnosing the local runtime
 
 `hoplite doctor` checks the complete local Hoplite serving environment without
@@ -53,8 +52,10 @@ The default pass is read-only and does not evaluate application source. It
 checks:
 
 - the supported host operating system and current Hoplite executable;
-- the selected Nginx distribution, executable permission, and `nginx -v` probe;
-- availability of the separate source-free `hoplite-server` executable;
+- the selected executable reports the exact Nginx version required by this
+  Hoplite build, rather than merely accepting any successful `nginx -v` command;
+- the adjacent source-free `hoplite-server` reports the same Hoplite package and
+  Nginx identities;
 - a trusted CA bundle for secure static upstreams;
 - `project.edn`, the default Hoplite profile, qualified main Var, HAL source
   discovery, and `:host/nginx` capability;
