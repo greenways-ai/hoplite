@@ -24,6 +24,7 @@ mod auth_policy;
 #[cfg(feature = "legacy-management")]
 mod auth_store_hta;
 mod dev_console;
+mod diagnostics;
 mod host;
 #[cfg(feature = "legacy-management")]
 mod management;
@@ -56,6 +57,7 @@ fn run(arguments: Vec<String>) -> Result<(), String> {
             println!("Nginx {} ({})", NGINX_VERSION, nginx_distribution());
         }
         Some("serve") => run_serve_command(&arguments[1..])?,
+        Some("inspect") => diagnostics::run(&arguments[1..])?,
         Some("verify") => run_verify_command(&arguments[1..])?,
         #[cfg(feature = "legacy-management")]
         Some("auth") => run_auth_command(&arguments[1..])?,
@@ -86,6 +88,7 @@ fn usage() {
     println!("  hoplite [repl]");
     println!("  hoplite eval EXPRESSION");
     println!("  hoplite run FILE");
+    println!("  hoplite inspect [--json] [--show-paths] [PROJECT|OUTPUT|BUNDLE]");
     println!("  hoplite verify [--manifest FILE] [PROJECT|OUTPUT|BUNDLE]");
     println!("  hoplite package [check|build|inspect|install|verify] [OPTIONS]");
     println!("  hoplite serve [start|stop|reload|status|build|check] [PROJECT]");

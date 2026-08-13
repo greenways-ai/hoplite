@@ -186,6 +186,13 @@
     },
     {
       "program": "hoplite",
+      "name": "inspect",
+      "status": "public",
+      "availability": "default",
+      "summary": "Inspect generated HAB0, exact-manifest, configuration and source-free evidence without executing application source."
+    },
+    {
+      "program": "hoplite",
       "name": "package",
       "status": "experimental",
       "availability": "default",
@@ -247,6 +254,12 @@
       "path": "docs/application-bundle.md",
       "status": "public",
       "summary": "HAB0 alpha production application bundle and exact-manifest binding."
+    },
+    {
+      "name": "hoplite.inspect/0-alpha",
+      "path": "docs/diagnostics.md",
+      "status": "public",
+      "summary": "Path-redacted read-only report for a generated Hoplite application."
     },
     {
       "name": "hoplite.provider-hta/1",
