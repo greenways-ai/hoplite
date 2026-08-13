@@ -6,7 +6,7 @@ use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 
 pub const FORMAT: &str = "hoplite.doctor/0-alpha";
 
@@ -260,15 +260,31 @@ fn collect_platform_checks(show_paths: bool, checks: &mut Vec<Check>) {
                 .then(|| Command::new(&path).arg("-v").output())
                 .transpose();
             match probe {
+                Ok(Some(output))
+                    if output.status.success()
+                        && output_contains(&output, &format!("nginx/{}", crate::NGINX_VERSION)) =>
+                {
+                    checks.push(
+                        Check::pass(
+                            "nginx-runtime",
+                            format!(
+                                "Nginx {} ({}) is executable",
+                                crate::NGINX_VERSION,
+                                crate::nginx_distribution()
+                            ),
+                        )
+                        .path(Some(&path), show_paths),
+                    )
+                }
                 Ok(Some(output)) if output.status.success() => checks.push(
-                    Check::pass(
+                    Check::fail(
                         "nginx-runtime",
                         format!(
-                            "Nginx {} ({}) is executable",
-                            crate::NGINX_VERSION,
-                            crate::nginx_distribution()
+                            "the selected Nginx does not report required version {}",
+                            crate::NGINX_VERSION
                         ),
                     )
+                    .detail("hoplite/doctor-nginx-version-incompatible")
                     .path(Some(&path), show_paths),
                 ),
                 Ok(Some(_)) => checks.push(
@@ -303,13 +319,50 @@ fn collect_platform_checks(show_paths: bool, checks: &mut Vec<Check>) {
         path.parent()
             .map(|directory| directory.join("hoplite-server"))
     }) {
-        Some(path) if path.is_file() && executable_file(&path) => checks.push(
-            Check::pass(
-                "hoplite-server",
-                "the source-free production server executable is available",
-            )
-            .path(Some(&path), show_paths),
-        ),
+        Some(path) if path.is_file() && executable_file(&path) => {
+            match Command::new(&path).arg("version").output() {
+                Ok(output)
+                    if output.status.success()
+                        && output_contains(
+                            &output,
+                            &format!("Hoplite server {}", env!("CARGO_PKG_VERSION")),
+                        )
+                        && output_contains(&output, &format!("Nginx {}", crate::NGINX_VERSION)) =>
+                {
+                    checks.push(
+                        Check::pass(
+                            "hoplite-server",
+                            "the source-free production server executable is compatible",
+                        )
+                        .path(Some(&path), show_paths),
+                    )
+                }
+                Ok(output) if output.status.success() => checks.push(
+                    Check::fail(
+                        "hoplite-server",
+                        "the companion production server reports an incompatible identity",
+                    )
+                    .detail("hoplite/doctor-server-cli-incompatible")
+                    .path(Some(&path), show_paths),
+                ),
+                Ok(_) => checks.push(
+                    Check::fail(
+                        "hoplite-server",
+                        "the companion production server version probe failed",
+                    )
+                    .detail("hoplite/doctor-server-cli-probe-failed")
+                    .path(Some(&path), show_paths),
+                ),
+                Err(_) => checks.push(
+                    Check::fail(
+                        "hoplite-server",
+                        "the companion production server could not be executed",
+                    )
+                    .detail("hoplite/doctor-server-cli-exec-failed")
+                    .path(Some(&path), show_paths),
+                ),
+            }
+        }
         Some(path) => checks.push(
             Check::warn(
                 "hoplite-server",
@@ -343,6 +396,18 @@ fn collect_platform_checks(show_paths: bool, checks: &mut Vec<Check>) {
             .detail("hoplite/doctor-ca-bundle-unavailable"),
         ),
     }
+}
+
+fn output_contains(output: &Output, expected: &str) -> bool {
+    bytes_contain(&output.stdout, expected.as_bytes())
+        || bytes_contain(&output.stderr, expected.as_bytes())
+}
+
+fn bytes_contain(bytes: &[u8], expected: &[u8]) -> bool {
+    !expected.is_empty()
+        && bytes
+            .windows(expected.len())
+            .any(|window| window == expected)
 }
 
 #[cfg(unix)]
@@ -705,6 +770,22 @@ mod tests {
             "(ns doctor.app (:require [hoplite.core :as h]))\n(defn hello [_] {:status 200 :body \"ok\"})\n(def app (h/app {:name \"doctor\" :resources [[\"/\" {:get {:handler #'hello}}]]}))\n",
         )
         .unwrap();
+    }
+
+    #[test]
+    fn version_probes_require_exact_reported_identities() {
+        assert!(bytes_contain(
+            b"nginx version: nginx/1.30.4\n",
+            b"nginx/1.30.4"
+        ));
+        assert!(!bytes_contain(
+            b"nginx version: nginx/1.28.0\n",
+            b"nginx/1.30.4"
+        ));
+        assert!(bytes_contain(
+            b"Hoplite server 0.1.0\nNginx 1.30.4 (embedded)\n",
+            b"Hoplite server 0.1.0"
+        ));
     }
 
     #[test]
