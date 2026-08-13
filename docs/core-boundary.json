@@ -73,6 +73,11 @@
       "summary": "Development console support excluded from the production serving process."
     },
     {
+      "path": "core/src/diagnostics.rs",
+      "status": "core",
+      "summary": "Read-only bounded inspection of generated application and configuration artifacts."
+    },
+    {
       "path": "core/src/host.rs",
       "status": "generic-interface",
       "summary": "Generic host-service integration independent of concrete provider products."

@@ -23,6 +23,7 @@ Evolving Hara- and Hoplite-owned portable documents use an explicit alpha epoch:
 | Hara bytecode artifact | `HBC0` |
 | Hara bytecode bundle | `HBX0` |
 | Hoplite application bundle | `hoplite.application-bundle/0-alpha` / `HAB0` |
+| Hoplite inspection report | `hoplite.inspect/0-alpha` |
 | Other evolving owned contracts | `<contract>/0-alpha` |
 
 An incompatible alpha change may replace an epoch or marker, but code, fixtures,

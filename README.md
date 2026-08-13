@@ -145,8 +145,11 @@ Production build output is isolated under `.hoplite/`:
 transactionally by a worker. Development builds may also emit
 `.hoplite/app.hal` for inspection; production builds remove that source
 projection. Generated `.hoplite` output is never registered as application
-input, even when a project uses `:project/source-paths ["."]`. Verify a built
-application without executing it with `hoplite verify .`.
+input, even when a project uses `:project/source-paths ["."]`. Inspect the
+generated bundle, route manifest, configuration digests, and source-free status
+with `hoplite inspect .`; use `--json` for the machine-readable
+`hoplite.inspect/0-alpha` report. Verify a built application without executing it
+with `hoplite verify .`.
 
 ## Runtime model
 
