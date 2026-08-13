@@ -1,0 +1,40 @@
+name: Harden inspect bounded reads
+
+on:
+  push:
+    branches:
+      - agent/hoplite-inspect-108
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Bound optional artifact reads
+        run: python3 .github/scripts/harden-inspect-read.py
+      - name: Validate the source
+        run: |
+          rustfmt --edition 2021 core/src/diagnostics.rs
+          test ! -e .github/workflows/harden-inspect-read.yml
+          test ! -e .github/scripts/harden-inspect-read.py
+          git diff --check
+      - name: Commit the hardened implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && {
+            echo "hardening produced no changes" >&2
+            exit 1
+          }
+          git commit -m "Keep inspection artifact reads bounded"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
