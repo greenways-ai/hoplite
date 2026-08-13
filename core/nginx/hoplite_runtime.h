@@ -57,6 +57,10 @@ typedef struct {
     uint64_t id;
 } hoplite_outcome_v2_t;
 
+typedef void (*hoplite_startup_diagnostic_fn)(void *context,
+                                              const uint8_t *diagnostic,
+                                              size_t diagnostic_len);
+
 /*
  * Returns the highest runtime ABI version supported by this library. ABI
  * additions preserve earlier versioned symbols, so a V2-only host accepts any
@@ -65,6 +69,7 @@ typedef struct {
 uint32_t hoplite_abi_version(void);
 hoplite_runtime_t *hoplite_runtime_new(void);
 void hoplite_runtime_free(hoplite_runtime_t *runtime);
+/* Development/full-embedding library only; absent from the production link. */
 int hoplite_bootstrap_modules(hoplite_runtime_t *runtime,
                               const uint8_t *source,
                               size_t source_len);
@@ -90,6 +95,19 @@ int hoplite_bootstrap_application_v1(hoplite_runtime_t *runtime,
                                      size_t manifest_len);
 
 /*
+ * ABI V4 diagnostic bootstrap. The callback receives one complete UTF-8 JSON
+ * document per ordered stage. Bytes are valid only for the callback duration.
+ */
+int hoplite_bootstrap_application_v2(
+    hoplite_runtime_t *runtime,
+    const uint8_t *bundle,
+    size_t bundle_len,
+    const uint8_t *manifest,
+    size_t manifest_len,
+    hoplite_startup_diagnostic_fn diagnostic,
+    void *diagnostic_context);
+
+/*
  * Read the configured HAB0 and manifest as bounded regular files,
  * then perform the same combined transactional startup.
  */
@@ -99,6 +117,14 @@ int hoplite_bootstrap_application_files_v1(
     size_t bundle_path_len,
     const uint8_t *manifest_path,
     size_t manifest_path_len);
+int hoplite_bootstrap_application_files_v2(
+    hoplite_runtime_t *runtime,
+    const uint8_t *bundle_path,
+    size_t bundle_path_len,
+    const uint8_t *manifest_path,
+    size_t manifest_path_len,
+    hoplite_startup_diagnostic_fn diagnostic,
+    void *diagnostic_context);
 
 uint64_t hoplite_handler_prepare(hoplite_runtime_t *runtime,
                                  const uint8_t *function,
@@ -167,6 +193,7 @@ int hoplite_response_header_at_v2(hoplite_runtime_t *runtime,
 int hoplite_response_close_v2(hoplite_runtime_t *runtime,
                               uint64_t response);
 
+/* Development/full-embedding library only; absent from the production link. */
 uint64_t hoplite_work_start(hoplite_runtime_t *runtime,
                             const uint8_t *function,
                             size_t function_len,

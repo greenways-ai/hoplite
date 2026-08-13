@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const ALLOWED_STATUSES: [&str; 4] = ["public", "experimental", "migration-only", "internal"];
+const ALLOWED_STATUSES: [&str; 3] = ["public", "experimental", "internal"];
 const REGISTRY_FORMAT: &str = "hoplite.public-surfaces/0-alpha";
 
 fn repo_root() -> PathBuf {
@@ -112,6 +112,15 @@ fn public_surface_registry_is_well_formed_and_complete() {
                 !summary.trim().is_empty(),
                 "{section_name} entry {identity} must explain its compatibility role"
             );
+            if status != "internal" {
+                assert!(
+                    entry
+                        .get("conformance")
+                        .and_then(Value::as_array)
+                        .is_some_and(|paths| !paths.is_empty()),
+                    "published {section_name} entry {identity} must name positive conformance evidence"
+                );
+            }
 
             if let Some(path) = entry.get("path").and_then(Value::as_str) {
                 assert!(

@@ -6,12 +6,11 @@ acceptance are not core health checks.
 
 ## Permanent workflows
 
-The default branch has five permanent workflows:
+The default branch has four permanent workflows:
 
 | Workflow | Purpose | Merge gate |
 | --- | --- | --- |
 | `CI` | Library, native boundary, production integration, and docs | Yes |
-| `Compatibility` | Reference extensions and minimum-version evidence | Only when its paths change |
 | `HTTP and footprint benchmarks` | Reproducible performance and memory reports | No |
 | `Release` | Tag-driven binaries, formula, image, and release assets | Release only |
 | `pages` | Documentation deployment | No |
@@ -39,6 +38,7 @@ The library job protects Hoplite-owned source and public boundaries:
 - public C headers compile as C11;
 - the fixed-capacity host registry, exported provider interface, and bounded
   response-source pump pass their native fixtures.
+- runtime measurement and comparison schemas pass deterministic self-tests.
 
 The alpha policy is implemented by
 `packaging/scripts/verify-alpha-versioning.sh`. It protects the current
@@ -93,22 +93,12 @@ The documentation job installs from the committed lock and builds the website.
 Examples and public API descriptions are therefore checked in the same pull
 request that changes them.
 
-## Compatibility evidence
+## Retired compatibility workflow
 
-`Compatibility` is intentionally separate from core CI. It may test:
-
-- reference host-service implementations;
-- supported minimum Rust versions for isolated ABI packages;
-- compatibility fixtures for an extension-facing interface;
-- old-format readers during an announced migration window.
-
-It must not publish packages, download mutable “latest” artifacts, edit a
-branch, or become a universal gate for changes that do not touch the relevant
-interface.
-
-When an extension matures into a product, its build, release, and durability
-matrix moves with that extension. Hoplite retains interface conformance, not the
-product's operational release train.
+The former Compatibility workflow existed only for historical provider,
+storage, and migration products. It is removed with their 0.2.0 retirement.
+Generic host, data-plane, request-body, response-source, and embedding
+conformance now runs directly in `CI / library` or `CI / integration`.
 
 ## Benchmark evidence
 

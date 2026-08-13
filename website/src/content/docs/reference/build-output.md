@@ -7,7 +7,6 @@ Build output is isolated beneath the application project's `.hoplite/` directory
 
 ```text
 .hoplite/
-  app.hal
   app.hbx
   apps.hta
   platform.edn
@@ -21,8 +20,7 @@ Build output is isolated beneath the application project's `.hoplite/` directory
 
 | Path | Purpose |
 | --- | --- |
-| `app.hal` | Application bootstrap source used by the current Nginx integration |
-| `app.hbx` | Deterministic alpha Hara bytecode bundle |
+| `app.hbx` | Deterministic `HAB0` Hoplite application envelope carrying the ordered Hara `HBX0` modules |
 | `apps.hta` | Version 2 application/route manifest, including each route's boundary adapter |
 | `platform.edn` | Inspectable, canonical module plan compiled from `project.edn` |
 | `platform.hta` | HTA-encoded platform plan for worker startup |
@@ -32,10 +30,19 @@ Build output is isolated beneath the application project's `.hoplite/` directory
 | `access.log` | Nginx access log |
 | `error.log` | Nginx and Hoplite error log |
 
-:::note[Bytecode transition]
-`app.hbx` is generated, validated, and loaded transactionally by the active Nginx bootstrap ABI.
+:::note[Source-free production]
+Production builds contain no `.hal`, `project.edn`, or `hara.extension.edn`
+input beneath `.hoplite`. Development builds may additionally emit `app.hal` as
+the `hoplite.development-source-projection/0-alpha` inspection projection; it is
+not loaded by production workers and is rejected from production output.
 :::
 
-The migration-only `legacy-management` feature may emit `auth-store.hta`, its
-digest, and native-adapter link-plan files. They are not produced by the default
-or published release build.
+`app.hbx` is bound to the exact `apps.hta` digest and is validated before
+application preflight. Workers publish a fresh runtime only after every HBX0
+module and selected route prepares successfully.
+
+Inspect the generated tree with `hoplite inspect PROJECT` and validate the
+required envelope and manifest with `hoplite verify PROJECT`.
+
+No compatibility feature emits authentication, provider, value, blob, or store
+artifacts. Those historical products were retired in 0.2.0.

@@ -6,45 +6,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 
 pub const PLATFORM_FORMAT: i64 = 2;
-#[cfg(feature = "legacy-management")]
-pub const PRINCIPAL_CONTRACT: &str = "1.0.0";
-#[cfg(feature = "legacy-management")]
-pub const PRINCIPAL_FIELDS: &[&str] = &[
-    "principal/id",
-    "principal/realm",
-    "principal/session-id",
-    "principal/claims",
-];
-#[cfg(feature = "legacy-management")]
-pub const KEY_PROVIDER: &str = "auth/key";
-#[cfg(feature = "legacy-management")]
-pub const CORE_PACKAGE: &str = "gh:greenways-ai:hoplite";
-#[cfg(feature = "legacy-management")]
-pub const CORE_AUTH_EXPORT: &str = "hoplite/auth";
-#[cfg(feature = "legacy-management")]
-pub const SQLITE_STORE_PACKAGE: &str = "gh:greenways-ai:hoplite-store-sqlite";
-#[cfg(feature = "legacy-management")]
-pub const STORE_EXPORT: &str = "hoplite/store";
-
-#[cfg(feature = "legacy-management")]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AuthComposition {
-    pub policy_package: String,
-    pub policy_version: Version,
-    pub policy_export: String,
-    pub policy_archive_sha256: Option<String>,
-    pub store_package: String,
-    pub store_version: Version,
-    pub store_export: String,
-    pub store_archive_sha256: Option<String>,
-    pub explicit: bool,
-}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Config {
     pub modules: Vec<ModuleActivation>,
-    #[cfg(feature = "legacy-management")]
-    pub authentication: Authentication,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -57,118 +22,11 @@ pub struct ModuleActivation {
     pub archive_sha256: Option<String>,
 }
 
-#[cfg(feature = "legacy-management")]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Authentication {
-    pub realms: BTreeMap<String, Realm>,
-}
-
-#[cfg(feature = "legacy-management")]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Realm {
-    pub providers: Vec<String>,
-    pub required: bool,
-    pub session: SessionPolicy,
-}
-
-#[cfg(feature = "legacy-management")]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SessionPolicy {
-    pub access_ttl_seconds: u32,
-    pub refresh_ttl_seconds: u32,
-    pub rotate_refresh_tokens: bool,
-    pub reuse_interval_seconds: u32,
-}
-
-#[cfg(feature = "legacy-management")]
-impl Default for SessionPolicy {
-    fn default() -> Self {
-        Self {
-            access_ttl_seconds: 900,
-            refresh_ttl_seconds: 2_592_000,
-            rotate_refresh_tokens: true,
-            reuse_interval_seconds: 10,
-        }
-    }
-}
-
-#[cfg(feature = "legacy-management")]
-impl Default for Authentication {
-    fn default() -> Self {
-        Self {
-            realms: BTreeMap::from([
-                (
-                    "application".into(),
-                    Realm {
-                        providers: vec![KEY_PROVIDER.into()],
-                        required: false,
-                        session: SessionPolicy::default(),
-                    },
-                ),
-                (
-                    "management".into(),
-                    Realm {
-                        providers: vec![KEY_PROVIDER.into()],
-                        required: true,
-                        session: SessionPolicy::default(),
-                    },
-                ),
-            ]),
-        }
-    }
-}
-
 impl Default for Config {
     fn default() -> Self {
         Self {
             modules: Vec::new(),
-            #[cfg(feature = "legacy-management")]
-            authentication: Authentication::default(),
         }
-    }
-}
-
-impl Config {
-    #[cfg(feature = "legacy-management")]
-    pub fn auth_composition(&self) -> Result<AuthComposition, String> {
-        let Some(policy) = self
-            .modules
-            .iter()
-            .find(|module| module.export == CORE_AUTH_EXPORT)
-        else {
-            return Ok(AuthComposition {
-                policy_package: CORE_PACKAGE.into(),
-                policy_version: Version::parse("0.1.0").expect("valid bundled version"),
-                policy_export: CORE_AUTH_EXPORT.into(),
-                policy_archive_sha256: None,
-                store_package: SQLITE_STORE_PACKAGE.into(),
-                store_version: Version::parse("0.1.0").expect("valid bundled version"),
-                store_export: STORE_EXPORT.into(),
-                store_archive_sha256: None,
-                explicit: false,
-            });
-        };
-        let config = form_map(&policy.config, ":hoplite/auth module config must be a map")?;
-        let store_alias = scalar(
-            required(config, "auth/store", ":hoplite/auth module config")?,
-            ":auth/store",
-        )?;
-        let store = self
-            .modules
-            .iter()
-            .find(|module| module.alias == store_alias)
-            .ok_or_else(|| format!("authentication store alias :{store_alias} is not activated"))?;
-        Ok(AuthComposition {
-            policy_package: policy.id.clone(),
-            policy_version: policy.version.clone(),
-            policy_export: policy.export.clone(),
-            policy_archive_sha256: policy.archive_sha256.clone(),
-            store_package: store.id.clone(),
-            store_version: store.version.clone(),
-            store_export: store.export.clone(),
-            store_archive_sha256: store.archive_sha256.clone(),
-            explicit: true,
-        })
     }
 }
 
@@ -281,16 +139,7 @@ fn parse_profile(manifest: &Form, profile_name: &str) -> Result<Config, String> 
         .map(parse_modules)
         .transpose()?
         .unwrap_or_default();
-    #[cfg(feature = "legacy-management")]
-    let authentication = lookup(hoplite, "hoplite/authentication")
-        .map(parse_authentication)
-        .transpose()?
-        .unwrap_or_default();
-    Ok(Config {
-        modules,
-        #[cfg(feature = "legacy-management")]
-        authentication,
-    })
+    Ok(Config { modules })
 }
 
 fn reject_unknown_hoplite_keys(entries: &[(Form, Form)]) -> Result<(), String> {
@@ -298,9 +147,7 @@ fn reject_unknown_hoplite_keys(entries: &[(Form, Form)]) -> Result<(), String> {
         let Some(key) = identifier(key) else {
             return Err(":extension/hoplite keys must be keywords".into());
         };
-        let supported = key == "hoplite/modules"
-            || cfg!(feature = "legacy-management") && key == "hoplite/authentication";
-        if !supported {
+        if key != "hoplite/modules" {
             return Err(format!("unsupported Hoplite profile key :{key}"));
         }
     }
@@ -405,161 +252,6 @@ fn valid_github_name(value: &str) -> bool {
         })
 }
 
-#[cfg(feature = "legacy-management")]
-fn parse_authentication(value: &Form) -> Result<Authentication, String> {
-    let authentication = form_map(value, ":hoplite/authentication must be a map")?;
-    reject_unknown_keys(authentication, &["auth/realms"], "authentication")?;
-    let realms = form_map(
-        required(authentication, "auth/realms", "authentication")?,
-        ":auth/realms must be a map",
-    )?;
-    let mut output = BTreeMap::new();
-    for (key, realm) in realms {
-        let name = identifier(key).ok_or(":auth/realms keys must be keywords")?;
-        if name.is_empty() {
-            return Err("authentication realm name cannot be empty".into());
-        }
-        if output
-            .insert(name.clone(), parse_realm(&name, realm)?)
-            .is_some()
-        {
-            return Err(format!("duplicate authentication realm :{name}"));
-        }
-    }
-    for required_realm in ["management", "application"] {
-        if !output.contains_key(required_realm) {
-            return Err(format!(
-                ":auth/realms must declare :{required_realm}; Hoplite separates management and application authentication"
-            ));
-        }
-    }
-    if !output["management"].required {
-        return Err("the Hoplite :management realm must set :auth/required true".into());
-    }
-    Ok(Authentication { realms: output })
-}
-
-#[cfg(feature = "legacy-management")]
-fn parse_realm(name: &str, value: &Form) -> Result<Realm, String> {
-    let realm = form_map(value, "authentication realm must be a map")?;
-    reject_unknown_keys(
-        realm,
-        &["auth/providers", "auth/required", "auth/session"],
-        "authentication realm",
-    )?;
-    let providers = match lookup(realm, "auth/providers") {
-        Some(Form::Vector(values)) => values
-            .iter()
-            .map(|value| {
-                let provider = identifier(value).ok_or_else(|| {
-                    format!("authentication realm :{name} providers must be keywords")
-                })?;
-                if !provider.contains('/') {
-                    return Err(format!(
-                        "authentication provider :{provider} must be qualified, for example :auth/key"
-                    ));
-                }
-                Ok(provider)
-            })
-            .collect::<Result<Vec<_>, _>>()?,
-        Some(_) => return Err(format!("authentication realm :{name} :auth/providers must be a vector")),
-        None => vec![KEY_PROVIDER.into()],
-    };
-    if providers.is_empty() {
-        return Err(format!(
-            "authentication realm :{name} requires at least one provider"
-        ));
-    }
-    let mut unique = BTreeSet::new();
-    for provider in &providers {
-        if !unique.insert(provider) {
-            return Err(format!(
-                "authentication realm :{name} contains duplicate provider :{provider}"
-            ));
-        }
-    }
-    let required = match lookup(realm, "auth/required") {
-        Some(Form::Bool(value)) => *value,
-        Some(_) => {
-            return Err(format!(
-                "authentication realm :{name} :auth/required must be boolean"
-            ))
-        }
-        None => name == "management",
-    };
-    let session = lookup(realm, "auth/session")
-        .map(|value| parse_session(name, value))
-        .transpose()?
-        .unwrap_or_default();
-    Ok(Realm {
-        providers,
-        required,
-        session,
-    })
-}
-
-#[cfg(feature = "legacy-management")]
-fn parse_session(realm: &str, value: &Form) -> Result<SessionPolicy, String> {
-    let session = form_map(value, ":auth/session must be a map")?;
-    reject_unknown_keys(
-        session,
-        &[
-            "session/access-ttl-seconds",
-            "session/refresh-ttl-seconds",
-            "session/rotate-refresh-tokens",
-            "session/reuse-interval-seconds",
-        ],
-        "session policy",
-    )?;
-    let defaults = SessionPolicy::default();
-    let access_ttl_seconds = unsigned_field(
-        session,
-        "session/access-ttl-seconds",
-        defaults.access_ttl_seconds,
-    )?;
-    let refresh_ttl_seconds = unsigned_field(
-        session,
-        "session/refresh-ttl-seconds",
-        defaults.refresh_ttl_seconds,
-    )?;
-    let rotate_refresh_tokens = bool_field(
-        session,
-        "session/rotate-refresh-tokens",
-        defaults.rotate_refresh_tokens,
-    )?;
-    let reuse_interval_seconds = unsigned_field(
-        session,
-        "session/reuse-interval-seconds",
-        defaults.reuse_interval_seconds,
-    )?;
-    if !(60..=3600).contains(&access_ttl_seconds) {
-        return Err(format!(
-            "authentication realm :{realm} access token TTL must be between 60 and 3600 seconds"
-        ));
-    }
-    if refresh_ttl_seconds < access_ttl_seconds || refresh_ttl_seconds > 31_536_000 {
-        return Err(format!(
-            "authentication realm :{realm} refresh token TTL must be at least the access TTL and no more than one year"
-        ));
-    }
-    if !rotate_refresh_tokens {
-        return Err(format!(
-            "authentication realm :{realm} must rotate single-use refresh tokens"
-        ));
-    }
-    if reuse_interval_seconds > 60 {
-        return Err(format!(
-            "authentication realm :{realm} refresh-token reuse interval cannot exceed 60 seconds"
-        ));
-    }
-    Ok(SessionPolicy {
-        access_ttl_seconds,
-        refresh_ttl_seconds,
-        rotate_refresh_tokens,
-        reuse_interval_seconds,
-    })
-}
-
 pub fn manifest(config: &Config) -> Result<Vec<u8>, String> {
     hara_wasm::hta::encode(&to_value(config)?)
 }
@@ -569,8 +261,7 @@ pub fn readable_manifest(config: &Config) -> String {
 }
 
 fn to_form(config: &Config) -> Form {
-    #[allow(unused_mut)]
-    let mut fields = vec![
+    let fields = vec![
         (keyword("hoplite/format"), Form::Number(PLATFORM_FORMAT)),
         (
             keyword("hoplite/modules"),
@@ -601,80 +292,6 @@ fn to_form(config: &Config) -> Form {
             ),
         ),
     ];
-    #[cfg(feature = "legacy-management")]
-    fields.push((
-        keyword("hoplite/authentication"),
-        Form::Map(vec![
-            (
-                keyword("auth/principal-contract"),
-                Form::String(PRINCIPAL_CONTRACT.into()),
-            ),
-            (
-                keyword("auth/principal-fields"),
-                Form::Vector(
-                    PRINCIPAL_FIELDS
-                        .iter()
-                        .map(|field| keyword(field))
-                        .collect(),
-                ),
-            ),
-            (
-                keyword("auth/realms"),
-                Form::Map(
-                    config
-                        .authentication
-                        .realms
-                        .iter()
-                        .map(|(name, realm)| {
-                            (
-                                keyword(name),
-                                Form::Map(vec![
-                                    (
-                                        keyword("auth/providers"),
-                                        Form::Vector(
-                                            realm
-                                                .providers
-                                                .iter()
-                                                .map(|provider| keyword(provider))
-                                                .collect(),
-                                        ),
-                                    ),
-                                    (keyword("auth/required"), Form::Bool(realm.required)),
-                                    (
-                                        keyword("auth/session"),
-                                        Form::Map(vec![
-                                            (
-                                                keyword("session/access-ttl-seconds"),
-                                                Form::Number(i64::from(
-                                                    realm.session.access_ttl_seconds,
-                                                )),
-                                            ),
-                                            (
-                                                keyword("session/refresh-ttl-seconds"),
-                                                Form::Number(i64::from(
-                                                    realm.session.refresh_ttl_seconds,
-                                                )),
-                                            ),
-                                            (
-                                                keyword("session/rotate-refresh-tokens"),
-                                                Form::Bool(realm.session.rotate_refresh_tokens),
-                                            ),
-                                            (
-                                                keyword("session/reuse-interval-seconds"),
-                                                Form::Number(i64::from(
-                                                    realm.session.reuse_interval_seconds,
-                                                )),
-                                            ),
-                                        ]),
-                                    ),
-                                ]),
-                            )
-                        })
-                        .collect(),
-                ),
-            ),
-        ]),
-    ));
     Form::Map(fields)
 }
 
@@ -773,25 +390,6 @@ fn reject_unknown_keys(
     Ok(())
 }
 
-#[cfg(feature = "legacy-management")]
-fn unsigned_field(entries: &[(Form, Form)], key: &str, default: u32) -> Result<u32, String> {
-    match lookup(entries, key) {
-        Some(Form::Number(value)) => u32::try_from(*value)
-            .map_err(|_| format!(":{key} must be a non-negative 32-bit integer")),
-        Some(_) => Err(format!(":{key} must be an integer")),
-        None => Ok(default),
-    }
-}
-
-#[cfg(feature = "legacy-management")]
-fn bool_field(entries: &[(Form, Form)], key: &str, default: bool) -> Result<bool, String> {
-    match lookup(entries, key) {
-        Some(Form::Bool(value)) => Ok(*value),
-        Some(_) => Err(format!(":{key} must be boolean")),
-        None => Ok(default),
-    }
-}
-
 fn form_map<'a>(form: &'a Form, message: &str) -> Result<&'a [(Form, Form)], String> {
     match form {
         Form::Map(entries) => Ok(entries),
@@ -844,7 +442,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(feature = "legacy-management"))]
     fn default_platform_has_no_authentication_or_session_boundary() {
         let config = parse_profile(&project_manifest("{}"), "server").unwrap();
         let readable = readable_manifest(&config);
@@ -857,181 +454,6 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("unsupported Hoplite profile key :hoplite/authentication"));
-    }
-
-    #[test]
-    #[cfg(feature = "legacy-management")]
-    fn defaults_to_hoplite_owned_key_authentication() {
-        let config = parse_profile(&project_manifest("{}"), "server").unwrap();
-        assert!(config.modules.is_empty());
-        assert_eq!(
-            config.authentication.realms["management"].providers,
-            [KEY_PROVIDER]
-        );
-        assert!(config.authentication.realms["management"].required);
-        assert!(!config.authentication.realms["application"].required);
-        assert_eq!(
-            config.authentication.realms["application"]
-                .session
-                .access_ttl_seconds,
-            900
-        );
-    }
-
-    #[test]
-    #[cfg(feature = "legacy-management")]
-    fn compiles_modules_and_separate_authentication_realms() {
-        let source = r#"
-        {:hoplite/modules
-         [{:module/id "gh:greenways-ai:hoplite"
-           :module/version "1.2.3"
-           :module/export :hoplite/events
-           :module/as :events
-           :module/config {:events/buffer-size 2048}}]
-         :hoplite/authentication
-         {:auth/realms
-          {:management
-           {:auth/providers [:auth/key :auth/passkey]
-            :auth/required true
-            :auth/session {:session/access-ttl-seconds 300}}
-           :application
-           {:auth/providers [:auth/key]
-            :auth/required false
-            :auth/session {:session/refresh-ttl-seconds 86400}}}}}
-        "#;
-        let config = parse_profile(&project_manifest(source), "server").unwrap();
-        assert_eq!(config.modules[0].id, "gh:greenways-ai:hoplite");
-        assert_eq!(config.modules[0].version, Version::parse("1.2.3").unwrap());
-        assert_eq!(config.modules[0].export, "hoplite/events");
-        assert_eq!(config.modules[0].alias, "events");
-        assert_eq!(
-            config.authentication.realms["management"].providers,
-            ["auth/key", "auth/passkey"]
-        );
-        let readable = readable_manifest(&config);
-        assert!(readable.contains(":auth/principal-contract \"1.0.0\""));
-        assert!(readable.contains(":principal/session-id"));
-        assert!(readable.contains(":session/rotate-refresh-tokens true"));
-        assert!(super::manifest(&config).unwrap().starts_with(b"HTA0"));
-    }
-
-    #[test]
-    #[cfg(feature = "legacy-management")]
-    fn resolves_auth_policy_and_store_adapter_by_alias() {
-        let source = r#"
-        {:hoplite/modules
-         [{:module/id "gh:greenways-ai:hoplite"
-           :module/version "0.1.0"
-           :module/export :hoplite/auth
-           :module/as :auth
-           :module/config {:auth/store :auth-store}}
-          {:module/id "gh:greenways-ai:hoplite-store-sqlite"
-           :module/version "0.1.0"
-           :module/export :hoplite/store
-           :module/as :auth-store
-           :module/config {}}]}
-        "#;
-        let config = parse_profile(&project_manifest(source), "server").unwrap();
-        assert_eq!(
-            config.auth_composition().unwrap(),
-            AuthComposition {
-                policy_package: CORE_PACKAGE.into(),
-                policy_version: Version::parse("0.1.0").unwrap(),
-                policy_export: CORE_AUTH_EXPORT.into(),
-                policy_archive_sha256: None,
-                store_package: SQLITE_STORE_PACKAGE.into(),
-                store_version: Version::parse("0.1.0").unwrap(),
-                store_export: STORE_EXPORT.into(),
-                store_archive_sha256: None,
-                explicit: true,
-            }
-        );
-
-        let missing = parse_profile(
-            &project_manifest(
-                r#"{:hoplite/modules [{:module/id "gh:greenways-ai:hoplite" :module/version "0.1.0" :module/export :hoplite/auth :module/as :auth :module/config {:auth/store :missing}}]}"#,
-            ),
-            "server",
-        )
-        .unwrap();
-        assert!(missing
-            .auth_composition()
-            .unwrap_err()
-            .contains("store alias :missing"));
-    }
-
-    #[test]
-    #[cfg(feature = "legacy-management")]
-    fn explicit_modules_are_bound_to_locked_archive_digests() {
-        let root = std::env::temp_dir().join(format!(
-            "hoplite-platform-lock-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir_all(&root).unwrap();
-        fs::write(
-            root.join("project.edn"),
-            r#"{:hara/type :project :hara/version "1.0.0" :project/id demo/app :project/version "0.1.0" :project/source-paths [] :project/test-paths [] :project/extension-paths [] :project/capabilities #{} :project/default-profile :server :project/profiles {:server {:profile/language :hoplite :profile/main demo/app :profile/extensions {:extension/hoplite {:hoplite/modules [{:module/id "gh:greenways-ai:hoplite" :module/version "0.1.0" :module/export :hoplite/auth :module/as :auth :module/config {:auth/store :auth-store}} {:module/id "gh:greenways-ai:hoplite-store-sqlite" :module/version "0.1.0" :module/export :hoplite/store :module/as :auth-store :module/config {}}]}}}}}"#,
-        )
-        .unwrap();
-        let core_digest = format!("sha256:{}", "1".repeat(64));
-        let store_digest = format!("sha256:{}", "2".repeat(64));
-        fs::write(
-            root.join("project.lock.edn"),
-            format!(
-                "{{:lock/format \"0.0.0-alpha\" :packages {{\"gh:greenways-ai:hoplite\" {{:version \"0.1.0\" :archive-sha256 \"{core_digest}\"}} \"gh:greenways-ai:hoplite-store-sqlite\" {{:version \"0.1.0\" :archive-sha256 \"{store_digest}\"}}}}}}"
-            ),
-        )
-        .unwrap();
-        let project = project::read(&root).unwrap();
-        let config = load(&project, None).unwrap();
-        let composition = config.auth_composition().unwrap();
-        assert_eq!(
-            composition.policy_archive_sha256.as_deref(),
-            Some(core_digest.as_str())
-        );
-        assert_eq!(
-            composition.store_archive_sha256.as_deref(),
-            Some(store_digest.as_str())
-        );
-        assert!(readable_manifest(&config).contains(":module/archive-sha256"));
-
-        fs::write(
-            root.join("project.lock.edn"),
-            "{:lock/format \"0.0.0-alpha\" :packages {}}",
-        )
-        .unwrap();
-        assert!(load(&project, None)
-            .unwrap_err()
-            .contains("does not lock module"));
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    #[cfg(feature = "legacy-management")]
-    fn rejects_unsafe_session_and_management_configuration() {
-        let no_management = project_manifest(
-            "{:hoplite/authentication {:auth/realms {:application {:auth/providers [:auth/key]}}}}",
-        );
-        assert!(parse_profile(&no_management, "server")
-            .unwrap_err()
-            .contains(":management"));
-
-        let no_rotation = project_manifest(
-            "{:hoplite/authentication {:auth/realms {:management {:auth/required true :auth/session {:session/rotate-refresh-tokens false}} :application {}}}}",
-        );
-        assert!(parse_profile(&no_rotation, "server")
-            .unwrap_err()
-            .contains("must rotate"));
-
-        let public_management = project_manifest(
-            "{:hoplite/authentication {:auth/realms {:management {:auth/required false} :application {}}}}",
-        );
-        assert!(parse_profile(&public_management, "server")
-            .unwrap_err()
-            .contains("management realm"));
     }
 
     #[test]

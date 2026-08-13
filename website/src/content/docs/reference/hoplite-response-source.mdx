@@ -6,6 +6,11 @@ description: Portable descriptors for provider-owned bounded response bodies.
 `hoplite.response-source` constructs and validates exact
 `hoplite.response-source/0-alpha` response-body descriptors.
 
+The descriptor is the supported generic boundary. The `hoplite.blob` name in
+the examples is a historical migration profile, not a service installed by the
+default runtime; an embedding may supply another reviewed service behind the
+same request/work-scoped ownership rules.
+
 ```clojure
 (ns example.download
   (:require [hoplite.response-source :as source]))

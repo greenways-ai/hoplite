@@ -17,23 +17,13 @@ use std::thread;
 use std::time::Duration;
 
 mod app;
-#[cfg(feature = "legacy-management")]
-mod auth;
-#[cfg(feature = "legacy-management")]
-mod auth_policy;
-#[cfg(feature = "legacy-management")]
-mod auth_store_hta;
 mod dev_console;
 mod diagnostics;
 mod doctor;
 mod host;
-#[cfg(feature = "legacy-management")]
-mod management;
 mod package;
 mod platform;
 mod repl;
-#[cfg(feature = "legacy-management")]
-mod store_adapter;
 
 const NGINX_VERSION: &str = "1.30.4";
 #[cfg(feature = "embedded-nginx")]
@@ -61,8 +51,6 @@ fn run(arguments: Vec<String>) -> Result<(), String> {
         Some("doctor") => doctor::run(&arguments[1..])?,
         Some("inspect") => diagnostics::run(&arguments[1..])?,
         Some("verify") => run_verify_command(&arguments[1..])?,
-        #[cfg(feature = "legacy-management")]
-        Some("auth") => run_auth_command(&arguments[1..])?,
         Some("package") => package::run(&arguments[1..])?,
         Some("eval") => {
             let source = arguments.get(1..).unwrap_or_default().join(" ");
@@ -221,126 +209,6 @@ fn lower_hex(bytes: &[u8]) -> String {
         output.push(HEX[(byte & 0x0f) as usize] as char);
     }
     output
-}
-
-#[cfg(feature = "legacy-management")]
-fn run_auth_command(arguments: &[String]) -> Result<(), String> {
-    if matches!(
-        arguments.first().map(String::as_str),
-        Some("--help" | "-h" | "help")
-    ) {
-        auth_usage();
-        return Ok(());
-    }
-    let action = arguments.first().map(String::as_str).unwrap_or("status");
-    match action {
-        "init" => {
-            let root = arguments
-                .get(1)
-                .map(PathBuf::from)
-                .unwrap_or(env::current_dir().map_err(io)?);
-            let mut store = open_auth_service(&root)?;
-            match store.initialize()? {
-                Some(token) => {
-                    println!("Hoplite management authentication initialized.");
-                    println!("Bootstrap token (expires in 15 minutes): {token}");
-                    println!("Enroll the first administrator with:");
-                    println!(
-                        "  hoplite auth enroll {token} <ED25519_PUBLIC_KEY_HEX> {}",
-                        root.display()
-                    );
-                }
-                None => println!("Hoplite management authentication is already initialized."),
-            }
-        }
-        "enroll" => {
-            let token = arguments
-                .get(1)
-                .ok_or("auth enroll requires a bootstrap token")?;
-            let public_key = arguments
-                .get(2)
-                .ok_or("auth enroll requires an Ed25519 public key in hexadecimal")?;
-            let root = arguments
-                .get(3)
-                .map(PathBuf::from)
-                .unwrap_or(env::current_dir().map_err(io)?);
-            let mut store = open_auth_service(&root)?;
-            let principal = store.enroll_management_device(token, public_key)?;
-            println!(
-                "enrolled management user {} with device {}",
-                principal.id, principal.device_id
-            );
-        }
-        "status" => {
-            let root = arguments
-                .get(1)
-                .map(PathBuf::from)
-                .unwrap_or(env::current_dir().map_err(io)?);
-            let path = auth_store_path(&root);
-            if path.is_file() {
-                let store = open_auth_service(&root)?;
-                println!("authentication store: {}", store.path().display());
-            } else {
-                println!("authentication is not initialized; run `hoplite auth init`");
-            }
-        }
-        "serve" => {
-            let mut listen = "127.0.0.1:9090".to_owned();
-            let mut project_root = None;
-            let mut index = 1;
-            while index < arguments.len() {
-                match arguments[index].as_str() {
-                    "--listen" => {
-                        index += 1;
-                        listen = arguments
-                            .get(index)
-                            .ok_or("auth serve --listen requires an address")?
-                            .clone();
-                    }
-                    value if project_root.is_none() => project_root = Some(PathBuf::from(value)),
-                    value => return Err(format!("unexpected auth serve argument: {value}")),
-                }
-                index += 1;
-            }
-            let root = project_root.unwrap_or(env::current_dir().map_err(io)?);
-            let project = project::discover(&root)?;
-            let platform = platform::load(&project, None)?;
-            let policy = &platform.authentication.realms["management"].session;
-            let composition = platform.auth_composition()?;
-            management::serve(&auth_store_path(&root), &listen, policy, &composition)?;
-        }
-        value => return Err(format!("unknown auth command: {value}")),
-    }
-    Ok(())
-}
-
-#[cfg(feature = "legacy-management")]
-fn auth_store_path(root: &Path) -> PathBuf {
-    env::var_os("HOPLITE_STATE_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| root.join(".hoplite"))
-        .join("control.db")
-}
-
-#[cfg(feature = "legacy-management")]
-fn open_auth_service(root: &Path) -> Result<auth::Service, String> {
-    let project = project::discover(root)?;
-    let platform = platform::load(&project, None)?;
-    let composition = platform.auth_composition()?;
-    auth::Service::open_for(auth_store_path(root), &composition)
-}
-
-#[cfg(feature = "legacy-management")]
-fn auth_usage() {
-    println!("Hoplite-owned authentication");
-    println!();
-    println!("Usage:");
-    println!("  hoplite auth init [PROJECT]");
-    println!("  hoplite auth enroll BOOTSTRAP_TOKEN ED25519_PUBLIC_KEY_HEX [PROJECT]");
-    println!("  hoplite auth serve [--listen 127.0.0.1:9090] [PROJECT]");
-    println!("  hoplite auth status [PROJECT]");
-    println!();
-    println!("Set HOPLITE_STATE_DIR to place control.db outside PROJECT/.hoplite.");
 }
 
 pub(crate) fn run_serve_command(arguments: &[String]) -> Result<(), String> {
@@ -502,22 +370,6 @@ fn build(root: &Path, settings: &BuildSettings) -> Result<PathBuf, String> {
         platform::manifest(&platform_config)?,
     )
     .map_err(io)?;
-    #[cfg(feature = "legacy-management")]
-    {
-        fs::write(output.join("auth-store.hta"), auth_store_hta::contract()?).map_err(io)?;
-        fs::write(
-            output.join("auth-store.hta.sha256"),
-            format!("{}\n", auth_store_hta::sha256()?),
-        )
-        .map_err(io)?;
-        let native_plan = store_adapter::native_link_plan(&platform_config.auth_composition()?)?;
-        fs::write(output.join("native-adapters.edn"), native_plan.manifest_edn).map_err(io)?;
-        fs::write(
-            output.join("native-adapters.Cargo.toml"),
-            native_plan.cargo_toml,
-        )
-        .map_err(io)?;
-    }
     let openapi_dir = output.join("openapi");
     fs::create_dir_all(&openapi_dir).map_err(io)?;
     for application in &app_config.apps {
@@ -556,7 +408,6 @@ fn serve(root: &Path, settings: &BuildSettings) -> Result<(), String> {
 fn run_foreground(root: &Path, settings: &BuildSettings) -> Result<(), String> {
     let output = build(root, settings)?;
     let project_root = output.parent().ok_or("invalid Hoplite output path")?;
-    start_embedded_management_gateway(project_root, settings)?;
     let mut command = Command::new(nginx_binary()?);
     command
         .arg("-p")
@@ -574,42 +425,6 @@ fn run_foreground(root: &Path, settings: &BuildSettings) -> Result<(), String> {
     } else {
         Err(format!("Nginx exited with {exit}"))
     }
-}
-
-#[cfg(feature = "legacy-management")]
-fn start_embedded_management_gateway(
-    project_root: &Path,
-    settings: &BuildSettings,
-) -> Result<(), String> {
-    let listen = env::var("HOPLITE_MANAGEMENT_LISTEN").unwrap_or_else(|_| "127.0.0.1:9090".into());
-    if listen == "off" {
-        return Ok(());
-    }
-    let listener = management::bind(&listen)?;
-    let project = project::discover(project_root)?;
-    let platform = platform::load(&project, settings.profile.as_deref())?;
-    let policy = platform.authentication.realms["management"].session.clone();
-    let composition = platform.auth_composition()?;
-    let store_path = auth_store_path(project_root);
-    thread::Builder::new()
-        .name("hoplite-management".into())
-        .spawn(move || {
-            if let Err(error) =
-                management::serve_listener(&store_path, listener, &listen, &policy, &composition)
-            {
-                eprintln!("hoplite: management gateway stopped: {error}");
-            }
-        })
-        .map_err(|error| format!("cannot start Hoplite management gateway: {error}"))?;
-    Ok(())
-}
-
-#[cfg(not(feature = "legacy-management"))]
-fn start_embedded_management_gateway(
-    _project_root: &Path,
-    _settings: &BuildSettings,
-) -> Result<(), String> {
-    Ok(())
 }
 
 #[cfg(target_os = "macos")]
@@ -969,15 +784,13 @@ fn visit_application_module(
 
 fn application_modules(files: &[PathBuf]) -> Result<Vec<ApplicationModule>, String> {
     let mut modules = HashMap::new();
-    let mut builtins = vec![
+    let builtins = vec![
         app::CORE_SOURCE,
         app::HOST_SOURCE,
         app::INTERNAL_SOURCE,
         app::RAW_SOURCE,
         app::RESPONSE_SOURCE,
     ];
-    #[cfg(feature = "legacy-value-contract")]
-    builtins.push(app::VALUE_SOURCE);
     for source in builtins {
         let module = application_module(source)?;
         modules.insert(module.namespace.clone(), module);
@@ -1284,20 +1097,10 @@ mod tests {
         application_module(source).expect("valid HAL module")
     }
 
-    #[cfg(not(feature = "legacy-value-contract"))]
     #[test]
-    fn default_application_bundle_excludes_the_legacy_value_contract() {
+    fn application_bundle_excludes_retired_value_contract() {
         let modules = application_modules(&[]).unwrap();
         assert!(!modules
-            .iter()
-            .any(|module| module.namespace == "hoplite.value"));
-    }
-
-    #[cfg(feature = "legacy-value-contract")]
-    #[test]
-    fn compatibility_application_bundle_includes_the_legacy_value_contract() {
-        let modules = application_modules(&[]).unwrap();
-        assert!(modules
             .iter()
             .any(|module| module.namespace == "hoplite.value"));
     }

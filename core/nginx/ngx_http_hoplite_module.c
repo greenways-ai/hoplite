@@ -20,6 +20,7 @@ typedef struct {
     ngx_flag_t request_body;
     size_t request_body_max;
     size_t request_body_chunk;
+    ngx_msec_t request_timeout;
 } ngx_http_hoplite_loc_conf_t;
 
 #define NGX_HTTP_HOPLITE_RAW 0
@@ -97,7 +98,17 @@ struct ngx_http_hoplite_ctx_s {
     ngx_http_hoplite_native_completion_t *native_completion;
     ngx_http_hoplite_body_t body;
     ngx_http_hoplite_response_source_t response_source;
+    ngx_event_t timeout;
 };
+
+static void
+ngx_http_hoplite_request_failure(ngx_log_t *log, const char *failure_class)
+{
+    ngx_log_error(
+        NGX_LOG_ERR, log, 0,
+        "hoplite request failure: {\"format\":\"hoplite.request-failure/0-alpha\",\"class\":\"%s\"}",
+        failure_class);
+}
 
 struct ngx_http_hoplite_native_completion_s {
     ngx_http_hoplite_ctx_t *ctx;
@@ -254,6 +265,14 @@ static ngx_command_t ngx_http_hoplite_commands[] = {
         offsetof(ngx_http_hoplite_loc_conf_t, request_body_chunk),
         NULL
     },
+    {
+        ngx_string("hoplite_request_timeout"),
+        NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1,
+        ngx_conf_set_msec_slot,
+        NGX_HTTP_LOC_CONF_OFFSET,
+        offsetof(ngx_http_hoplite_loc_conf_t, request_timeout),
+        NULL
+    },
     ngx_null_command
 };
 
@@ -327,6 +346,9 @@ ngx_http_hoplite_finish(ngx_http_hoplite_ctx_t *ctx)
     if (ctx->done) {
         return;
     }
+    if (ctx->timeout.timer_set) {
+        ngx_del_timer(&ctx->timeout);
+    }
     ngx_http_hoplite_response_source_release(ctx);
     ctx->done = 1;
     if (ctx->provider != NULL && ctx->provider->cancel != NULL) {
@@ -348,7 +370,12 @@ ngx_http_hoplite_finish(ngx_http_hoplite_ctx_t *ctx)
         ctx->queued = 0;
     }
     if (ngx_http_hoplite_runtime != NULL && ctx->work != 0) {
-        (void) hoplite_work_close(ngx_http_hoplite_runtime, ctx->work);
+        if (hoplite_work_close(ngx_http_hoplite_runtime, ctx->work) != 0
+            && ctx->request != NULL)
+        {
+            ngx_http_hoplite_request_failure(
+                ctx->request->connection->log, "cleanup");
+        }
     }
 }
 
@@ -694,6 +721,8 @@ ngx_http_hoplite_response_source_abort(ngx_http_hoplite_ctx_t *ctx,
         return;
     }
     request = ctx->request;
+    ngx_http_hoplite_request_failure(
+        request->connection->log, "response-stream");
     ngx_http_hoplite_response_source_release(ctx);
     ctx->response_source.active = 0;
 
@@ -1064,21 +1093,11 @@ static void
 ngx_http_hoplite_send_error(ngx_http_hoplite_ctx_t *ctx,
                             const hoplite_hta_value_t *payload)
 {
-    hoplite_hta_value_t *message_value;
     ngx_str_t message;
 
-    if (payload != NULL
-        && (payload->kind == HOPLITE_HTA_MAP
-            || payload->kind == HOPLITE_HTA_OBJECT))
-    {
-        message_value = hoplite_hta_map_get(payload, "message");
-        if (message_value != NULL
-            && hoplite_hta_text(message_value, &message) == NGX_OK)
-        {
-            ngx_log_error(NGX_LOG_ERR, ctx->request->connection->log, 0,
-                          "hoplite handler error: %V", &message);
-        }
-    }
+    (void) payload;
+    ngx_http_hoplite_request_failure(
+        ctx->request->connection->log, "application");
 
     ngx_str_set(&message, "Hoplite handler failed\n");
     ngx_http_hoplite_send(ctx, NGX_HTTP_INTERNAL_SERVER_ERROR, &message, NULL);
@@ -1531,14 +1550,36 @@ ngx_http_hoplite_sleep_handler(ngx_event_t *event)
         || ngx_http_hoplite_drain(event->log) != NGX_OK)
     {
         ngx_str_t body = ngx_string("Hoplite runtime delivery failed\n");
+        ngx_http_hoplite_request_failure(event->log, "host-suspension");
         ngx_http_hoplite_send(ctx, NGX_HTTP_INTERNAL_SERVER_ERROR, &body, NULL);
     }
+}
+
+static void
+ngx_http_hoplite_timeout_handler(ngx_event_t *event)
+{
+    ngx_http_hoplite_ctx_t *ctx = event->data;
+    ngx_str_t body = ngx_string("Hoplite request timed out\n");
+
+    if (ctx == NULL || ctx->done) {
+        return;
+    }
+    ngx_http_hoplite_request_failure(event->log, "timeout");
+    ngx_http_hoplite_send(ctx, NGX_HTTP_GATEWAY_TIME_OUT, &body, NULL);
 }
 
 static void
 ngx_http_hoplite_cleanup(void *data)
 {
     ngx_http_hoplite_ctx_t *ctx = data;
+
+    if (ctx->timeout.timer_set) {
+        ngx_del_timer(&ctx->timeout);
+    }
+    if (!ctx->done && ctx->request != NULL) {
+        ngx_http_hoplite_request_failure(
+            ctx->request->connection->log, "disconnect");
+    }
 
     ngx_http_hoplite_response_source_release(ctx);
     if (ctx->provider != NULL && ctx->provider->cancel != NULL) {
@@ -1557,8 +1598,14 @@ ngx_http_hoplite_cleanup(void *data)
     ctx->native_provider = NULL;
 
     if (!ctx->done && ngx_http_hoplite_runtime != NULL && ctx->work != 0) {
-        (void) hoplite_work_cancel(ngx_http_hoplite_runtime, ctx->work);
-        (void) hoplite_work_close(ngx_http_hoplite_runtime, ctx->work);
+        if (hoplite_work_cancel(ngx_http_hoplite_runtime, ctx->work) != 0) {
+            ngx_http_hoplite_request_failure(
+                ctx->request->connection->log, "cancellation");
+        }
+        if (hoplite_work_close(ngx_http_hoplite_runtime, ctx->work) != 0) {
+            ngx_http_hoplite_request_failure(
+                ctx->request->connection->log, "cleanup");
+        }
     }
     if (ngx_http_hoplite_runtime != NULL && ctx->response != 0) {
         (void) hoplite_response_close_v2(ngx_http_hoplite_runtime,
@@ -1676,6 +1723,8 @@ ngx_http_hoplite_invoke(ngx_http_request_t *request,
                                        &native_request_v3, &outcome);
         }
         if (rc != 0) {
+            ngx_http_hoplite_request_failure(
+                request->connection->log, "routing");
             ngx_log_error(NGX_LOG_ERR, request->connection->log, 0,
                           "Hoplite app invocation failed: app=%ui rc=%i",
                           conf->app, rc);
@@ -1687,6 +1736,8 @@ ngx_http_hoplite_invoke(ngx_http_request_t *request,
             return ngx_http_hoplite_send_native(ctx);
         }
         if (outcome.kind != 2 || outcome.id == 0) {
+            ngx_http_hoplite_request_failure(
+                request->connection->log, "unsupported-yield");
             ngx_log_error(NGX_LOG_ERR, request->connection->log, 0,
                           "Hoplite app returned an invalid outcome: kind=%ui id=%uL",
                           outcome.kind, outcome.id);
@@ -1729,6 +1780,8 @@ ngx_http_hoplite_invoke(ngx_http_request_t *request,
                                            &outcome);
         }
         if (rc != 0) {
+            ngx_http_hoplite_request_failure(
+                request->connection->log, "routing");
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         if (outcome.kind == 1) {
@@ -1737,6 +1790,8 @@ ngx_http_hoplite_invoke(ngx_http_request_t *request,
             return ngx_http_hoplite_send_native(ctx);
         }
         if (outcome.kind != 2 || outcome.id == 0) {
+            ngx_http_hoplite_request_failure(
+                request->connection->log, "unsupported-yield");
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         ctx->work = outcome.id;
@@ -1745,6 +1800,11 @@ ngx_http_hoplite_invoke(ngx_http_request_t *request,
     ngx_queue_insert_tail(&ngx_http_hoplite_requests, &ctx->queue);
     ctx->queued = 1;
     request->main->count++;
+    ctx->timeout.handler = ngx_http_hoplite_timeout_handler;
+    ctx->timeout.data = ctx;
+    ctx->timeout.log = request->connection->log;
+    ctx->timeout.cancelable = 1;
+    ngx_add_timer(&ctx->timeout, conf->request_timeout);
     if (ngx_http_hoplite_drain(request->connection->log) != NGX_OK) {
         ngx_log_error(NGX_LOG_ERR, request->connection->log, 0,
                       "Hoplite work drain failed: work=%uL", ctx->work);
@@ -1849,6 +1909,8 @@ ngx_http_hoplite_handler(ngx_http_request_t *request)
     if ((uint64_t) request->headers_in.content_length_n
         > (uint64_t) conf->request_body_max)
     {
+        ngx_http_hoplite_request_failure(
+            request->connection->log, "body-limit");
         return NGX_HTTP_REQUEST_ENTITY_TOO_LARGE;
     }
 
@@ -1862,16 +1924,61 @@ ngx_http_hoplite_handler(ngx_http_request_t *request)
 }
 
 static ngx_int_t
+ngx_http_hoplite_startup_diagnostic(void *context,
+                                    const uint8_t *diagnostic,
+                                    size_t diagnostic_len)
+{
+    ngx_cycle_t *cycle = context;
+    ngx_str_t value;
+    value.data = (u_char *) diagnostic;
+    value.len = diagnostic_len;
+    ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
+                  "hoplite startup: %V", &value);
+    return NGX_OK;
+}
+
+static void
+ngx_http_hoplite_startup_callback(void *context,
+                                  const uint8_t *diagnostic,
+                                  size_t diagnostic_len)
+{
+    (void) ngx_http_hoplite_startup_diagnostic(
+        context, diagnostic, diagnostic_len);
+}
+
+static void
+ngx_http_hoplite_startup_outer(ngx_cycle_t *cycle,
+                               ngx_uint_t sequence,
+                               const char *stage,
+                               const char *status,
+                               const char *failure_class)
+{
+    if (failure_class == NULL) {
+        ngx_log_error(
+            NGX_LOG_NOTICE, cycle->log, 0,
+            "hoplite startup: {\"format\":\"hoplite.startup-diagnostic/0-alpha\",\"sequence\":%ui,\"stage\":\"%s\",\"status\":\"%s\"}",
+            sequence, stage, status);
+    } else {
+        ngx_log_error(
+            NGX_LOG_NOTICE, cycle->log, 0,
+            "hoplite startup: {\"format\":\"hoplite.startup-diagnostic/0-alpha\",\"sequence\":%ui,\"stage\":\"%s\",\"status\":\"%s\",\"class\":\"%s\"}",
+            sequence, stage, status, failure_class);
+    }
+}
+
+static ngx_int_t
 ngx_http_hoplite_bootstrap(ngx_cycle_t *cycle,
                            const ngx_str_t *bundle_path,
                            const ngx_str_t *manifest_path)
 {
-    if (hoplite_bootstrap_application_files_v1(
+    if (hoplite_bootstrap_application_files_v2(
             ngx_http_hoplite_runtime,
             bundle_path->data,
             bundle_path->len,
             manifest_path->data,
-            manifest_path->len) != 0)
+            manifest_path->len,
+            ngx_http_hoplite_startup_callback,
+            cycle) != 0)
     {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
                       "hoplite HAB0 application bootstrap loading failed");
@@ -1907,17 +2014,26 @@ ngx_http_hoplite_init_process(ngx_cycle_t *cycle)
         && (conf->bootstrap.len != 0 || conf->manifest.len != 0))
     {
         if (conf->bootstrap.len == 0 || conf->manifest.len == 0) {
+            ngx_http_hoplite_startup_outer(
+                cycle, 1, "configuration", "failed",
+                "configuration-incomplete");
             ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
                           "hoplite_bootstrap and hoplite_manifest must be configured together");
             return NGX_ERROR;
         }
+        ngx_http_hoplite_startup_outer(
+            cycle, 1, "configuration", "ok", NULL);
         if (ngx_http_hoplite_bootstrap(cycle,
                                        &conf->bootstrap,
                                        &conf->manifest) != NGX_OK)
         {
             return NGX_ERROR;
         }
+    } else {
+        ngx_http_hoplite_startup_outer(
+            cycle, 1, "configuration", "ok", NULL);
     }
+    ngx_http_hoplite_startup_outer(cycle, 5, "readiness", "ok", NULL);
     return NGX_OK;
 }
 
@@ -1949,6 +2065,7 @@ ngx_http_hoplite_create_loc_conf(ngx_conf_t *cf)
         conf->request_body = NGX_CONF_UNSET;
         conf->request_body_max = NGX_CONF_UNSET_SIZE;
         conf->request_body_chunk = NGX_CONF_UNSET_SIZE;
+        conf->request_timeout = NGX_CONF_UNSET_MSEC;
     }
     return conf;
 }
@@ -1968,6 +2085,8 @@ ngx_http_hoplite_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
                               previous->request_body_max, 8 * 1024 * 1024);
     ngx_conf_merge_size_value(conf->request_body_chunk,
                               previous->request_body_chunk, 64 * 1024);
+    ngx_conf_merge_msec_value(conf->request_timeout,
+                              previous->request_timeout, 30000);
     if (conf->request_body_chunk == 0
         || conf->request_body_max == 0
         || conf->request_body_chunk > conf->request_body_max)

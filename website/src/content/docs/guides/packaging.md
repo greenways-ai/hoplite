@@ -22,14 +22,13 @@ Rust sources, and signed WASM or HTA artifacts. Rust crates are publication-time
 build inputs; Hoplite activates their locked artifacts rather than compiling or
 downloading native code at runtime.
 
-Exports are independently composable. Native provider implementations and
-their distribution lifecycle remain separate from the core archive. A `.harp`
+Exports are independently composable. Hoplite packages contain no native
+provider product or release lifecycle. A `.harp`
 activation cannot select a process path, driver, credential, or native service
 from request data.
 
-The migration-only `legacy-management` feature retains a native-adapter link
-plan for compatibility validation. Published release builds do not generate or
-consume that auth-specific plan.
+Historical authentication and provider packaging features were retired in
+0.2.0.
 
 Build, inspect, and install archives with the same Hara package implementation
 used by Hoplite:
@@ -87,6 +86,5 @@ make benchmark-bytecode
 
 The benchmark compares HAL compilation, HBC decoding, and already-decoded execution for the bundled Hoplite namespaces. It is an engineering benchmark, not a published production performance claim.
 
-Provider source releases use a separate deterministic artifact and lock format,
-not a `.harp` activation. See
-[Provider distributions](/guides/provider-distributions/).
+Application packages remain independent of any downstream storage or authority
+product. See [Production operation](/guides/production-operation/).

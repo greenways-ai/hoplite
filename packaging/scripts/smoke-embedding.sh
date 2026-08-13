@@ -64,8 +64,16 @@ grep -Eo 'hoplite_[a-z0-9_]+\(' "$HEADER" \
   | tr -d '(' \
   | LC_ALL=C sort -u > "$WORK/header-symbols.txt"
 
-nm -g --defined-only --format=posix "$STATIC_LIBRARY" \
-  | awk '$1 ~ /^hoplite_/ { print $1 }' \
+if command -v llvm-nm >/dev/null 2>&1; then
+  NM_TOOL="$(command -v llvm-nm)"
+elif [[ -x /opt/homebrew/opt/llvm/bin/llvm-nm ]]; then
+  NM_TOOL=/opt/homebrew/opt/llvm/bin/llvm-nm
+else
+  NM_TOOL=nm
+fi
+
+"$NM_TOOL" -g --defined-only --format=posix "$STATIC_LIBRARY" \
+  | awk '{ symbol=$1; sub(/^_/, "", symbol); if (symbol ~ /^hoplite_/ && symbol !~ /:$/) print symbol }' \
   | LC_ALL=C sort -u > "$WORK/binary-symbols.txt"
 
 diff -u "$INVENTORY" "$WORK/header-symbols.txt"

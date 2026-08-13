@@ -1,365 +1,58 @@
 {
   "format": "hoplite.core-boundary/0-alpha",
   "default_product": {
-    "binary_targets": [
-      "hoplite",
-      "hoplite-server"
-    ],
-    "default_features": [
-      "bytecode-vm",
-      "native-jit",
-      "cli-host"
-    ],
+    "binary_targets": ["hoplite", "hoplite-server"],
+    "default_features": ["bytecode-vm", "native-jit", "cli-host"],
     "opt_in_features": {
-      "internal-evidence": "Internal measurement programs that are not shipped as supported commands.",
-      "legacy-management": "Historical application authentication and management policy retained only for migration.",
-      "legacy-provider-products": "Historical provider manifest and lock tools physically quarantined and retained only for path-scoped extraction conformance.",
-      "legacy-value-contract": "Historical hoplite.value HAL contract retained only for path-scoped migration conformance."
+      "internal-evidence": "Internal measurement programs that are not shipped as supported commands."
     }
   },
+  "retirement": {
+    "decision": "retired",
+    "release": "0.2.0",
+    "scope": "Historical authority, authentication, signed-device, replay, blob, value, store, provider-product, adapter, distribution, and migration implementations.",
+    "recovery": "The removed implementation remains recoverable from Hoplite history before the 0.2.0 release."
+  },
   "rust_sources": [
-    {
-      "path": "core/src/app.rs",
-      "status": "core",
-      "summary": "Application loading, route preparation and source-free build orchestration."
-    },
-    {
-      "path": "core/src/auth.rs",
-      "status": "migration-only",
-      "summary": "Historical application-authentication service and SQLite policy implementation."
-    },
-    {
-      "path": "core/src/auth_policy.rs",
-      "status": "migration-only",
-      "summary": "Historical Hara authentication policy adapter."
-    },
-    {
-      "path": "core/src/auth_store_hta.rs",
-      "status": "migration-only",
-      "summary": "Historical authentication-store HTA product contract adapter."
-    },
-    {
-      "path": "core/src/bin/hoplite-bytecode-loading.rs",
-      "status": "internal-evidence",
-      "summary": "Bytecode loading measurement program enabled only by internal-evidence."
-    },
-    {
-      "path": "core/src/bin/hoplite-object-backend-lock.rs",
-      "status": "migration-only",
-      "summary": "Historical object-backend lock tool enabled only by legacy-provider-products."
-    },
-    {
-      "path": "core/src/bin/hoplite-provider-lock.rs",
-      "status": "migration-only",
-      "summary": "Historical provider lock tool enabled only by legacy-provider-products."
-    },
-    {
-      "path": "core/src/bin/hoplite-provider-manifest.rs",
-      "status": "migration-only",
-      "summary": "Historical provider manifest tool enabled only by legacy-provider-products."
-    },
-    {
-      "path": "core/src/bin/hoplite-provider-set-lock.rs",
-      "status": "migration-only",
-      "summary": "Historical provider-set lock tool enabled only by legacy-provider-products."
-    },
-    {
-      "path": "core/src/bin/hoplite-server.rs",
-      "status": "public",
-      "summary": "Source-free production server command."
-    },
-    {
-      "path": "core/src/dev_console.rs",
-      "status": "development",
-      "summary": "Development console support excluded from the production serving process."
-    },
-    {
-      "path": "core/src/diagnostics.rs",
-      "status": "core",
-      "summary": "Read-only bounded inspection of generated application and configuration artifacts."
-    },
-    {
-      "path": "core/src/doctor.rs",
-      "status": "core",
-      "summary": "Path-redacted local runtime diagnostics with explicit deep source preflight."
-    },
-    {
-      "path": "core/src/host.rs",
-      "status": "generic-interface",
-      "summary": "Generic host-service integration independent of concrete provider products."
-    },
-    {
-      "path": "core/src/main.rs",
-      "status": "public",
-      "summary": "Hoplite development and control command."
-    },
-    {
-      "path": "core/src/management.rs",
-      "status": "migration-only",
-      "summary": "Historical application management gateway."
-    },
-    {
-      "path": "core/src/package.rs",
-      "status": "core",
-      "summary": "Generic Hara package installation and integrity verification."
-    },
-    {
-      "path": "core/src/platform.rs",
-      "status": "core",
-      "summary": "Application module activation with legacy policy sections feature-gated for extraction."
-    },
-    {
-      "path": "core/src/repl.rs",
-      "status": "development",
-      "summary": "Interactive development REPL support."
-    },
-    {
-      "path": "core/src/store_adapter.rs",
-      "status": "migration-only",
-      "summary": "Historical application authentication store adapter."
-    }
+    {"path":"core/src/app.rs","status":"core","summary":"Application loading, route preparation and source-free build orchestration."},
+    {"path":"core/src/bin/hoplite-bytecode-loading.rs","status":"internal-evidence","summary":"Bytecode loading measurement program enabled only by internal-evidence."},
+    {"path":"core/src/bin/hoplite-server.rs","status":"public","summary":"Source-free production server command."},
+    {"path":"core/src/dev_console.rs","status":"development","summary":"Development console support excluded from the production serving process."},
+    {"path":"core/src/diagnostics.rs","status":"core","summary":"Bounded inspection of generated application and configuration artifacts."},
+    {"path":"core/src/doctor.rs","status":"core","summary":"Path-redacted local runtime diagnostics."},
+    {"path":"core/src/host.rs","status":"generic-interface","summary":"Generic host-service integration independent of concrete provider products."},
+    {"path":"core/src/main.rs","status":"public","summary":"Hoplite development and control command."},
+    {"path":"core/src/package.rs","status":"core","summary":"Generic Hara package installation and integrity verification."},
+    {"path":"core/src/platform.rs","status":"core","summary":"Application-neutral module activation."},
+    {"path":"core/src/repl.rs","status":"development","summary":"Interactive development REPL support."}
   ],
   "abi_packages": [
-    {
-      "path": "core/abi/auth-store",
-      "status": "migration-only",
-      "summary": "Historical application-authentication storage ABI."
-    },
-    {
-      "path": "core/abi/blob-filesystem-reader",
-      "status": "migration-only",
-      "summary": "Filesystem blob reader product implementation."
-    },
-    {
-      "path": "core/abi/blob-store-conformance",
-      "status": "reference-conformance",
-      "summary": "Blob-store invariants retained as extraction input until generic coverage replaces them."
-    },
-    {
-      "path": "core/abi/blob-store-filesystem",
-      "status": "migration-only",
-      "summary": "Filesystem blob-store product implementation."
-    },
-    {
-      "path": "core/abi/blob-store-provider-ffi",
-      "status": "migration-only",
-      "summary": "Blob-store product provider FFI."
-    },
-    {
-      "path": "core/abi/blob-store-provider",
-      "status": "migration-only",
-      "summary": "Blob-store product provider implementation."
-    },
-    {
-      "path": "core/abi/blob-store",
-      "status": "migration-only",
-      "summary": "Blob-store product contract."
-    },
-    {
-      "path": "core/abi/data-plane-ffi",
-      "status": "public",
-      "summary": "Public native request and response data-plane ABI."
-    },
-    {
-      "path": "core/abi/data-plane-registry",
-      "status": "generic-interface",
-      "summary": "Generic data-plane adapter registry."
-    },
-    {
-      "path": "core/abi/data-plane",
-      "status": "generic-interface",
-      "summary": "Generic request and response data-plane contract."
-    },
-    {
-      "path": "core/abi/provider-hta",
-      "status": "migration-only",
-      "summary": "Historical provider artifact HTA contract."
-    },
-    {
-      "path": "core/abi/signed-device-ed25519",
-      "status": "migration-only",
-      "summary": "Historical signed-device authentication product."
-    },
-    {
-      "path": "core/abi/signed-device-replay",
-      "status": "migration-only",
-      "summary": "Historical signed-device replay policy product."
-    },
-    {
-      "path": "core/abi/signed-device-worker",
-      "status": "migration-only",
-      "summary": "Historical signed-device worker product."
-    },
-    {
-      "path": "core/abi/value-provider-filesystem-ffi",
-      "status": "migration-only",
-      "summary": "Filesystem value-provider product FFI."
-    },
-    {
-      "path": "core/abi/value-provider-filesystem",
-      "status": "migration-only",
-      "summary": "Filesystem value-provider product implementation."
-    },
-    {
-      "path": "core/abi/value-store-provider-ffi",
-      "status": "migration-only",
-      "summary": "Value/store product provider FFI."
-    },
-    {
-      "path": "core/abi/value-store-provider",
-      "status": "migration-only",
-      "summary": "Value/store product provider implementation."
-    },
-    {
-      "path": "core/abi/value-store-sqlite",
-      "status": "migration-only",
-      "summary": "SQLite value/store product implementation."
-    },
-    {
-      "path": "core/abi/value-store",
-      "status": "migration-only",
-      "summary": "Value/store product contract."
-    }
+    {"path":"core/abi/data-plane","status":"generic-interface","summary":"Generic request and response data-plane contract."},
+    {"path":"core/abi/data-plane-ffi","status":"public","summary":"Public native request and response data-plane ABI."},
+    {"path":"core/abi/data-plane-registry","status":"generic-interface","summary":"Generic request-scoped resource registry."}
   ],
-  "provider_products": [
-    {
-      "path": "packaging/providers/blob",
-      "status": "migration-only",
-      "summary": "Blob provider product artifacts and Nginx integration."
-    },
-    {
-      "path": "packaging/providers/runtime",
-      "status": "migration-only",
-      "summary": "Historical provider-set composition artifacts."
-    },
-    {
-      "path": "packaging/providers/store",
-      "status": "migration-only",
-      "summary": "Store provider product artifacts and lifecycle fixtures."
-    },
-    {
-      "path": "packaging/providers/value",
-      "status": "migration-only",
-      "summary": "Value provider product artifacts and release locks."
-    }
-  ],
+  "provider_products": [],
+  "migration_products": [],
   "packaging_scripts": [
-    {
-      "path": "packaging/scripts/assert-production-image.sh",
-      "status": "core",
-      "summary": "Proves the final production image contains only source-free runtime material."
-    },
-    {
-      "path": "packaging/scripts/benchmark-http.sh",
-      "status": "internal-evidence",
-      "summary": "HTTP latency and throughput evidence collection."
-    },
-    {
-      "path": "packaging/scripts/build-blob-provider-artifact.sh",
-      "status": "migration-only",
-      "summary": "Historical blob provider artifact builder."
-    },
-    {
-      "path": "packaging/scripts/build-value-provider-artifact.sh",
-      "status": "migration-only",
-      "summary": "Historical value provider artifact builder."
-    },
-    {
-      "path": "packaging/scripts/install.sh",
-      "status": "distribution",
-      "summary": "Generic Hoplite binary installation."
-    },
-    {
-      "path": "packaging/scripts/measure-stack-footprints.sh",
-      "status": "internal-evidence",
-      "summary": "Binary and image footprint evidence collection."
-    },
-    {
-      "path": "packaging/scripts/new-app.sh",
-      "status": "development",
-      "summary": "Starter application creation."
-    },
-    {
-      "path": "packaging/scripts/render-homebrew-formula",
-      "status": "distribution",
-      "summary": "Homebrew formula rendering for reviewed releases."
-    },
-    {
-      "path": "packaging/scripts/run-benchmarks.sh",
-      "status": "internal-evidence",
-      "summary": "Scheduled and manual benchmark orchestration."
-    },
-    {
-      "path": "packaging/scripts/run-with-docker-top-compat.sh",
-      "status": "internal-evidence",
-      "summary": "Container runtime compatibility helper used by evidence jobs."
-    },
-    {
-      "path": "packaging/scripts/smoke-embedding.sh",
-      "status": "core",
-      "summary": "Runs the Rust and C embedding fixtures and verifies the exact native symbol set."
-    },
-    {
-      "path": "packaging/scripts/smoke-host-providers.sh",
-      "status": "reference-conformance",
-      "summary": "Generic native host-provider ABI smoke coverage."
-    },
-    {
-      "path": "packaging/scripts/smoke-multi-module.sh",
-      "status": "core",
-      "summary": "Real Nginx multi-module application dispatch smoke."
-    },
-    {
-      "path": "packaging/scripts/smoke-request-body-v3.sh",
-      "status": "core",
-      "summary": "Real production request-body transport smoke."
-    },
-    {
-      "path": "packaging/scripts/smoke-response-source.sh",
-      "status": "core",
-      "summary": "Response-source range and streaming smoke."
-    },
-    {
-      "path": "packaging/scripts/smoke-worker-reload.sh",
-      "status": "core",
-      "summary": "Proves graceful worker replacement and fresh source-free process recreation without application artifact drift."
-    },
-    {
-      "path": "packaging/scripts/validate-benchmark-data.sh",
-      "status": "internal-evidence",
-      "summary": "Benchmark evidence schema and regression validation."
-    },
-    {
-      "path": "packaging/scripts/verify-alpha-versioning.sh",
-      "status": "core",
-      "summary": "Permanent portable-contract alpha epoch guard."
-    },
-    {
-      "path": "packaging/scripts/verify-blob-provider-artifact.sh",
-      "status": "migration-only",
-      "summary": "Historical blob provider artifact verifier."
-    },
-    {
-      "path": "packaging/scripts/verify-default-product.sh",
-      "status": "core",
-      "summary": "Builds a clean default target set and verifies the direct dependency boundary."
-    },
-    {
-      "path": "packaging/scripts/verify-value-provider-artifact.sh",
-      "status": "migration-only",
-      "summary": "Historical value provider artifact verifier."
-    }
-  ],
-  "migration_products": [
-    {
-      "path": "migration/provider-products",
-      "status": "migration-only",
-      "summary": "Physically quarantined historical provider distribution validators, CLI implementations, and focused tests."
-    },
-    {
-      "path": "migration/value",
-      "status": "migration-only",
-      "summary": "Physically quarantined historical canonical-value HAL contract and focused conformance."
-    }
+    {"path":"packaging/scripts/assert-production-image.sh","status":"distribution","summary":"Proves final image composition."},
+    {"path":"packaging/scripts/benchmark-http.sh","status":"internal-evidence","summary":"Collects scheduled HTTP samples."},
+    {"path":"packaging/scripts/install.sh","status":"distribution","summary":"Installs Hoplite distribution artifacts."},
+    {"path":"packaging/scripts/measure-stack-footprints.sh","status":"internal-evidence","summary":"Collects reproducible footprint samples."},
+    {"path":"packaging/scripts/new-app.sh","status":"distribution","summary":"Creates a starter application."},
+    {"path":"packaging/scripts/render-homebrew-formula","status":"distribution","summary":"Renders the package formula."},
+    {"path":"packaging/scripts/run-benchmarks.sh","status":"internal-evidence","summary":"Runs scheduled benchmark collection."},
+    {"path":"packaging/scripts/run-with-docker-top-compat.sh","status":"internal-evidence","summary":"Normalizes Docker process inspection."},
+    {"path":"packaging/scripts/smoke-embedding.sh","status":"reference-conformance","summary":"Executes Rust and C embedding fixtures."},
+    {"path":"packaging/scripts/smoke-host-providers.sh","status":"reference-conformance","summary":"Exercises generic host suspension and rejection."},
+    {"path":"packaging/scripts/smoke-multi-module.sh","status":"reference-conformance","summary":"Exercises source-free multi-module serving."},
+    {"path":"packaging/scripts/smoke-request-body-v3.sh","status":"reference-conformance","summary":"Exercises bounded request-body ownership."},
+    {"path":"packaging/scripts/smoke-response-source.sh","status":"reference-conformance","summary":"Exercises streaming and backpressure."},
+    {"path":"packaging/scripts/smoke-startup-diagnostics.sh","status":"reference-conformance","summary":"Exercises ordered successful and fail-stopped startup reporting."},
+    {"path":"packaging/scripts/smoke-worker-reload.sh","status":"reference-conformance","summary":"Exercises reload and fresh recreation."},
+    {"path":"packaging/scripts/validate-benchmark-data.sh","status":"internal-evidence","summary":"Validates measurement data deterministically."},
+    {"path":"packaging/scripts/validate-runtime-measurement.mjs","status":"internal-evidence","summary":"Validates and compares versioned runtime measurement reports."},
+    {"path":"packaging/scripts/verify-alpha-versioning.sh","status":"distribution","summary":"Protects independent version spaces."},
+    {"path":"packaging/scripts/verify-default-product.sh","status":"distribution","summary":"Proves the generic executable and dependency boundary."}
+    ,{"path":"packaging/scripts/verify-production-link.sh","status":"distribution","summary":"Proves the production Nginx link excludes source/compiler authority."}
   ]
 }

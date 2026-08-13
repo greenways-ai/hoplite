@@ -24,10 +24,10 @@ ifeq ($(UNAME_S),Darwin)
 OPENSSL_PREFIX ?= $(shell brew --prefix openssl@3)
 PCRE2_PREFIX ?= $(shell brew --prefix pcre2)
 NGINX_CC_OPT ?= -I$(OPENSSL_PREFIX)/include -I$(PCRE2_PREFIX)/include
-NGINX_LD_OPT ?= $(PCRE2_PREFIX)/lib/libpcre2-8.a $(OPENSSL_PREFIX)/lib/libssl.a $(OPENSSL_PREFIX)/lib/libcrypto.a -framework Security -framework CoreFoundation -framework SystemConfiguration -Wl,-dead_strip_dylibs
+NGINX_LD_OPT ?= $(PCRE2_PREFIX)/lib/libpcre2-8.a $(OPENSSL_PREFIX)/lib/libssl.a $(OPENSSL_PREFIX)/lib/libcrypto.a -framework Security -framework CoreFoundation -framework SystemConfiguration -Wl,-dead_strip -Wl,-dead_strip_dylibs
 endif
 
-.PHONY: help setup check runtime cli embedded-cli server-cli test nginx nginx-source docker \
+.PHONY: help setup check runtime runtime-production cli embedded-cli server-cli test nginx nginx-source docker \
 	check-macos macos macos-package osx install uninstall example-check \
 	example-build example-dev example-prod benchmark-bytecode
 
@@ -56,6 +56,10 @@ check:
 
 runtime:
 	cargo build --manifest-path runtime/Cargo.toml --release
+
+runtime-production:
+	cargo build --manifest-path runtime/Cargo.toml --release \
+		--no-default-features --features native-jit
 
 cli:
 	cargo build --manifest-path Cargo.toml --release --bin hoplite
@@ -106,7 +110,7 @@ $(DEFAULT_NGINX_SRC)/configure: $(NGINX_ARCHIVE)
 
 nginx-source: $(NGINX_SRC)/configure
 
-nginx: runtime nginx-source
+nginx: runtime-production nginx-source
 	cd $(NGINX_SRC) && \
 		HOPLITE_RUNTIME_DIR=$(RUNTIME_DIR) \
 		./configure --prefix=$(CURDIR)/target/nginx \
@@ -115,6 +119,7 @@ nginx: runtime nginx-source
 			$(if $(NGINX_LD_OPT),--with-ld-opt="$(NGINX_LD_OPT)") \
 			--add-module=$(CURDIR)/nginx && \
 		$(MAKE) && $(MAKE) install
+	../packaging/scripts/verify-production-link.sh target/nginx/sbin/nginx
 	$(STRIP) $(STRIP_FLAGS) target/nginx/sbin/nginx
 
 docker:

@@ -11,7 +11,8 @@ const cards = [
     codeTitle: "First service",
     lang: "bash",
     code: `brew install greenways-ai/tap/hoplite
-hoplite serve foreground --mode prod .`,
+hoplite serve build --mode prod .
+hoplite-server .`,
     why: "This is the shortest supported path from an empty machine to a real endpoint. It uses the packaged server rather than asking users to compile Hoplite or assemble a proxy stack.",
   },
   {
@@ -30,7 +31,7 @@ hoplite serve foreground --mode prod .`,
     href: `${base}guides/writing-web-services/`,
     eyebrow: "Operations · 9 guides",
     title: "Guides",
-    description: "Build the parts that make an application useful: async work, application policy, providers, OpenAPI and production operation.",
+    description: "Build the parts that make an application useful: async work, application policy, OpenAPI, diagnostics and production operation.",
     codeTitle: "Yield to Nginx",
     lang: "clojure",
     code: `(defn delayed [_]
@@ -47,8 +48,9 @@ hoplite serve foreground --mode prod .`,
     lang: "bash",
     code: `hoplite serve check .
 hoplite serve build --mode prod .
-hoplite serve status .`,
-    why: "The reference is where examples become exact contracts. These commands validate the project, build the production plan and inspect the running service without relying on undocumented shell conventions.",
+hoplite verify .
+hoplite inspect .`,
+    why: "The reference is where examples become exact contracts. These commands validate the project, build the source-free production plan, verify its immutable bytes and inspect generated output without executing application source.",
   },
 ];
 ---

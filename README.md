@@ -11,7 +11,7 @@ request -> Nginx -> prepared Hoplite route -> Hara handler -> native response
 > **Alpha versioning:** Hoplite follows Hara's pre-release contract epoch.
 > Production application envelopes are `hoplite.application-bundle/0-alpha`
 > (`HAB0`) and carry Hara `HBX0` bundles. Package versions remain ordinary
-> pre-1.0 semantic versions, while runtime ABI numbers and `_v1` symbol suffixes
+> pre-1.0 semantic versions, while runtime ABI numbers and `_v2` symbol suffixes
 > describe separate native call shapes. See
 > [Versioning during alpha](docs/versioning.md).
 
@@ -152,6 +152,10 @@ with `hoplite inspect .`; use `--json` for the machine-readable
 with `hoplite verify .`. Diagnose the complete local project, Nginx, trust,
 package-lock, and generated-output environment with `hoplite doctor .`; add
 `--deep` only when source compilation and application preflight are intended.
+Production startup emits ordered `hoplite.startup-diagnostic/0-alpha` stages;
+request failures use `hoplite.request-failure/0-alpha`. See [Startup
+diagnostics](docs/startup-diagnostics.md), [request failures](docs/request-failures.md),
+and [runtime measurements](docs/runtime-measurements.md).
 
 ## Runtime model
 
@@ -191,9 +195,8 @@ Before 1.0, Hoplite treats the following as intentional public surfaces:
 - the `hoplite` control CLI and `hoplite-server` serving CLI.
 
 Breaking changes to these surfaces require a migration note, focused fixtures,
-and a deliberate version decision. Internal provider implementations, downstream
-application policy, and historical migration code are not promoted to public
-API merely because they remain in the repository during extraction.
+and a deliberate version decision. Downstream application policy and retired
+historical products are not public API.
 
 ## Project boundaries
 
@@ -226,9 +229,8 @@ make benchmark-bytecode
 
 The required pull-request gates cover the locked Rust/Hara workspace, public C
 headers and registries, a real generic production image, request-body smoke
-coverage, and the documentation build. Compatibility matrices and benchmarks
-run separately so they provide evidence without turning extension publication
-into a core merge gate.
+coverage, and the documentation build. Benchmarks run separately so noisy
+hardware evidence does not become a core merge gate.
 
 ## License
 

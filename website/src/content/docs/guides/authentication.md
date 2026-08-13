@@ -62,9 +62,8 @@ store provider, but its paths, credentials, limits, and driver choice must come
 from trusted startup configuration. Portable request values must not select
 them.
 
-The `legacy-management` Cargo feature remains only for migration validation. It
-is disabled in release builds and is not a supported account or session system
-for new applications.
+The historical management/authentication feature was retired in 0.2.0. Current
+applications own authentication policy explicitly.
 
 See [Host capabilities](/concepts/host-capabilities/),
 [Data-plane providers](/concepts/data-plane-providers/), and

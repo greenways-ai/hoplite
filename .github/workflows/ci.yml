@@ -34,6 +34,9 @@ jobs:
       - name: Verify the alpha version policy
         working-directory: hoplite
         run: bash packaging/scripts/verify-alpha-versioning.sh
+      - name: Validate runtime measurement and comparison contracts
+        working-directory: hoplite
+        run: node packaging/scripts/validate-runtime-measurement.mjs --self-test
       - name: Test worker reload failure diagnostics
         working-directory: hoplite
         run: |
@@ -227,6 +230,8 @@ jobs:
           bash hoplite/packaging/scripts/smoke-request-body-v3.sh hoplite-ci
       - name: Prove graceful worker reload and process recreation
         run: bash hoplite/packaging/scripts/smoke-worker-reload.sh hoplite-ci
+      - name: Prove ordered and fail-stopped startup diagnostics
+        run: bash hoplite/packaging/scripts/smoke-startup-diagnostics.sh hoplite-ci
       - name: Build the three-module production fixture
         run: |
           docker build \

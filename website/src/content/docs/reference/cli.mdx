@@ -9,10 +9,13 @@ description: Every current Hoplite command, serve action, and option.
 
 | Command | Purpose |
 | --- | --- |
-| `hoplite` | Open the development console |
+| `hoplite` / `hoplite repl` | Open the development console |
 | `hoplite version` | Print the Hoplite version |
 | `hoplite eval EXPR` | Evaluate one Hara expression |
 | `hoplite run FILE` | Run a HAL source file |
+| `hoplite verify …` | Validate a generated HAB0 envelope and exact manifest without executing source |
+| `hoplite inspect …` | Inspect generated application, route, configuration, and source-free evidence |
+| `hoplite doctor …` | Diagnose the local runtime, project, trust, lock, and generated application environment |
 | `hoplite package …` | Build, inspect, and install deterministic `.harp` archives |
 | `hoplite serve …` | Check, build, or operate an application project |
 
@@ -50,6 +53,38 @@ With no explicit serve action, `hoplite serve` performs `start`.
 
 Unexpected arguments, missing option values, and modes other than `dev` or `prod` are rejected.
 
+## Generated-application diagnostics
+
+```text
+hoplite verify [--manifest FILE] [PROJECT|OUTPUT|BUNDLE]
+hoplite inspect [--json] [--show-paths] [--manifest FILE] [PROJECT|OUTPUT|BUNDLE]
+hoplite doctor [--json] [--show-paths] [--deep] [--strict] [PROJECT]
+```
+
+`verify` performs bounded HAB0 and exact-manifest validation. `inspect` adds
+generated route, adapter, digest, OpenAPI, configuration, platform, and
+source-projection reporting without evaluating application source. `doctor`
+checks the local executable, embedded Nginx identity, adjacent
+`hoplite-server`, CA trust, project profile, package lock, platform plan, and
+generated application.
+
+Paths are redacted from `inspect` and `doctor` output unless `--show-paths` is
+supplied. `doctor --deep` explicitly allows compilation and application
+preflight; `--strict` promotes warnings to a non-zero result. See
+[Diagnosing an application](/guides/diagnostics/) for the operator workflow.
+
+## Production server
+
+```text
+hoplite-server [--workers auto|N] [PROJECT]
+hoplite-server version
+```
+
+`hoplite-server` consumes an already built, source-free `.hoplite` directory
+and replaces itself with the embedded Nginx serving process. It does not expose
+the development CLI or compile application source. `HOPLITE_WORKERS` provides
+the default worker override; the command-line option takes precedence.
+
 ## Environment
 
 | Variable | Purpose |
@@ -60,8 +95,7 @@ Unexpected arguments, missing option values, and modes other than `dev` or `prod
 
 Use `HOPLITE_NGINX` deliberately; normal installations should use the embedded host.
 
-`hoplite auth` and the management listener exist only behind the
-`legacy-management` migration feature. They are absent from release builds and
-are not part of the public CLI.
+Historical `hoplite auth` and provider-lock commands were retired in 0.2.0 and
+are not accepted by current builds.
 
 **Source:** [`core/src/main.rs`](https://github.com/greenways-ai/hoplite/blob/main/core/src/main.rs)

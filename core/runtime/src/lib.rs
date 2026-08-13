@@ -21,6 +21,82 @@ const ABI_VERSION: u32 = application_bundle::RUNTIME_ABI_VERSION;
 const MAX_CHILD_DRIVE_PASSES: usize = 64;
 type HostCall = (u64, Promise, String, String, Vec<Value>);
 
+pub type HopliteStartupDiagnostic =
+    unsafe extern "C" fn(context: *mut c_void, diagnostic: *const u8, diagnostic_len: usize);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StartupStage {
+    Bundle,
+    Modules,
+    Routes,
+}
+
+impl StartupStage {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Bundle => "bundle",
+            Self::Modules => "modules",
+            Self::Routes => "routes",
+        }
+    }
+
+    fn sequence(self) -> u8 {
+        match self {
+            Self::Bundle => 2,
+            Self::Modules => 3,
+            Self::Routes => 4,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct StartupError {
+    stage: StartupStage,
+    error: String,
+}
+
+fn startup_error(stage: StartupStage, error: impl ToString) -> StartupError {
+    StartupError {
+        stage,
+        error: error.to_string(),
+    }
+}
+
+fn startup_class(error: &str) -> &str {
+    error
+        .split([':', ' '])
+        .next()
+        .unwrap_or("hoplite/startup-failed")
+        .strip_prefix("hoplite/")
+        .unwrap_or("startup-failed")
+}
+
+fn emit_startup_diagnostic(
+    callback: Option<HopliteStartupDiagnostic>,
+    context: *mut c_void,
+    stage: StartupStage,
+    error: Option<&str>,
+) {
+    let Some(callback) = callback else {
+        return;
+    };
+    let diagnostic = if let Some(error) = error {
+        format!(
+            "{{\"format\":\"hoplite.startup-diagnostic/0-alpha\",\"sequence\":{},\"stage\":\"{}\",\"status\":\"failed\",\"class\":\"{}\"}}",
+            stage.sequence(),
+            stage.name(),
+            startup_class(error),
+        )
+    } else {
+        format!(
+            "{{\"format\":\"hoplite.startup-diagnostic/0-alpha\",\"sequence\":{},\"stage\":\"{}\",\"status\":\"ok\"}}",
+            stage.sequence(),
+            stage.name(),
+        )
+    };
+    unsafe { callback(context, diagnostic.as_ptr(), diagnostic.len()) };
+}
+
 type WorkId = u64;
 type CallId = u64;
 type HandlerId = u64;
@@ -1087,6 +1163,7 @@ impl HopliteRuntime {
         work
     }
 
+    #[cfg(feature = "source-evaluation")]
     fn start_program(&mut self, program: Rc<vm::Program>) -> WorkId {
         let work = self.open_work();
         let (handler, pending, next) = self.host_handler(work);
@@ -1102,6 +1179,7 @@ impl HopliteRuntime {
         work
     }
 
+    #[cfg(feature = "source-evaluation")]
     fn work_start(&mut self, source: &str, binding: Option<Value>) -> WorkId {
         let program = prepare_vm_source(source, &self.namespaces).and_then(|source| {
             vm::compile_source_with(&source, &self.namespaces)
@@ -1129,6 +1207,7 @@ impl HopliteRuntime {
         }
     }
 
+    #[cfg(feature = "source-evaluation")]
     fn bootstrap_modules(&mut self, source: &str) -> Result<(), String> {
         let forms = kernel::parse_forms(source)?;
         let mut modules = Vec::<Vec<kernel::Form>>::new();
@@ -1204,35 +1283,77 @@ impl HopliteRuntime {
     fn validate_application_in_isolated_thread(
         bytecode: Vec<u8>,
         manifest: Vec<u8>,
-    ) -> Result<(), String> {
+    ) -> Result<(), StartupError> {
         let validation = std::thread::Builder::new()
             .name("hoplite-application-preflight".into())
             .spawn(move || {
-                let manifest = hta::decode(&manifest)
-                    .map_err(|error| format!("hoplite/application-manifest-invalid: {error}"))?;
+                let manifest = hta::decode(&manifest).map_err(|error| {
+                    startup_error(
+                        StartupStage::Routes,
+                        format!("hoplite/application-manifest-invalid: {error}"),
+                    )
+                })?;
                 let mut runtime = HopliteRuntime::new();
-                runtime.bootstrap_bytecode(&bytecode)?;
-                runtime.apps_prepare(manifest)
+                runtime
+                    .bootstrap_bytecode(&bytecode)
+                    .map_err(|error| startup_error(StartupStage::Modules, error))?;
+                runtime
+                    .apps_prepare(manifest)
+                    .map_err(|error| startup_error(StartupStage::Routes, error))
             })
-            .map_err(|error| format!("hoplite/application-preflight-unavailable: {error}"))?;
-        validation
-            .join()
-            .map_err(|_| "hoplite/application-preflight-panicked".to_string())?
+            .map_err(|error| {
+                startup_error(
+                    StartupStage::Modules,
+                    format!("hoplite/application-preflight-unavailable: {error}"),
+                )
+            })?;
+        validation.join().map_err(|_| {
+            startup_error(
+                StartupStage::Modules,
+                "hoplite/application-preflight-panicked",
+            )
+        })?
     }
 
     fn bootstrap_application(&mut self, bundle: &[u8], manifest: &[u8]) -> Result<(), String> {
+        self.bootstrap_application_diagnostic(bundle, manifest, None, ptr::null_mut())
+    }
+
+    fn bootstrap_application_diagnostic(
+        &mut self,
+        bundle: &[u8],
+        manifest: &[u8],
+        callback: Option<HopliteStartupDiagnostic>,
+        context: *mut c_void,
+    ) -> Result<(), String> {
         if !self.pristine_for_application_bootstrap() {
-            return Err(
-                "hoplite/application-bootstrap-stateful-runtime: use a fresh runtime".into(),
-            );
+            let error = "hoplite/application-bootstrap-stateful-runtime: use a fresh runtime";
+            emit_startup_diagnostic(callback, context, StartupStage::Bundle, Some(error));
+            return Err(error.into());
         }
 
-        let decoded =
-            application_bundle::decode(bundle, manifest).map_err(|error| error.to_string())?;
-        Self::validate_application_in_isolated_thread(
+        let decoded = match application_bundle::decode(bundle, manifest) {
+            Ok(decoded) => decoded,
+            Err(error) => {
+                let error = error.to_string();
+                emit_startup_diagnostic(callback, context, StartupStage::Bundle, Some(&error));
+                return Err(error);
+            }
+        };
+        emit_startup_diagnostic(callback, context, StartupStage::Bundle, None);
+
+        if let Err(failure) = Self::validate_application_in_isolated_thread(
             decoded.bytecode().to_vec(),
             manifest.to_vec(),
-        )?;
+        ) {
+            if failure.stage == StartupStage::Routes {
+                emit_startup_diagnostic(callback, context, StartupStage::Modules, None);
+            }
+            emit_startup_diagnostic(callback, context, failure.stage, Some(&failure.error));
+            return Err(failure.error);
+        }
+        emit_startup_diagnostic(callback, context, StartupStage::Modules, None);
+        emit_startup_diagnostic(callback, context, StartupStage::Routes, None);
 
         let manifest = hta::decode(manifest)
             .map_err(|error| format!("hoplite/application-manifest-invalid: {error}"))?;
@@ -1628,6 +1749,7 @@ fn response_value(status: i64, body: &str) -> Value {
     )
 }
 
+#[cfg(feature = "source-evaluation")]
 fn prepare_vm_source(
     source: &str,
     namespaces: &kernel::NamespaceRegistry<Value>,
@@ -1646,6 +1768,7 @@ fn prepare_vm_source(
     Ok(output.join("\n"))
 }
 
+#[cfg(feature = "source-evaluation")]
 fn application_definition(form: &kernel::Form) -> bool {
     let kernel::Form::List(definition) = form else {
         return false;
@@ -1660,11 +1783,13 @@ fn application_definition(form: &kernel::Form) -> bool {
         if matches!(operator.as_str(), "h/app" | "hoplite.core/app" | "internal/config" | "hoplite.internal/config"))
 }
 
+#[cfg(feature = "source-evaluation")]
 enum FormNamespace<'a> {
     Namespace(&'a str),
     Other,
 }
 
+#[cfg(feature = "source-evaluation")]
 fn namespace_form(form: &kernel::Form) -> FormNamespace<'_> {
     match form {
         kernel::Form::List(values) if matches!(values.first(), Some(kernel::Form::Symbol(operator)) if operator == "ns") => {
@@ -1677,6 +1802,7 @@ fn namespace_form(form: &kernel::Form) -> FormNamespace<'_> {
     }
 }
 
+#[cfg(feature = "source-evaluation")]
 fn render_form(form: &kernel::Form) -> String {
     use kernel::Form;
     match form {
@@ -1698,6 +1824,7 @@ fn render_form(form: &kernel::Form) -> String {
     }
 }
 
+#[cfg(feature = "source-evaluation")]
 fn render_sequence(values: &[kernel::Form], prefix: &str, suffix: &str) -> String {
     format!(
         "{prefix}{}{suffix}",
@@ -1795,6 +1922,7 @@ pub unsafe extern "C" fn hoplite_runtime_free(runtime: *mut HopliteRuntime) {
 }
 
 #[no_mangle]
+#[cfg(feature = "source-evaluation")]
 pub unsafe extern "C" fn hoplite_bootstrap_modules(
     runtime: *mut HopliteRuntime,
     source_ptr: *const u8,
@@ -1858,6 +1986,30 @@ pub unsafe extern "C" fn hoplite_bootstrap_application_v1(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn hoplite_bootstrap_application_v2(
+    runtime: *mut HopliteRuntime,
+    bundle_ptr: *const u8,
+    bundle_len: usize,
+    manifest_ptr: *const u8,
+    manifest_len: usize,
+    diagnostic: Option<HopliteStartupDiagnostic>,
+    diagnostic_context: *mut c_void,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        let bundle = bytes(bundle_ptr, bundle_len)?;
+        let manifest = bytes(manifest_ptr, manifest_len)?;
+        runtime
+            .bootstrap_application_diagnostic(bundle, manifest, diagnostic, diagnostic_context)
+            .map_err(|_| ())?;
+        Ok::<i32, ()>(0)
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(1)
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn hoplite_bootstrap_application_files_v1(
     runtime: *mut HopliteRuntime,
     bundle_path_ptr: *const u8,
@@ -1887,6 +2039,57 @@ pub unsafe extern "C" fn hoplite_bootstrap_application_files_v1(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn hoplite_bootstrap_application_files_v2(
+    runtime: *mut HopliteRuntime,
+    bundle_path_ptr: *const u8,
+    bundle_path_len: usize,
+    manifest_path_ptr: *const u8,
+    manifest_path_len: usize,
+    diagnostic: Option<HopliteStartupDiagnostic>,
+    diagnostic_context: *mut c_void,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        let bundle_path = source(bundle_path_ptr, bundle_path_len)?;
+        let manifest_path = source(manifest_path_ptr, manifest_path_len)?;
+        let bundle = match application_bundle::read_bundle_file(bundle_path) {
+            Ok(bundle) => bundle,
+            Err(error) => {
+                let error = error.to_string();
+                emit_startup_diagnostic(
+                    diagnostic,
+                    diagnostic_context,
+                    StartupStage::Bundle,
+                    Some(&error),
+                );
+                return Err(());
+            }
+        };
+        let manifest = match application_bundle::read_manifest_file(manifest_path) {
+            Ok(manifest) => manifest,
+            Err(error) => {
+                let error = error.to_string();
+                emit_startup_diagnostic(
+                    diagnostic,
+                    diagnostic_context,
+                    StartupStage::Bundle,
+                    Some(&error),
+                );
+                return Err(());
+            }
+        };
+        runtime
+            .bootstrap_application_diagnostic(&bundle, &manifest, diagnostic, diagnostic_context)
+            .map_err(|_| ())?;
+        Ok::<i32, ()>(0)
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(1)
+}
+
+#[no_mangle]
+#[cfg(feature = "source-evaluation")]
 pub unsafe extern "C" fn hoplite_work_start(
     runtime: *mut HopliteRuntime,
     source_ptr: *const u8,
@@ -2460,6 +2663,16 @@ mod tests {
         }
     }
 
+    unsafe extern "C" fn collect_startup_diagnostic(
+        context: *mut c_void,
+        diagnostic: *const u8,
+        diagnostic_len: usize,
+    ) {
+        let output = &mut *(context as *mut Vec<String>);
+        let bytes = slice::from_raw_parts(diagnostic, diagnostic_len);
+        output.push(str::from_utf8(bytes).unwrap().to_owned());
+    }
+
     #[test]
     fn bytecode_bootstrap_uses_hara_hbx0_and_is_transactional() {
         let mut compiler = hara_wasm::Runtime::new();
@@ -2525,6 +2738,57 @@ mod tests {
         assert!(rolled_back.namespaces.find("example.application").is_none());
         assert!(rolled_back.apps.is_empty());
         assert!(rolled_back.handlers.is_empty());
+    }
+
+    #[test]
+    fn application_bootstrap_reports_ordered_path_free_stages() {
+        let mut compiler = hara_wasm::Runtime::new();
+        let module = bytecode_module(
+            &mut compiler,
+            "example.diagnostic",
+            "(defn show [_request] {:status 200 :body \"ready\"})",
+        );
+        let hbx0 = vm::encode_bytecode_bundle(&[module]).unwrap();
+        let manifest = hta::encode(&manifest_v2("example.diagnostic/show", "request")).unwrap();
+        let bundle = application_bundle::encode(&manifest, &hbx0).unwrap();
+
+        let mut diagnostics = Vec::<String>::new();
+        let mut runtime = HopliteRuntime::new();
+        runtime
+            .bootstrap_application_diagnostic(
+                &bundle,
+                &manifest,
+                Some(collect_startup_diagnostic),
+                (&mut diagnostics as *mut Vec<String>).cast(),
+            )
+            .unwrap();
+        assert_eq!(diagnostics.len(), 3);
+        assert!(diagnostics[0].contains("\"sequence\":2,\"stage\":\"bundle\",\"status\":\"ok\""));
+        assert!(diagnostics[1].contains("\"sequence\":3,\"stage\":\"modules\",\"status\":\"ok\""));
+        assert!(diagnostics[2].contains("\"sequence\":4,\"stage\":\"routes\",\"status\":\"ok\""));
+        assert!(diagnostics.iter().all(|value| {
+            value.starts_with("{\"format\":\"hoplite.startup-diagnostic/0-alpha\"")
+                && !value.contains("/Users/")
+                && !value.contains("/home/")
+                && !value.contains("example.diagnostic")
+        }));
+
+        let mut tampered = bundle.clone();
+        *tampered.last_mut().unwrap() ^= 1;
+        diagnostics.clear();
+        let mut rejected = HopliteRuntime::new();
+        assert!(rejected
+            .bootstrap_application_diagnostic(
+                &tampered,
+                &manifest,
+                Some(collect_startup_diagnostic),
+                (&mut diagnostics as *mut Vec<String>).cast(),
+            )
+            .is_err());
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].contains(
+            "\"sequence\":2,\"stage\":\"bundle\",\"status\":\"failed\",\"class\":\"application-bundle-checksum-mismatch\""
+        ));
     }
 
     #[test]

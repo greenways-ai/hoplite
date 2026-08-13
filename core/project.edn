@@ -1,7 +1,7 @@
 {:hara/type :project
  :hara/version "1.0.0"
  :project/id "gh:greenways-ai/hoplite"
- :project/version "0.1.0"
+ :project/version "0.2.0"
  :project/source-paths ["lib/src"]
  :project/test-paths ["lib/test"]
  :project/extension-paths []

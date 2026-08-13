@@ -122,13 +122,12 @@ deployment configuration chooses extensions; ordinary request values do not.
   `--locked`.
 - Normal CI never publishes releases or edits branches.
 - Releases are tag-driven and validate the same library surfaces as CI.
-- Compatibility and benchmark evidence are retained separately from required
-  merge gates.
+- Benchmark evidence is retained separately from required merge gates.
 
 ### Versioning during alpha
 
 - Distribution artifacts use ordinary pre-1.0 semantic versions such as
-  `0.1.x`.
+  `0.2.x`.
 - Evolving portable contracts use explicit alpha identities: Hara `HBC0` and
   `HBX0`, and Hoplite `hoplite.application-bundle/0-alpha` / `HAB0`.
 - Native runtime ABI values and suffixes such as `_v1` describe binary call
@@ -158,17 +157,17 @@ The complete rule is documented in
 - add contract fixtures for each published surface;
 - establish deprecation and migration rules for the pre-1.0 period.
 
-### 3. Separate the core from historical product implementations
+### 3. Separate the core from historical product implementations — complete in 0.2.0
 
 - remove legacy management, signed-application policy, and storage products from
   the default crate and production image;
 - retain only the generic host/provider boundary in core;
-- move useful implementations into independently versioned extensions;
+- retire historical implementations without a current owner;
 - replace negative source greps with positive composition and binary evidence.
 
 ### 4. Make operation and diagnosis first-class
 
-- add structured startup and request diagnostics;
+- maintain structured startup and request diagnostics;
 - expose inspect/verify/doctor commands for generated bundles and configuration;
 - provide bounded tracing hooks without forcing one telemetry backend;
 - improve cancellation, timeout, disconnect, and partial-startup fixtures.

@@ -7,7 +7,7 @@ global maturity number.
 ## Distribution versions
 
 Cargo crates, Homebrew formulae, container tags, and project packages use
-ordinary pre-1.0 semantic versions such as `0.1.x`. Those numbers allow package
+ordinary pre-1.0 semantic versions such as `0.2.x`. Those numbers allow package
 managers to order artifacts. They do not declare the language, HTTP runtime, or
 portable contracts stable.
 
@@ -25,6 +25,10 @@ Evolving Hara- and Hoplite-owned portable documents use an explicit alpha epoch:
 | Hoplite application bundle | `hoplite.application-bundle/0-alpha` / `HAB0` |
 | Hoplite doctor report | `hoplite.doctor/0-alpha` |
 | Hoplite inspection report | `hoplite.inspect/0-alpha` |
+| Hoplite startup diagnostic | `hoplite.startup-diagnostic/0-alpha` |
+| Hoplite request failure | `hoplite.request-failure/0-alpha` |
+| Hoplite runtime measurement | `hoplite.runtime-measurement/0-alpha` |
+| Hoplite runtime comparison | `hoplite.runtime-comparison/0-alpha` |
 | Other evolving owned contracts | `<contract>/0-alpha` |
 
 An incompatible alpha change may replace an epoch or marker, but code, fixtures,
@@ -32,9 +36,8 @@ documentation, and migration notes must change together. Stable-looking
 portable major versions are not introduced until that individual surface is
 deliberately frozen.
 
-Independently mature or migration-only formats are not reset merely because a
-neighbouring surface is in alpha. Each contract names and enforces its own
-compatibility law.
+Independently mature formats are not reset merely because a neighbouring
+surface is in alpha. Each contract names and enforces its own compatibility law.
 
 ## Native ABI and symbol revisions
 

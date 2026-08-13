@@ -4,7 +4,9 @@ hoplite_app_invoke_v2
 hoplite_app_invoke_v3
 hoplite_apps_prepare
 hoplite_bootstrap_application_files_v1
+hoplite_bootstrap_application_files_v2
 hoplite_bootstrap_application_v1
+hoplite_bootstrap_application_v2
 hoplite_bootstrap_bytecode
 hoplite_bootstrap_modules
 hoplite_buffer_free

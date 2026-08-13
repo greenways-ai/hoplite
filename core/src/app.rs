@@ -7,23 +7,15 @@ use std::fs;
 use std::path::Path;
 
 pub const CORE_SOURCE: &str = include_str!("../lib/src/hoplite/core.hal");
-#[cfg(feature = "legacy-management")]
-pub const AUTH_SOURCE: &str = include_str!("../lib/src/hoplite/auth.hal");
 pub const HOST_SOURCE: &str = include_str!("../lib/src/hoplite/host.hal");
 pub const INTERNAL_SOURCE: &str = include_str!("../lib/src/hoplite/internal.hal");
 pub const RAW_SOURCE: &str = include_str!("../lib/src/hoplite/raw.hal");
 pub const RESPONSE_SOURCE: &str = include_str!("../lib/src/hoplite/response_source.hal");
-#[cfg(feature = "legacy-value-contract")]
-pub const VALUE_SOURCE: &str = include_str!("../../migration/value/src/hoplite/value.hal");
 #[cfg(test)]
 const CORE_TEST_SOURCE: &str = include_str!("../lib/test/hoplite/core_test.hal");
 #[cfg(test)]
 const RESPONSE_SOURCE_TEST_SOURCE: &str =
     include_str!("../lib/test/hoplite/response_source_test.hal");
-#[cfg(all(test, feature = "legacy-value-contract"))]
-const VALUE_TEST_SOURCE: &str = include_str!("../../migration/value/test/hoplite/value_test.hal");
-#[cfg(all(test, feature = "legacy-management"))]
-const AUTH_TEST_SOURCE: &str = include_str!("../lib/test/hoplite/auth_test.hal");
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RouteAdapter {
@@ -107,14 +99,10 @@ pub fn register_contract_resources(runtime: &mut Runtime) {
 
 pub fn register_resources(runtime: &mut Runtime) {
     runtime.register_resource("hoplite.core", CORE_SOURCE);
-    #[cfg(feature = "legacy-management")]
-    runtime.register_resource("hoplite.auth", AUTH_SOURCE);
     runtime.register_resource("hoplite.host", HOST_SOURCE);
     runtime.register_resource("hoplite.internal", INTERNAL_SOURCE);
     runtime.register_resource("hoplite.raw", RAW_SOURCE);
     register_contract_resources(runtime);
-    #[cfg(feature = "legacy-value-contract")]
-    runtime.register_resource("hoplite.value", VALUE_SOURCE);
 }
 
 fn generated_output(path: &Path) -> bool {
@@ -906,32 +894,13 @@ mod tests {
         );
     }
 
-    #[cfg(not(feature = "legacy-value-contract"))]
     #[test]
-    fn default_resources_exclude_the_legacy_value_contract() {
+    fn resources_exclude_the_retired_value_contract() {
         let mut runtime = Runtime::new();
         register_resources(&mut runtime);
         assert!(runtime
             .eval_native_value("(ns sample.value (:require [hoplite.value :as value])) true",)
             .is_err());
-    }
-
-    #[cfg(feature = "legacy-value-contract")]
-    #[test]
-    fn value_boundary_contract_evaluates_from_hoplite() {
-        // This evaluator-heavy recursive contract exceeds libtest's 2 MiB
-        // worker stack. Keep the larger stack scoped to this test.
-        std::thread::Builder::new()
-            .name("hoplite-value-contract".to_owned())
-            .stack_size(8 * 1024 * 1024)
-            .spawn(|| {
-                let mut runtime = Runtime::new();
-                runtime.register_resource("hoplite.value", VALUE_SOURCE);
-                runtime.eval_native_value(VALUE_TEST_SOURCE).unwrap();
-            })
-            .expect("spawn value contract test")
-            .join()
-            .expect("value contract test panicked");
     }
 
     #[test]
@@ -941,19 +910,6 @@ mod tests {
         runtime
             .eval_native_value(RESPONSE_SOURCE_TEST_SOURCE)
             .unwrap();
-    }
-
-    #[test]
-    #[cfg(feature = "legacy-management")]
-    fn auth_hal_contract_evaluates_from_disk() {
-        let mut runtime = Runtime::new();
-        runtime.register_resource("hoplite.core", CORE_SOURCE);
-        runtime.register_resource("hoplite.auth", AUTH_SOURCE);
-        runtime.register_resource("hoplite.host", HOST_SOURCE);
-        assert_eq!(
-            runtime.eval_native_value(AUTH_TEST_SOURCE).unwrap(),
-            Value::Bool(true)
-        );
     }
 
     #[test]

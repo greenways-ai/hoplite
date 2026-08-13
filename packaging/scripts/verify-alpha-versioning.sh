@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
-forbidden='HAB1|HBB2|hoplite\.application-bundle/1|hoplite\.public-surfaces/1|Hoplite 0\.2|Roadmap to 0\.2|0\.2 release'
+forbidden='HAB1|HBB2|hoplite\.application-bundle/1|hoplite\.public-surfaces/1'
 matches="$(
   git grep -n -E "$forbidden" -- \
     . \
@@ -34,6 +34,8 @@ grep -F 'HARA_REF: 6dd73bbb9ba546b90dee0a075323998dd3abac85' \
 grep -F 'docs/versioning.md' README.md >/dev/null
 grep -F 'hoplite.application-bundle/0-alpha' docs/application-bundle.md >/dev/null
 grep -F 'Hara bytecode bundle | `HBX0`' docs/versioning.md >/dev/null
-grep -F 'hoplite_bootstrap_application_v1' core/nginx/hoplite_runtime.h >/dev/null
+grep -F 'hoplite_bootstrap_application_v2' core/nginx/hoplite_runtime.h >/dev/null
+grep -F 'hoplite.startup-diagnostic/0-alpha' docs/startup-diagnostics.md >/dev/null
+grep -F 'hoplite.runtime-measurement/0-alpha' docs/runtime-measurements.md >/dev/null
 
 echo "alpha version policy verified"

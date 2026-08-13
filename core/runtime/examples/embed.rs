@@ -67,10 +67,7 @@ fn main() {
             data: ptr::null(),
             len: 0,
         };
-        assert_eq!(
-            hoplite_response_body_v2(runtime, outcome.id, &mut body),
-            0
-        );
+        assert_eq!(hoplite_response_body_v2(runtime, outcome.id, &mut body), 0);
         assert!(!body.data.is_null());
         assert_eq!(slice::from_raw_parts(body.data, body.len), b"embedded");
 

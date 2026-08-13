@@ -5,12 +5,12 @@ use p256::ecdsa::{Signature as P256Signature, VerifyingKey as P256VerifyingKey};
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[cfg(feature = "cli-host")]
+#[cfg(all(test, feature = "cli-host"))]
 use hara_wasm::Runtime;
-#[cfg(feature = "cli-host")]
+#[cfg(all(test, feature = "cli-host"))]
 use std::rc::Rc;
 
-#[cfg(feature = "cli-host")]
+#[cfg(all(test, feature = "cli-host"))]
 pub fn install(runtime: &mut Runtime) {
     runtime.register_resource("hoplite.host", super::app::HOST_SOURCE);
     runtime.install_native_host_handler(Rc::new(dispatch));

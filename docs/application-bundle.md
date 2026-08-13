@@ -72,7 +72,7 @@ therefore accepted only on a fresh runtime.
 
 The envelope records numeric Hoplite runtime ABI compatibility separately from
 its portable document identity. Runtime ABI `4` and exported symbols such as
-`hoplite_bootstrap_application_v1` describe native call shapes; they do not
+`hoplite_bootstrap_application_v2` describe native call shapes; they do not
 promote the application document out of alpha.
 
 An incompatible change to the envelope, manifest-binding law, or required inner
@@ -82,7 +82,9 @@ The current code makes no stable-major application-bundle claim.
 The lower-level `hoplite_bootstrap_bytecode`, `hoplite_apps_prepare`, and
 byte-oriented `hoplite_bootstrap_application_v1` symbols remain available for
 embedding compatibility. Generated Nginx production configuration uses the
-bounded file-based `hoplite_bootstrap_application_files_v1` entry point.
+bounded file-based `hoplite_bootstrap_application_files_v1` entry point. Runtime
+ABI 4 adds `_v2` forms of both calls with ordered
+`hoplite.startup-diagnostic/0-alpha` callbacks.
 
 See [Versioning during alpha](versioning.md) for the distinction between package
 versions, portable format epochs, and native ABI generations.

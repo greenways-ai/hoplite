@@ -64,9 +64,10 @@ Every public or experimental surface changed since the previous tag needs:
 - an explicit version decision when the change is incompatible;
 - a migration note when an existing public surface is deprecated or removed.
 
-Migration-only source may remain in the repository, but it must not enter the
-default executable set, direct database/auth-store dependency boundary, generic
-production image, or published public-surface promise.
+The 0.2.0 retirement decision requires provider and migration product
+inventories to remain empty. Historical database, authentication, storage, and
+provider products must not re-enter the default executable set, dependency
+boundary, production image, or public-surface promise.
 
 ## 4. Release artifacts
 

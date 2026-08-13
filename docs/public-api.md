@@ -15,7 +15,6 @@ presence cannot accidentally create a compatibility promise.
 | --- | --- |
 | `public` | Supported application, document, CLI, or embedding surface. An incompatible change requires a deliberate version decision, migration note, and focused conformance evidence. |
 | `experimental` | Available for evaluation and allowed to change within the current alpha epoch. The changing pull request must update documentation and behavioural fixtures. |
-| `migration-only` | Historical product or compatibility surface retained only while it is extracted or retired. New generic Hoplite code must not depend on it. |
 | `internal` | Implementation detail with no source or binary compatibility promise. |
 
 Package versions, portable-document identities, and native ABI generations are
@@ -38,10 +37,9 @@ identity or alpha epoch. Readers reject unsupported identities rather than
 treating them as aliases. A migration fixture records rejection or
 transformation of the prior identity.
 
-Experimental surfaces have no deprecation window. Migration-only surfaces may
-be removed by the extraction change that records their destination and
-preserves generic invariants at the correct interface boundary. Internal
-surfaces may change without notice.
+Experimental surfaces have no deprecation window. Internal surfaces may change
+without notice. Historical product surfaces were retired in 0.2.0 and are no
+longer present in the registry.
 
 ## HAL application surface
 
@@ -109,12 +107,6 @@ semantics must remain provider-replaceable.
 `hoplite.dev` is development-only and is not part of source-free production
 startup.
 
-`hoplite.auth` and `hoplite.value` are migration-only historical
-policy/provider helpers. `hoplite.value` is physically quarantined beneath
-`migration/value`, excluded from ordinary resource registration and HAB0/HBX0
-application construction, and available only with `legacy-value-contract` for
-path-scoped compatibility evidence. Neither namespace is generic runtime API.
-
 `hoplite.internal` is implementation-only. Applications importing it receive no
 compatibility promise.
 
@@ -141,11 +133,13 @@ transferred descriptor after top-level pointer preflight. Reads are bounded, a
 declared length may be required, and completion or failure closes the
 descriptor exactly once.
 
-### Provider HTA — migration-only
+### Operator and measurement reports — public alpha contracts
 
-`hoplite.provider-hta/1` belongs to the historical provider-product release
-path. It remains documented only for extraction compatibility and must not
-shape generic startup or the required release gate.
+Ordered worker startup uses `hoplite.startup-diagnostic/0-alpha`; request-time
+failure classes use `hoplite.request-failure/0-alpha`. Reproducible release
+evidence uses `hoplite.runtime-measurement/0-alpha`, and validated numeric deltas
+use `hoplite.runtime-comparison/0-alpha`. Each report is path-free by default
+and has focused behavioural or deterministic schema conformance.
 
 ## Native embedding surfaces
 
@@ -160,10 +154,12 @@ or buffer must not cross Nginx workers or outlive its owning runtime. Unless an
 API explicitly transfers ownership, input slices are borrowed only for the call.
 
 `hoplite_runtime_new` and `hoplite_runtime_free` own runtime lifecycle.
-`hoplite_bootstrap_application_v1` and
-`hoplite_bootstrap_application_files_v1` validate HAB0 plus the exact manifest
-and transactionally publish one complete staged runtime. The `_v1` suffix names
-the C call shape; it is independent of the `/0-alpha` document epoch.
+`hoplite_bootstrap_application_v2` and
+`hoplite_bootstrap_application_files_v2` validate HAB0 plus the exact manifest,
+emit ordered borrowed startup-diagnostic JSON through a callback, and
+transactionally publish one complete staged runtime. The `_v1` symbols remain
+available without diagnostics. Native symbol suffixes are independent of the
+portable `/0-alpha` document epoch.
 
 Prepared handler, app, work, call, response, and request-body identifiers are
 opaque runtime-local handles. Closing an object consumes authority to use that
@@ -198,19 +194,16 @@ Provider calls carry request context, work, call, operation, standalone HTA
 arguments, and completion callbacks. Cancellation and `release_work` release
 retained state without leaking request-body or response-source ownership.
 
-### Internal and migration-only native headers
+### Internal native headers
 
 `hoplite_host_registry.h` and `hoplite_hta.h` are worker implementation details.
-Blob, value, store, and composed value/store provider headers are
-migration-only. Their transport, corruption, cancellation, and cleanup
-invariants must remain at generic host/data-plane boundaries when product
-implementations are extracted.
+Historical product-specific provider headers were retired in 0.2.0; their
+transport, cancellation, and cleanup invariants remain at generic boundaries.
 
 ## CLI surfaces
 
 The public `hoplite` control CLI supports `repl`, `eval`, `run`, `doctor`,
-`inspect`, `verify`, `package`, `serve`, and `version`. `auth` exists only in builds with the
-migration-only `legacy-management` feature. Unknown commands and operational
+`inspect`, `verify`, `package`, `serve`, and `version`. Unknown commands and operational
 failures exit non-zero and write an error prefixed with `hoplite:` to standard
 error. Successful commands and help exit zero.
 
@@ -233,12 +226,9 @@ exit non-zero with a `hoplite-server:` prefix. The final production image must
 not require application source, Cargo, a Hara source compiler, or the
 development CLI.
 
-`package` remains experimental while historical provider artifact operations
-are separated from generic application packaging. The object/provider lock generator targets are migration-only wrappers around
-implementations physically quarantined beneath `migration/provider-products` and
-available only through `legacy-provider-products`. The
-bytecode-loading program is internal measurement evidence, not a supported user
-command.
+`package` remains experimental and is limited to generic Hara application
+packages. The bytecode-loading program is internal measurement evidence, not a
+supported user command.
 
 ## Conformance and release review
 
@@ -250,9 +240,10 @@ The required Rust workspace test reads `public-surfaces.json` and enforces:
 - complete classification of all shipped Hoplite C headers;
 - complete classification of `core/src/main.rs` and `core/src/bin/*.rs`;
 - explicit program ownership for CLI commands;
-- explicit version identities for portable documents.
+- explicit version identities and positive conformance for every published
+  surface.
 
 A release review additionally confirms that public behaviour has focused tests,
-migration-only code has not entered the default dependency tree or production
-image, errors expose stable classes without secrets or native pointers, and
+retired product code has not re-entered the dependency tree or production image,
+errors expose stable classes without secrets or native pointers, and
 incompatible changes follow the version/deprecation law above.

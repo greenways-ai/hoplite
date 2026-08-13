@@ -1,18 +1,25 @@
 [package]
 name = "hoplite-runtime"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
 rust-version = "1.78"
 description = "Native worker-local Hara runtime bridge for Hoplite/Nginx"
+autobins = false
 
 [lib]
 name = "hoplite_runtime"
 crate-type = ["staticlib", "rlib"]
 
+[[bin]]
+name = "hoplite-boundary-benchmark"
+path = "src/bin/hoplite-boundary-benchmark.rs"
+required-features = ["source-evaluation"]
+
 [features]
-default = ["bytecode-vm", "native-jit"]
+default = ["bytecode-vm", "native-jit", "source-evaluation"]
 bytecode-vm = ["hara-wasm/bytecode-vm"]
+source-evaluation = []
 cli-host = []
 evaluation-journal = []
 halc-encoder = []

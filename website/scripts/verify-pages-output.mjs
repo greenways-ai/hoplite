@@ -13,11 +13,8 @@ const required = [
   "getting-started/installation/index.html",
   "concepts/data-plane-providers/index.html",
   "guides/writing-web-services/index.html",
-  "guides/provider-distributions/index.html",
-  "reference/data-plane-protocols/index.html",
-  "reference/hoplite-value/index.html",
+  "guides/diagnostics/index.html",
   "reference/hoplite-response-source/index.html",
-  "reference/hoplite-auth/index.html",
   "benchmarks/http.json",
   "benchmarks/footprints.json",
   legacyRuntimeModelPath,
@@ -40,12 +37,13 @@ const expectedLaunchMarkers = [
 const expectedNavigationLinks = ["/hoplite/", "/hoplite/getting-started/"];
 const expectedArchitectureCopy = [
   "Application authentication",
-  "Data-plane providers",
-  "Provider distributions",
-  "Native provider protocols",
+  "Data-plane boundaries",
+  "retired in 0.2.0",
+  "Diagnosing an application",
+  "hoplite.inspect/0-alpha",
+  "hoplite.doctor/0-alpha",
+  "Source-free production",
   "hoplite.response-source/0-alpha",
-  "hoplite.value-request/0-alpha",
-  "hoplite-blob-provider-v0.1.1",
 ];
 const retiredArchitectureClaims = [
   "Hoplite authenticates both management users and application callers.",
@@ -77,7 +75,6 @@ const referenceContracts = {
   "hoplite-host": ["example.crypto", "Signature verification", "00ff10", "4096"],
   "hoplite-internal": ["example.host", "example.admin", ":profile/main", "configuration errors"],
   "hoplite-response-source": ["example.download", "Using a provider-owned body", "Validation and failures", "69632"],
-  "hoplite-value": ["example.values", "Request and result flow", "Validation failures", "object-missing"],
 };
 
 async function htmlFiles(directory) {
@@ -178,15 +175,6 @@ for (const shellMarker of ["data-has-sidebar", "sidebar-pane", "<details", "<sum
     throw new Error(`Reference pages no longer expose expected collapsible navigation: ${shellMarker}`);
   }
 }
-if (referenceShell.includes('href="/hoplite/reference/hoplite-auth/"')) {
-  throw new Error("Legacy hoplite.auth remains in the reference navigation");
-}
-
-const legacyAuth = await readFile(join(distRoot, "reference/hoplite-auth/index.html"), "utf8");
-for (const marker of ["Removed from current releases", "Do not add", "/hoplite/guides/authentication/"]) {
-  if (!legacyAuth.includes(marker)) throw new Error(`Legacy auth migration page is missing: ${marker}`);
-}
-
 const home = await readFile(join(distRoot, "index.html"), "utf8");
 for (const href of [...expectedNavigationLinks, ...expectedProjectLinks]) {
   if (!home.includes(`href="${href}"`)) throw new Error(`Missing navigation link: ${href}`);

@@ -32,7 +32,10 @@ fn committed_hab0_bytes_are_the_encoder_contract() {
 
     let decoded = decode(&golden, MANIFEST).unwrap();
     assert_eq!(decoded.bytecode(), BYTECODE);
-    assert_eq!(&decoded.bytecode()[..HARA_BUNDLE_MAGIC.len()], HARA_BUNDLE_MAGIC);
+    assert_eq!(
+        &decoded.bytecode()[..HARA_BUNDLE_MAGIC.len()],
+        HARA_BUNDLE_MAGIC
+    );
 }
 
 #[test]

@@ -62,7 +62,7 @@ for forbidden in \
   hoplite-store-sqlite \
   rusqlite; do
   if grep -Fxq "$forbidden" <<<"$direct_packages"; then
-    echo "default Hoplite dependency tree contains migration-only dependency $forbidden" >&2
+    echo "default Hoplite dependency tree contains retired product dependency $forbidden" >&2
     exit 1
   fi
 done

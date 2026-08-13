@@ -805,11 +805,11 @@ mod tests {
             b"nginx version: nginx/1.30.4"
         ));
         assert!(stream_has_line(
-            b"Hoplite server 0.1.0\nNginx 1.30.4 (embedded)\n",
-            b"Hoplite server 0.1.0"
+            b"Hoplite server 0.2.0\nNginx 1.30.4 (embedded)\n",
+            b"Hoplite server 0.2.0"
         ));
         assert!(stream_has_line_prefix(
-            b"Hoplite server 0.1.0\nNginx 1.30.4 (embedded)\n",
+            b"Hoplite server 0.2.0\nNginx 1.30.4 (embedded)\n",
             b"Nginx 1.30.4 ("
         ));
     }

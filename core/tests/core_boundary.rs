@@ -1,10 +1,10 @@
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 const FORMAT: &str = "hoplite.core-boundary/0-alpha";
-const ALLOWED_STATUSES: [&str; 8] = [
+const ALLOWED_STATUSES: [&str; 7] = [
     "public",
     "core",
     "generic-interface",
@@ -12,7 +12,6 @@ const ALLOWED_STATUSES: [&str; 8] = [
     "development",
     "distribution",
     "internal-evidence",
-    "migration-only",
 ];
 
 fn repo_root() -> PathBuf {
@@ -68,15 +67,21 @@ fn collect_recursive_files(
 }
 
 fn immediate_directories(directory: &Path, root: &Path) -> BTreeSet<String> {
+    if !directory.is_dir() {
+        return BTreeSet::new();
+    }
     fs::read_dir(directory)
         .unwrap_or_else(|error| panic!("cannot read {}: {error}", directory.display()))
         .map(|entry| entry.expect("directory entry must be readable").path())
-        .filter(|path| path.is_dir())
+        .filter(|path| path.is_dir() && path.join("Cargo.toml").is_file())
         .map(|path| relative(&path, root))
         .collect()
 }
 
 fn immediate_files(directory: &Path, root: &Path) -> BTreeSet<String> {
+    if !directory.is_dir() {
+        return BTreeSet::new();
+    }
     fs::read_dir(directory)
         .unwrap_or_else(|error| panic!("cannot read {}: {error}", directory.display()))
         .map(|entry| entry.expect("directory entry must be readable").path())
@@ -107,6 +112,19 @@ fn core_boundary_is_explicit_complete_and_consistent() {
         "the core-boundary registry is an evolving alpha contract"
     );
 
+    let retirement = document
+        .get("retirement")
+        .and_then(Value::as_object)
+        .expect("core-boundary registry must record the reviewed retirement");
+    assert_eq!(
+        retirement.get("decision").and_then(Value::as_str),
+        Some("retired")
+    );
+    assert_eq!(
+        retirement.get("release").and_then(Value::as_str),
+        Some("0.2.0")
+    );
+
     for section_name in [
         "rust_sources",
         "abi_packages",
@@ -135,6 +153,7 @@ fn core_boundary_is_explicit_complete_and_consistent() {
                 root.join(path).exists(),
                 "{section_name} entry points at missing path {path}"
             );
+            assert!(entry.get("disposition").is_none());
         }
     }
 
@@ -188,51 +207,5 @@ fn core_boundary_is_explicit_complete_and_consistent() {
         .keys()
         .map(String::as_str)
         .collect::<BTreeSet<_>>();
-    assert_eq!(
-        opt_in,
-        BTreeSet::from([
-            "internal-evidence",
-            "legacy-management",
-            "legacy-provider-products",
-            "legacy-value-contract",
-        ])
-    );
-
-    let public_source = fs::read_to_string(root.join("docs/public-surfaces.json"))
-        .expect("public-surface registry must be readable");
-    let public: Value =
-        serde_json::from_str(&public_source).expect("public-surface registry must be valid JSON");
-    let availability = public
-        .get("cli_programs")
-        .and_then(Value::as_array)
-        .expect("public-surface registry must contain cli_programs")
-        .iter()
-        .map(|entry| {
-            let name = entry
-                .get("name")
-                .and_then(Value::as_str)
-                .expect("CLI program must have a name");
-            let availability = entry
-                .get("availability")
-                .and_then(Value::as_str)
-                .expect("CLI program must have availability");
-            (name, availability)
-        })
-        .collect::<BTreeMap<_, _>>();
-
-    for program in ["hoplite", "hoplite-server"] {
-        assert_eq!(availability.get(program), Some(&"default"));
-    }
-    assert_eq!(
-        availability.get("hoplite-bytecode-loading"),
-        Some(&"internal-evidence")
-    );
-    for program in [
-        "hoplite-object-backend-lock",
-        "hoplite-provider-lock",
-        "hoplite-provider-manifest",
-        "hoplite-provider-set-lock",
-    ] {
-        assert_eq!(availability.get(program), Some(&"legacy-provider-products"));
-    }
+    assert_eq!(opt_in, BTreeSet::from(["internal-evidence"]));
 }
