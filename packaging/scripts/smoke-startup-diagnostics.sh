@@ -31,11 +31,25 @@ docker create \
   --name "$failed_container" \
   --mount "type=bind,src=$work/app.hbx,dst=/app/.hoplite/app.hbx,readonly" \
   "$image" >/dev/null
-if docker start --attach "$failed_container" >"$work/stdout" 2>"$work/stderr"; then
+docker start "$failed_container" >/dev/null
+for _ in {1..120}; do
+  docker cp "$failed_container:/app/.hoplite/error.log" "$work/error.log" >/dev/null 2>&1 || true
+  if grep -F '"stage":"bundle","status":"failed"' "$work/error.log" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.25
+done
+
+if ! grep -F '"stage":"bundle","status":"failed"' "$work/error.log" >/dev/null 2>&1; then
+  echo "Tampered HAB0 did not emit a bundle failure within 30 seconds" >&2
+  docker logs "$failed_container" >&2 || true
+  exit 1
+fi
+if docker exec "$failed_container" \
+  curl --fail --silent --max-time 3 http://127.0.0.1:8080/hello >/dev/null 2>&1; then
   echo "Tampered HAB0 unexpectedly became ready" >&2
   exit 1
 fi
-docker cp "$failed_container:/app/.hoplite/error.log" "$work/error.log" >/dev/null 2>&1 || true
 
 grep -F '"sequence":1,"stage":"configuration","status":"ok"' "$work/error.log" >/dev/null
 grep -F '"sequence":2,"stage":"bundle","status":"failed","class":"application-bundle-checksum-mismatch"' "$work/error.log" >/dev/null

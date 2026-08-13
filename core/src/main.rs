@@ -1068,7 +1068,7 @@ fn nginx_app_configuration(project: &Project, config: &app::Config) -> Result<St
         ));
     }
     Ok(format!(
-        "worker_processes {};\npid .hoplite/nginx.pid;\nerror_log .hoplite/error.log;\nevents {{}}\nhttp {{\n    access_log .hoplite/access.log;\n    hoplite_bootstrap {};\n    hoplite_manifest {};\n{} }}\n",
+        "worker_processes {};\npid .hoplite/nginx.pid;\nerror_log .hoplite/error.log notice;\nevents {{}}\nhttp {{\n    access_log .hoplite/access.log;\n    hoplite_bootstrap {};\n    hoplite_manifest {};\n{} }}\n",
         config.workers,
         bootstrap.display(),
         manifest.display(),
