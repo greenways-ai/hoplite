@@ -1,5 +1,57 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+
+# Run the actual fixture as one child process so every failure, including an
+# early `set -e` exit, is captured and rendered before this wrapper exits.
+if [[ "${HOPLITE_WORKER_RELOAD_IMPLEMENTATION:-}" != 1 ]]; then
+  diagnostic_log="$(mktemp)"
+  diagnostic_tail="$(mktemp)"
+  diagnostic_phase="$(mktemp)"
+
+  cleanup_diagnostics() {
+    rm -f "$diagnostic_log" "$diagnostic_tail" "$diagnostic_phase"
+  }
+  trap cleanup_diagnostics EXIT INT TERM
+
+  set +e
+  HOPLITE_WORKER_RELOAD_IMPLEMENTATION=1 \
+    HOPLITE_WORKER_RELOAD_PHASE_FILE="$diagnostic_phase" \
+    bash "$0" "$@" >"$diagnostic_log" 2>&1
+  status=$?
+  set -e
+
+  cat "$diagnostic_log"
+  if [[ "$status" -ne 0 && "${GITHUB_ACTIONS:-}" == true ]]; then
+    phase="$(cat "$diagnostic_phase" 2>/dev/null || true)"
+    phase="${phase:-unknown}"
+    phase="${phase//[^A-Za-z0-9_.-]/-}"
+    tail -c 12000 "$diagnostic_log" > "$diagnostic_tail"
+    encoded="$(base64 < "$diagnostic_tail" | tr -d '\n')"
+    prefix='::error'
+    if [[ "${HOPLITE_WORKER_RELOAD_DIAGNOSTIC_CAPTURE_ONLY:-}" == 1 ]]; then
+      prefix='worker-reload-annotation'
+    fi
+    printf '%s file=packaging/scripts/smoke-worker-reload.sh,title=worker-reload-%s-log-base64::%s\n' \
+      "$prefix" "$phase" "$encoded"
+    printf '%s file=packaging/scripts/smoke-worker-reload.sh,title=worker-reload-%s-exit::fixture exited with status %s\n' \
+      "$prefix" "$phase" "$status"
+  fi
+  exit "$status"
+fi
+
+record_phase() {
+  local phase="$1"
+  if [[ -n "${HOPLITE_WORKER_RELOAD_PHASE_FILE:-}" ]]; then
+    printf '%s\n' "$phase" > "$HOPLITE_WORKER_RELOAD_PHASE_FILE"
+  fi
+  printf 'worker-reload-phase: %s\n' "$phase"
+}
+
+if [[ "${HOPLITE_WORKER_RELOAD_DIAGNOSTIC_SELF_TEST:-}" == 1 ]]; then
+  record_phase diagnostic-self-test
+  echo 'intentional worker reload diagnostic self-test failure' >&2
+  exit 97
+fi
 
 image="${1:-hoplite-ci}"
 container="hoplite-worker-reload-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$"
@@ -38,6 +90,16 @@ diagnose() {
   docker exec "$container" sh -c \
     'cat /app/.hoplite/conf/nginx.conf 2>/dev/null || true' >&2 || true
 }
+
+unexpected_failure() {
+  local status=$?
+  trap - ERR
+  phase="$(cat "${HOPLITE_WORKER_RELOAD_PHASE_FILE:-/dev/null}" 2>/dev/null || true)"
+  echo "unexpected command failure during worker reload phase ${phase:-unknown}" >&2
+  diagnose
+  exit "$status"
+}
+trap unexpected_failure ERR
 
 request() {
   curl --silent --show-error \
@@ -192,6 +254,7 @@ reload_generation() {
     "$(tr '\n' ',' < "$after_workers" | sed 's/,$//')"
 }
 
+record_phase initial-startup
 start_container
 initial_container_id="$(docker inspect -f '{{.Id}}' "$container")"
 initial_master="$(master_pid)"
@@ -202,9 +265,12 @@ if [[ -z "$initial_container_id" || -z "$initial_master" ]]; then
   exit 1
 fi
 
+record_phase reload-1
 reload_generation 1 "$initial_master" "$initial_artifacts"
+record_phase reload-2
 reload_generation 2 "$initial_master" "$initial_artifacts"
 
+record_phase fresh-recreation
 # Remove the complete serving process and prove that the same immutable image
 # can create a fresh master and workers without changing the generated bundle,
 # exact manifest, or Nginx configuration.
@@ -222,5 +288,6 @@ if [[ -z "$recreated_container_id" ]] \
   exit 1
 fi
 
+record_phase complete
 printf 'Validated two graceful worker reloads and fresh source-free recreation through %s on port %s.\n' \
   "$image" "$port"
