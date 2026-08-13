@@ -111,6 +111,7 @@ fn core_boundary_is_explicit_complete_and_consistent() {
         "rust_sources",
         "abi_packages",
         "provider_products",
+        "migration_products",
         "packaging_scripts",
     ] {
         let mut paths = BTreeSet::new();
@@ -153,6 +154,11 @@ fn core_boundary_is_explicit_complete_and_consistent() {
         "every provider-product packaging directory must be explicit"
     );
     assert_eq!(
+        registered_paths(&document, "migration_products"),
+        immediate_directories(&root.join("migration"), &root),
+        "every physically quarantined migration product must be explicit"
+    );
+    assert_eq!(
         registered_paths(&document, "packaging_scripts"),
         immediate_files(&root.join("packaging/scripts"), &root),
         "every packaging script must receive an explicit boundary status"
@@ -188,6 +194,7 @@ fn core_boundary_is_explicit_complete_and_consistent() {
             "internal-evidence",
             "legacy-management",
             "legacy-provider-products",
+            "legacy-value-contract",
         ])
     );
 

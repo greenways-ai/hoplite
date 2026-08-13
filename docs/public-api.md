@@ -110,7 +110,10 @@ semantics must remain provider-replaceable.
 startup.
 
 `hoplite.auth` and `hoplite.value` are migration-only historical
-policy/provider helpers. They are extraction input, not generic runtime API.
+policy/provider helpers. `hoplite.value` is physically quarantined beneath
+`migration/value`, excluded from ordinary resource registration and HAB0/HBX0
+application construction, and available only with `legacy-value-contract` for
+path-scoped compatibility evidence. Neither namespace is generic runtime API.
 
 `hoplite.internal` is implementation-only. Applications importing it receive no
 compatibility promise.

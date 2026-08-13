@@ -13,7 +13,8 @@
     "opt_in_features": {
       "internal-evidence": "Internal measurement programs that are not shipped as supported commands.",
       "legacy-management": "Historical application authentication and management policy retained only for migration.",
-      "legacy-provider-products": "Historical provider manifest and lock tooling retained only for extraction."
+      "legacy-provider-products": "Historical provider manifest and lock tooling retained only for extraction.",
+      "legacy-value-contract": "Historical hoplite.value HAL contract retained only for path-scoped migration conformance."
     }
   },
   "rust_sources": [
@@ -367,6 +368,13 @@
       "path": "packaging/scripts/verify-value-provider-artifact.sh",
       "status": "migration-only",
       "summary": "Historical value provider artifact verifier."
+    }
+  ],
+  "migration_products": [
+    {
+      "path": "migration/value",
+      "status": "migration-only",
+      "summary": "Physically quarantined historical canonical-value HAL contract and focused conformance."
     }
   ]
 }

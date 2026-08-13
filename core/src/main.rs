@@ -969,14 +969,16 @@ fn visit_application_module(
 
 fn application_modules(files: &[PathBuf]) -> Result<Vec<ApplicationModule>, String> {
     let mut modules = HashMap::new();
-    for source in [
+    let mut builtins = vec![
         app::CORE_SOURCE,
         app::HOST_SOURCE,
         app::INTERNAL_SOURCE,
         app::RAW_SOURCE,
         app::RESPONSE_SOURCE,
-        app::VALUE_SOURCE,
-    ] {
+    ];
+    #[cfg(feature = "legacy-value-contract")]
+    builtins.push(app::VALUE_SOURCE);
+    for source in builtins {
         let module = application_module(source)?;
         modules.insert(module.namespace.clone(), module);
     }
@@ -1280,6 +1282,24 @@ mod tests {
 
     fn module(source: &str) -> ApplicationModule {
         application_module(source).expect("valid HAL module")
+    }
+
+    #[cfg(not(feature = "legacy-value-contract"))]
+    #[test]
+    fn default_application_bundle_excludes_the_legacy_value_contract() {
+        let modules = application_modules(&[]).unwrap();
+        assert!(!modules
+            .iter()
+            .any(|module| module.namespace == "hoplite.value"));
+    }
+
+    #[cfg(feature = "legacy-value-contract")]
+    #[test]
+    fn compatibility_application_bundle_includes_the_legacy_value_contract() {
+        let modules = application_modules(&[]).unwrap();
+        assert!(modules
+            .iter()
+            .any(|module| module.namespace == "hoplite.value"));
     }
 
     #[test]

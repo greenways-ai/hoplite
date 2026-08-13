@@ -1,5 +1,8 @@
 name: Compatibility
 
+env:
+  HARA_REF: 6dd73bbb9ba546b90dee0a075323998dd3abac85
+
 on:
   workflow_dispatch:
   schedule:
@@ -7,6 +10,14 @@ on:
   pull_request:
     paths:
       - ".github/workflows/compatibility.yml"
+      - "core/Cargo.toml"
+      - "core/src/app.rs"
+      - "core/src/main.rs"
+      - "core/tests/core_boundary.rs"
+      - "core/tests/public_surfaces.rs"
+      - "docs/core-boundary.json"
+      - "docs/public-surfaces.json"
+      - "migration/value/**"
       - "core/abi/blob-store/**"
       - "core/abi/blob-store-filesystem/**"
       - "core/abi/blob-store-conformance/**"
@@ -104,3 +115,40 @@ jobs:
           cc -std=c11 -Wall -Wextra -Werror \
             -I core/abi/value-store-provider-ffi/include \
             -fsyntax-only /tmp/hoplite-value-store-provider.c
+
+  legacy-value-contract:
+    name: legacy hoplite.value contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ env.HARA_REF }}
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Verify the reviewed Hara revision
+        working-directory: hoplite
+        run: test "$(tr -d '[:space:]' < packaging/hara-revision)" = "$HARA_REF"
+      - name: Check focused compatibility formatting
+        run: cargo fmt --manifest-path hoplite/core/Cargo.toml -- --check
+      - name: Run the legacy value boundary contract
+        run: |
+          cargo test \
+            --manifest-path hoplite/core/Cargo.toml \
+            --locked \
+            --features legacy-value-contract \
+            value_boundary_contract_evaluates_from_hoplite
+      - name: Prove compatibility application bundles include the opted-in namespace
+        run: |
+          cargo test \
+            --manifest-path hoplite/core/Cargo.toml \
+            --locked \
+            --features legacy-value-contract \
+            compatibility_application_bundle_includes_the_legacy_value_contract

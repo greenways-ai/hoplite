@@ -39,13 +39,14 @@ products.
 
 ## Opt-in migration and evidence features
 
-Three non-default features make retained source explicit:
+Four non-default features make retained source explicit:
 
 | Feature | Purpose |
 | --- | --- |
 | `internal-evidence` | Enables measurement programs that are useful to Hoplite development but are not supported user commands. |
 | `legacy-management` | Enables the historical application-authentication and management implementation while it is extracted. |
 | `legacy-provider-products` | Enables historical provider manifest and lock generators while release/product material is extracted. |
+| `legacy-value-contract` | Enables the physically quarantined historical `hoplite.value` HAL contract only for migration conformance. |
 
 The authentication-store ABI, the external SQLite store implementation, and
 Rust SQLite integration are optional dependencies activated only by
@@ -54,7 +55,10 @@ product. Generic host cryptography remains available without enabling historical
 application policy or database storage.
 
 The legacy features are temporary migration seams, not extension points and not
-release promises. New generic runtime code must not depend on them.
+release promises. New generic runtime code must not depend on them. Ordinary
+resource registration and application-bundle construction exclude `hoplite.value`;
+only the explicit `legacy-value-contract` feature can restore it for focused
+compatibility testing.
 
 ## Inventory statuses
 
@@ -71,7 +75,8 @@ release promises. New generic runtime code must not depend on them.
 
 The required workspace test inventories every Rust source under `core/src`, every
 top-level package under `core/abi`, every provider-product packaging directory,
-and every packaging script. A new path without an explicit status fails CI.
+every physically quarantined top-level migration product, and every packaging
+script. A new path without an explicit status fails CI.
 
 ## Direct default-product evidence
 

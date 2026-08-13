@@ -32,6 +32,7 @@ cli-host = []
 embedded-nginx = []
 internal-evidence = []
 legacy-provider-products = []
+legacy-value-contract = []
 legacy-management = [
   "dep:hoplite-auth-store-abi",
   "dep:hoplite-store-sqlite",
