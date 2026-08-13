@@ -49,6 +49,24 @@ fn registered_paths(document: &Value, section_name: &str) -> BTreeSet<String> {
         .collect()
 }
 
+fn migration_hal_files(root: &Path) -> BTreeSet<String> {
+    let migration = root.join("migration");
+    if !migration.is_dir() {
+        return BTreeSet::new();
+    }
+    let mut output = BTreeSet::new();
+    for entry in fs::read_dir(&migration).expect("migration directory must be readable") {
+        let source = entry
+            .expect("migration entry must be readable")
+            .path()
+            .join("src/hoplite");
+        if source.is_dir() {
+            output.extend(immediate_files(&source, "hal", root));
+        }
+    }
+    output
+}
+
 #[test]
 fn public_surface_registry_is_well_formed_and_complete() {
     let root = repo_root();
@@ -129,7 +147,8 @@ fn public_surface_registry_is_well_formed_and_complete() {
     }
 
     let registered_hal = registered_paths(&document, "hal_namespaces");
-    let actual_hal = immediate_files(&root.join("core/lib/src/hoplite"), "hal", &root);
+    let mut actual_hal = immediate_files(&root.join("core/lib/src/hoplite"), "hal", &root);
+    actual_hal.extend(migration_hal_files(&root));
     assert_eq!(
         registered_hal, actual_hal,
         "every hoplite.* HAL namespace must receive an explicit compatibility status"

@@ -13,14 +13,15 @@ pub const HOST_SOURCE: &str = include_str!("../lib/src/hoplite/host.hal");
 pub const INTERNAL_SOURCE: &str = include_str!("../lib/src/hoplite/internal.hal");
 pub const RAW_SOURCE: &str = include_str!("../lib/src/hoplite/raw.hal");
 pub const RESPONSE_SOURCE: &str = include_str!("../lib/src/hoplite/response_source.hal");
-pub const VALUE_SOURCE: &str = include_str!("../lib/src/hoplite/value.hal");
+#[cfg(feature = "legacy-value-contract")]
+pub const VALUE_SOURCE: &str = include_str!("../../migration/value/src/hoplite/value.hal");
 #[cfg(test)]
 const CORE_TEST_SOURCE: &str = include_str!("../lib/test/hoplite/core_test.hal");
 #[cfg(test)]
 const RESPONSE_SOURCE_TEST_SOURCE: &str =
     include_str!("../lib/test/hoplite/response_source_test.hal");
-#[cfg(test)]
-const VALUE_TEST_SOURCE: &str = include_str!("../lib/test/hoplite/value_test.hal");
+#[cfg(all(test, feature = "legacy-value-contract"))]
+const VALUE_TEST_SOURCE: &str = include_str!("../../migration/value/test/hoplite/value_test.hal");
 #[cfg(all(test, feature = "legacy-management"))]
 const AUTH_TEST_SOURCE: &str = include_str!("../lib/test/hoplite/auth_test.hal");
 
@@ -102,7 +103,6 @@ pub struct Config {
 
 pub fn register_contract_resources(runtime: &mut Runtime) {
     runtime.register_resource("hoplite.response-source", RESPONSE_SOURCE);
-    runtime.register_resource("hoplite.value", VALUE_SOURCE);
 }
 
 pub fn register_resources(runtime: &mut Runtime) {
@@ -113,6 +113,8 @@ pub fn register_resources(runtime: &mut Runtime) {
     runtime.register_resource("hoplite.internal", INTERNAL_SOURCE);
     runtime.register_resource("hoplite.raw", RAW_SOURCE);
     register_contract_resources(runtime);
+    #[cfg(feature = "legacy-value-contract")]
+    runtime.register_resource("hoplite.value", VALUE_SOURCE);
 }
 
 fn generated_output(path: &Path) -> bool {
@@ -904,6 +906,17 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "legacy-value-contract"))]
+    #[test]
+    fn default_resources_exclude_the_legacy_value_contract() {
+        let mut runtime = Runtime::new();
+        register_resources(&mut runtime);
+        assert!(runtime
+            .eval_native_value("(ns sample.value (:require [hoplite.value :as value])) true",)
+            .is_err());
+    }
+
+    #[cfg(feature = "legacy-value-contract")]
     #[test]
     fn value_boundary_contract_evaluates_from_hoplite() {
         // This evaluator-heavy recursive contract exceeds libtest's 2 MiB

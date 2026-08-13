@@ -45,9 +45,10 @@
     },
     {
       "name": "hoplite.value",
-      "path": "core/lib/src/hoplite/value.hal",
+      "path": "migration/value/src/hoplite/value.hal",
       "status": "migration-only",
-      "summary": "Historical blob and value provider convenience functions awaiting extraction from core."
+      "summary": "Historical canonical-value provider contract physically quarantined and available only through a non-default compatibility feature.",
+      "availability": "legacy-value-contract"
     }
   ],
   "native_headers": [
