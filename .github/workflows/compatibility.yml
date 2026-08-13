@@ -35,8 +35,50 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  scope:
+    name: compatibility scope
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      reference: ${{ steps.scope.outputs.reference }}
+      legacy_value: ${{ steps.scope.outputs.legacy_value }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: scope
+        name: Select path-scoped evidence
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != pull_request ]]; then
+            echo 'reference=true' >> "$GITHUB_OUTPUT"
+            echo 'legacy_value=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git diff --name-only "$BASE_SHA" "$GITHUB_SHA" > /tmp/changed-paths
+          reference=false
+          legacy_value=false
+
+          if grep -Eq '^(\.github/workflows/compatibility\.yml|core/abi/(blob-store|blob-store-filesystem|blob-store-conformance|provider-hta|value-store|value-store-sqlite|value-store-provider|value-store-provider-ffi)/)' /tmp/changed-paths; then
+            reference=true
+          fi
+          if grep -Eq '^(\.github/workflows/compatibility\.yml|core/Cargo\.toml|core/src/(app|main)\.rs|core/tests/(core_boundary|public_surfaces)\.rs|docs/(core-boundary|public-surfaces)\.json|migration/value/)' /tmp/changed-paths; then
+            legacy_value=true
+          fi
+
+          echo "reference=$reference" >> "$GITHUB_OUTPUT"
+          echo "legacy_value=$legacy_value" >> "$GITHUB_OUTPUT"
+          printf 'reference=%s legacy_value=%s\n' "$reference" "$legacy_value"
+          cat /tmp/changed-paths
+
   reference-interfaces:
     name: ${{ matrix.package }}
+    needs: scope
+    if: needs.scope.outputs.reference == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
@@ -74,6 +116,8 @@ jobs:
 
   public-store-header:
     name: public store header
+    needs: scope
+    if: needs.scope.outputs.reference == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -118,6 +162,8 @@ jobs:
 
   legacy-value-contract:
     name: legacy hoplite.value contract
+    needs: scope
+    if: needs.scope.outputs.legacy_value == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
