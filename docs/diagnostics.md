@@ -63,6 +63,9 @@ checks:
 - generated HAB0, exact-manifest, route-count, and source-free evidence when a
   build is present.
 
+Runtime identities are matched as complete reported lines. A value that merely
+contains the expected version as a prefix or substring is incompatible.
+
 `--deep` explicitly authorizes source compilation, application Var evaluation,
 HAB0 construction, and the full application/platform preflight. `--strict`
 turns warnings, such as a project not yet being built or a development build
