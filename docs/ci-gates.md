@@ -28,6 +28,8 @@ The library job protects Hoplite-owned source and public boundaries:
 - the reviewed Hara revision matches `packaging/hara-revision`;
 - the alpha version policy matches code, documentation, and the Hara pin and
   rejects stale stable-looking application-contract identifiers;
+- the worker-reload fixture's phase-tagged bounded failure-report path passes a
+  no-Docker behavioural self-test;
 - Rust formatting is clean;
 - the committed dependency graph resolves with `--locked`;
 - the complete core workspace test suite passes;
@@ -74,6 +76,13 @@ recreation check against an already built image:
 ```sh
 bash packaging/scripts/smoke-worker-reload.sh hoplite-ci
 ```
+
+Every fixture failure records its current phase. Under GitHub Actions the outer
+wrapper emits a bounded encoded log tail plus the exact exit status, including
+for early `set -e` failures before an explicit diagnostic branch is reached.
+When the fixture reaches its normal diagnostic path, that tail contains the last
+response, Docker state, process table, container logs, Hoplite error log, and
+generated configuration.
 
 This job must use a generic application. It must not require a database,
 application identity model, provider release, or another repository.
