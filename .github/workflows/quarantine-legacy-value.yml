@@ -1,0 +1,50 @@
+name: Quarantine legacy hoplite.value
+
+on:
+  push:
+    branches:
+      - agent/quarantine-legacy-value-contract-107
+
+permissions:
+  contents: write
+
+jobs:
+  quarantine:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Physically quarantine the migration-only value contract
+        run: python3 .github/scripts/quarantine-legacy-value.py
+      - name: Format and validate generated changes
+        run: |
+          rustfmt --edition 2021 \
+            core/src/app.rs \
+            core/src/main.rs \
+            core/tests/core_boundary.rs \
+            core/tests/public_surfaces.rs
+          python3 -m json.tool docs/public-surfaces.json >/dev/null
+          python3 -m json.tool docs/core-boundary.json >/dev/null
+          test ! -e .github/workflows/quarantine-legacy-value.yml
+          test ! -e .github/scripts/quarantine-legacy-value.py
+          test -f migration/value/src/hoplite/value.hal
+          test -f migration/value/test/hoplite/value_test.hal
+          test ! -e core/lib/src/hoplite/value.hal
+          test ! -e core/lib/test/hoplite/value_test.hal
+          git diff --check
+      - name: Commit the quarantined compatibility seam
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && {
+            echo "quarantine produced no changes" >&2
+            exit 1
+          }
+          git commit -m "Quarantine the legacy hoplite.value contract"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
