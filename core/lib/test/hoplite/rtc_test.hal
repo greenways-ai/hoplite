@@ -1,0 +1,14 @@
+(ns hoplite.rtc-test
+  (:config {})
+  (:require [hoplite.rtc :as rtc]))
+
+(Test/run
+ [{:name "RTC host calls remain behind one generic service name"
+   :test (fn []
+           [(fn? rtc/open)
+            (fn? rtc/offer)
+            (fn? rtc/answer)
+            (fn? rtc/accept-answer)
+            (fn? rtc/connect)
+            (fn? rtc/receive-stream)])
+   :expected [true true true true true true]}])

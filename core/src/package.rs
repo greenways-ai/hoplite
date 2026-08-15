@@ -7,13 +7,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub fn run(arguments: &[String]) -> Result<(), String> {
-    if arguments.first().map(String::as_str) == Some("install")
-        && arguments
-            .get(1)
-            .is_some_and(|value| value.starts_with("gh:"))
-    {
-        return install_github(arguments);
-    }
     if arguments.first().map(String::as_str) == Some("verify") {
         let coordinate = arguments
             .get(1)
@@ -35,90 +28,120 @@ pub fn run(arguments: &[String]) -> Result<(), String> {
     hara_wasm::package::run(arguments)
 }
 
-fn install_github(arguments: &[String]) -> Result<(), String> {
-    let coordinate = arguments
-        .get(1)
-        .ok_or("hoplite package install requires a GitHub coordinate")?;
-    let version_text = arguments
-        .get(2)
-        .ok_or("GitHub package install requires an exact VERSION")?;
-    let version = Version::parse(version_text)
-        .map_err(|error| format!("invalid package version: {error}"))?;
-    let supplied = option(arguments, "--sha256")?;
-    let expected = supplied.strip_prefix("sha256:").unwrap_or(supplied);
-    if expected.len() != 64 || !expected.chars().all(|value| value.is_ascii_hexdigit()) {
-        return Err("--sha256 must be a 64-character SHA-256 digest".into());
+pub fn ensure_locked(
+    package: &hara_wasm::package_catalog::LockedPackage,
+) -> Result<PathBuf, String> {
+    let version = Version::parse(&package.version)
+        .map_err(|error| format!("invalid locked package version: {error}"))?;
+    let expected = package
+        .archive_sha256
+        .strip_prefix("sha256:")
+        .unwrap_or(&package.archive_sha256);
+    if let Ok(root) = installed_root_locked(
+        &package.coordinate,
+        &version,
+        Some(&format!("sha256:{expected}")),
+    ) {
+        return Ok(root);
     }
-    let (owner, repository) = github_repository(coordinate)?;
-    let asset = format!("{repository}-{version}.harp");
-    let url =
-        format!("https://github.com/{owner}/{repository}/releases/download/v{version}/{asset}");
-    let temporary =
-        std::env::temp_dir().join(format!("hoplite-package-{}-{asset}", std::process::id()));
-    let status = Command::new("curl")
-        .args([
-            "--fail",
-            "--location",
-            "--silent",
-            "--show-error",
-            "--proto",
-            "=https",
-            "--tlsv1.2",
-            "--output",
-        ])
-        .arg(&temporary)
-        .arg(&url)
-        .status()
-        .map_err(|error| format!("cannot execute curl for package download: {error}"))?;
-    if !status.success() {
-        let _ = fs::remove_file(&temporary);
-        return Err(format!("cannot download package release {url}"));
-    }
+    let origin = std::env::var("HARA_PACKAGES_URL")
+        .unwrap_or_else(|_| "https://packages.hara-lang.org".into())
+        .trim_end_matches('/')
+        .to_owned();
+    let registry_url = format!("{origin}/v1/registry?ref={}", package.registry_commit);
+    let registry = curl_bytes(&registry_url, None)?;
+    verify_registry_release(&registry, package)?;
+    let object_url = format!("{origin}/objects/sha256/{expected}");
+    let temporary = std::env::temp_dir().join(format!(
+        "hoplite-package-{}-{expected}.harp",
+        std::process::id()
+    ));
+    curl_bytes(&object_url, Some(&temporary))?;
     let actual = encode_hex(&Sha256::digest(fs::read(&temporary).map_err(io)?));
-    if !actual.eq_ignore_ascii_case(expected) {
+    if actual != expected {
         let _ = fs::remove_file(&temporary);
         return Err(format!(
             "downloaded package digest mismatch: expected sha256:{expected}, got sha256:{actual}"
         ));
     }
-    let result =
-        hara_wasm::package::run(&["install".into(), temporary.to_string_lossy().into_owned()]);
+    let installed = hara_wasm::package::install_path(&temporary);
     let _ = fs::remove_file(&temporary);
-    result?;
-    println!("package source: {url}");
-    println!("package digest: sha256:{actual}");
-    Ok(())
+    installed?;
+    installed_root_locked(
+        &package.coordinate,
+        &version,
+        Some(&format!("sha256:{expected}")),
+    )
 }
 
-fn github_repository(coordinate: &str) -> Result<(&str, &str), String> {
-    let repository = coordinate
-        .strip_prefix("gh:")
-        .ok_or("GitHub package coordinate must start with gh:")?;
-    let mut parts = repository.split(':');
-    match (parts.next(), parts.next(), parts.next()) {
-        (Some(owner), Some(repository), None)
-            if valid_github_component(owner) && valid_github_component(repository) =>
-        {
-            Ok((owner, repository))
-        }
-        _ => Err("GitHub package coordinate must be gh:OWNER:REPOSITORY".into()),
+fn curl_bytes(url: &str, output: Option<&Path>) -> Result<Vec<u8>, String> {
+    let mut command = Command::new("curl");
+    command.args([
+        "--fail",
+        "--location",
+        "--silent",
+        "--show-error",
+        "--proto",
+        "=https",
+        "--tlsv1.2",
+    ]);
+    if let Some(path) = output {
+        command.arg("--output").arg(path);
     }
+    command.arg(url);
+    if output.is_some() {
+        let status = command
+            .status()
+            .map_err(|error| format!("cannot execute curl: {error}"))?;
+        if !status.success() {
+            return Err(format!("cannot download package resource {url}"));
+        }
+        return Ok(Vec::new());
+    }
+    let result = command
+        .output()
+        .map_err(|error| format!("cannot execute curl: {error}"))?;
+    if !result.status.success() {
+        return Err(format!("cannot download package registry {url}"));
+    }
+    Ok(result.stdout)
 }
 
-fn valid_github_component(value: &str) -> bool {
-    !value.is_empty()
-        && value
-            .chars()
-            .all(|value| value.is_ascii_alphanumeric() || matches!(value, '-' | '_' | '.'))
-}
-
-fn option<'a>(arguments: &'a [String], name: &str) -> Result<&'a str, String> {
-    arguments
-        .iter()
-        .position(|value| value == name)
-        .and_then(|index| arguments.get(index + 1))
-        .map(String::as_str)
-        .ok_or_else(|| format!("GitHub package install requires {name} DIGEST"))
+fn verify_registry_release(
+    source: &[u8],
+    package: &hara_wasm::package_catalog::LockedPackage,
+) -> Result<(), String> {
+    let source = std::str::from_utf8(source).map_err(|_| "package registry is not UTF-8")?;
+    let Form::Map(registry) = parse(source)? else {
+        return Err("package registry must be an EDN map".into());
+    };
+    let packages = map_field(&registry, "registry/packages", Path::new("registry.edn"))?;
+    let release = packages.iter().find_map(|(coordinate, releases)| {
+        (matches!(coordinate, Form::String(value) | Form::Symbol(value) | Form::Keyword(value) if value == &package.coordinate))
+            .then_some(releases)
+    }).ok_or_else(|| format!("package/not-in-registry: {}", package.coordinate))?;
+    let Form::Map(releases) = release else {
+        return Err("registry package versions must be a map".into());
+    };
+    let descriptor = releases.iter().find_map(|(version, descriptor)| {
+        (matches!(version, Form::String(value) | Form::Symbol(value) if value == &package.version))
+            .then_some(descriptor)
+    }).ok_or_else(|| format!("package/version-not-in-registry: {} {}", package.coordinate, package.version))?;
+    let Form::Map(descriptor) = descriptor else {
+        return Err("registry release descriptor must be a map".into());
+    };
+    for (field, expected) in [
+        ("archive-sha256", package.archive_sha256.as_str()),
+        ("identity-revision", package.identity_revision.as_str()),
+    ] {
+        if string_field(descriptor, field).as_deref() != Some(expected) {
+            return Err(format!(
+                "package/registry-mismatch: {} {} :{field}",
+                package.coordinate, package.version
+            ));
+        }
+    }
+    Ok(())
 }
 
 pub fn installed_root(coordinate: &str, version: &Version) -> Result<PathBuf, String> {
@@ -348,16 +371,6 @@ mod tests {
     }
 
     #[test]
-    fn github_coordinates_only_allow_derived_release_paths() {
-        assert_eq!(
-            github_repository("gh:greenways-ai:hoplite").unwrap(),
-            ("greenways-ai", "hoplite")
-        );
-        assert!(github_repository("gh:greenways-ai:../hoplite").is_err());
-        assert!(github_repository("https://example.com/archive").is_err());
-    }
-
-    #[test]
     fn installed_roots_are_verified_against_the_harp_manifest() {
         let root = std::env::temp_dir().join(format!(
             "hoplite-installed-integrity-{}",
@@ -395,5 +408,31 @@ mod tests {
         .unwrap_err()
         .contains("failed integrity verification"));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn registry_release_must_match_the_locked_digest_and_identity_revision() {
+        let package = hara_wasm::package_catalog::LockedPackage {
+            coordinate: "gh:greenways-ai:demo".into(),
+            version: "1.2.3".into(),
+            tap: "hara".into(),
+            registry_commit: "a".repeat(40),
+            identity_revision: "b".repeat(40),
+            archive_sha256: format!("sha256:{}", "c".repeat(64)),
+            namespaces: vec!["demo.core".into()],
+        };
+        let registry = format!(
+            "{{:registry/packages {{\"gh:greenways-ai:demo\" {{\"1.2.3\" {{:archive-sha256 \"sha256:{}\" :identity-revision \"{}\"}}}}}}}}",
+            "c".repeat(64), "b".repeat(40)
+        );
+        verify_registry_release(registry.as_bytes(), &package).unwrap();
+        assert!(verify_registry_release(
+            registry
+                .replace(&"c".repeat(64), &"d".repeat(64))
+                .as_bytes(),
+            &package
+        )
+        .unwrap_err()
+        .contains("package/registry-mismatch"));
     }
 }

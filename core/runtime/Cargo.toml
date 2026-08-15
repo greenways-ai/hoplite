@@ -39,3 +39,4 @@ hoplite-data-plane-registry = { path = "../abi/data-plane-registry" }
 p256 = { version = "0.13", features = ["ecdsa"] }
 serde_json = "1.0"
 sha2 = "0.10"
+str0m = { version = "=0.21.0", default-features = false, features = ["rust-crypto"] }

@@ -1,5 +1,5 @@
 (ns hoplite.core
-  (:require [std.foundation :refer :all]))
+  (:config {}))
 
 (defn- tagged
   [kind value]
@@ -22,11 +22,39 @@
     :status status
     :body body}))
 
+(defn- iterator-stream
+  [iterator]
+  (Stream/generate
+   (fn [input]
+     (try
+       (loop []
+         (if (IIterator/iter-next? input)
+           (do (Coroutine/yield (IIterator/iter-next input))
+               (recur))
+           nil))
+       (finally (IClose/close input))))
+   iterator))
+
 (defn stream
-  "Marks a coroutine or producer as a backpressured response stream."
+  "Constructs a backpressured HTTP body from an IStream or finite iterable."
   [source]
-  {:hoplite/type :stream
-   :source source})
+  (if (satisfies? IStream source)
+    {:hoplite/type :stream :source source}
+    (if (Iter/iter-finite? source)
+      (let [iterator (IIter/iter source)]
+        {:hoplite/type :stream :source (iterator-stream iterator)})
+        (throw (ex-info "h/stream expects an IStream or finite iterable"
+                        {:phase :stream/invalid-source})))))
+
+(defn channel
+  "Declares one bounded Nchan-backed publish/subscribe endpoint."
+  [definition]
+  (tagged :channel definition))
+
+(defn peer
+  "Declares one WebRTC peer handler bound to a channel."
+  [definition]
+  (tagged :peer definition))
 
 (defn middleware
   "Defines lifecycle middleware with request, response, error, and close phases."

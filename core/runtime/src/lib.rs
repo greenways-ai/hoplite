@@ -2,6 +2,8 @@
 
 #[path = "../../src/host.rs"]
 mod host_intrinsics;
+#[path = "../../src/rtc.rs"]
+mod rtc;
 
 use hara_wasm::{core, hta, kernel, vm};
 use hoplite_application_bundle as application_bundle;
@@ -219,7 +221,17 @@ struct RequestRecord {
 struct NativeResponse {
     status: u16,
     headers: Vec<(String, String)>,
-    body: Vec<u8>,
+    body: NativeResponseBody,
+}
+
+enum NativeResponseBody {
+    Buffered(Vec<u8>),
+    Stream {
+        source: Value,
+        pending: Option<Promise>,
+        chunk: Vec<u8>,
+        eof: bool,
+    },
 }
 
 struct RawBuilder {
@@ -510,10 +522,33 @@ fn native_response(value: Value) -> Result<NativeResponse, String> {
         _ => return Err("Hoplite response status must be a number".into()),
     };
     let body = match body_value {
-        None | Some(Value::Nil) => Vec::new(),
-        Some(Value::String(value)) => value.into_bytes(),
-        Some(Value::Bytes(value)) => value,
-        _ => return Err("Hoplite response body must be a string or bytes".into()),
+        None | Some(Value::Nil) => NativeResponseBody::Buffered(Vec::new()),
+        Some(Value::String(value)) => NativeResponseBody::Buffered(value.into_bytes()),
+        Some(Value::Bytes(value)) => NativeResponseBody::Buffered(value),
+        Some(value) => {
+            let entries = core::map_entries(&value).ok_or_else(|| {
+                "Hoplite response body must be a string, bytes, or h/stream".to_string()
+            })?;
+            let tagged = entries.iter().any(|(key, value)| {
+                matches!(key, Value::Keyword(key) if key.as_str() == "hoplite/type")
+                    && matches!(value, Value::Keyword(value) if value.as_str() == "stream")
+            });
+            let source = entries.into_iter().find_map(|(key, value)| {
+                matches!(key, Value::Keyword(key) if key.as_str() == "source").then_some(value)
+            });
+            let source = source
+                .filter(core::stream_value)
+                .filter(|_| tagged)
+                .ok_or_else(|| {
+                    "hoplite/stream-invalid: h/stream source must satisfy IStream".to_string()
+                })?;
+            NativeResponseBody::Stream {
+                source,
+                pending: None,
+                chunk: Vec::new(),
+                eof: false,
+            }
+        }
     };
     Ok(NativeResponse {
         status,
@@ -523,6 +558,10 @@ fn native_response(value: Value) -> Result<NativeResponse, String> {
 }
 
 fn response_value_owned(response: NativeResponse) -> Value {
+    let body = match response.body {
+        NativeResponseBody::Buffered(body) => body,
+        NativeResponseBody::Stream { .. } => Vec::new(),
+    };
     Value::Map(
         vec![
             (
@@ -539,7 +578,7 @@ fn response_value_owned(response: NativeResponse) -> Value {
                         .collect(),
                 ),
             ),
-            (Value::Keyword("body".into()), Value::Bytes(response.body)),
+            (Value::Keyword("body".into()), Value::Bytes(body)),
         ]
         .into_iter()
         .collect(),
@@ -758,7 +797,7 @@ fn install_raw_namespace(
             Ok(response_value_owned(NativeResponse {
                 status: response.status,
                 headers: response.headers,
-                body: response.body,
+                body: NativeResponseBody::Buffered(response.body),
             }))
         }),
     );
@@ -2432,7 +2471,10 @@ pub unsafe extern "C" fn hoplite_response_body_v2(
     }
     catch_unwind(AssertUnwindSafe(|| {
         let runtime = runtime_mut(runtime)?;
-        let value = &runtime.responses.get(&response).ok_or(())?.body;
+        let NativeResponseBody::Buffered(value) = &runtime.responses.get(&response).ok_or(())?.body
+        else {
+            return Err(());
+        };
         (*body).data = value.as_ptr();
         (*body).len = value.len();
         Ok::<i32, ()>(0)
@@ -2440,6 +2482,159 @@ pub unsafe extern "C" fn hoplite_response_body_v2(
     .ok()
     .and_then(Result::ok)
     .unwrap_or(1)
+}
+
+/// 0 = buffered, 1 = Hara Stream, -1 = unknown response.
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_response_body_kind_v3(
+    runtime: *mut HopliteRuntime,
+    response: u64,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        Ok::<i32, ()>(match &runtime.responses.get(&response).ok_or(())?.body {
+            NativeResponseBody::Buffered(_) => 0,
+            NativeResponseBody::Stream { .. } => 1,
+        })
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(-1)
+}
+
+/// Pull result: 0 = chunk, 1 = pending, 2 = EOF, -1 = error.
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_response_stream_next_v3(
+    runtime: *mut HopliteRuntime,
+    response: u64,
+    output: *mut HopliteSlice,
+) -> i32 {
+    if output.is_null() {
+        return -1;
+    }
+    (*output).data = ptr::null();
+    (*output).len = 0;
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime).map_err(|_| "runtime")?;
+        let source = match runtime
+            .responses
+            .get(&response)
+            .map(|response| &response.body)
+        {
+            Some(NativeResponseBody::Stream {
+                source,
+                pending,
+                eof,
+                ..
+            }) if !*eof && pending.is_none() => Some(source.clone()),
+            Some(NativeResponseBody::Stream { .. }) => None,
+            _ => return Err("response"),
+        };
+        if let Some(source) = source {
+            let namespaces = runtime.namespaces.clone();
+            let protocols = runtime.protocols.clone();
+            let promise = core::with_namespace_registry(&namespaces, || {
+                core::with_protocols(&protocols, || core::stream_next_value(&source))
+            })
+            .map_err(|_| "pull")?;
+            if let Some(NativeResponseBody::Stream { pending, .. }) = runtime
+                .responses
+                .get_mut(&response)
+                .map(|response| &mut response.body)
+            {
+                *pending = Some(promise);
+            }
+        }
+        let state = match runtime
+            .responses
+            .get(&response)
+            .map(|response| &response.body)
+        {
+            Some(NativeResponseBody::Stream {
+                pending: Some(promise),
+                ..
+            }) => promise.state(),
+            Some(NativeResponseBody::Stream { eof: true, .. }) => return Ok(2),
+            _ => return Err("state"),
+        };
+        let fail = |runtime: &mut HopliteRuntime| {
+            if let Some(NativeResponseBody::Stream {
+                source,
+                pending,
+                eof,
+                ..
+            }) = runtime
+                .responses
+                .get_mut(&response)
+                .map(|response| &mut response.body)
+            {
+                let _ = core::stream_close_value(source);
+                *pending = None;
+                *eof = true;
+            }
+        };
+        match state {
+            PromiseState::Pending => Ok(1),
+            PromiseState::Fulfilled(Value::Nil) => {
+                if let Some(NativeResponseBody::Stream {
+                    source,
+                    pending,
+                    eof,
+                    ..
+                }) = runtime
+                    .responses
+                    .get_mut(&response)
+                    .map(|response| &mut response.body)
+                {
+                    let _ = core::stream_close_value(source);
+                    *pending = None;
+                    *eof = true;
+                }
+                Ok(2)
+            }
+            PromiseState::Fulfilled(value) => {
+                let bytes = match value {
+                    Value::String(value) => value.into_bytes(),
+                    Value::Bytes(value) => value,
+                    _ => {
+                        fail(runtime);
+                        return Err("item");
+                    }
+                };
+                if bytes.is_empty() || bytes.len() > 64 * 1024 {
+                    fail(runtime);
+                    return Err("chunk");
+                }
+                let Some(NativeResponseBody::Stream {
+                    source,
+                    pending,
+                    chunk,
+                    eof,
+                    ..
+                }) = runtime
+                    .responses
+                    .get_mut(&response)
+                    .map(|response| &mut response.body)
+                else {
+                    return Err("response");
+                };
+                *pending = None;
+                *chunk = bytes;
+                (*output).data = chunk.as_ptr();
+                (*output).len = chunk.len();
+                let _ = source;
+                let _ = eof;
+                Ok(0)
+            }
+            PromiseState::Rejected(_) => {
+                fail(runtime);
+                Err("rejected")
+            }
+        }
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(-1)
 }
 
 #[no_mangle]
@@ -2492,11 +2687,16 @@ pub unsafe extern "C" fn hoplite_response_close_v2(
 ) -> i32 {
     catch_unwind(AssertUnwindSafe(|| {
         let runtime = runtime_mut(runtime)?;
-        Ok::<i32, ()>(if runtime.responses.remove(&response).is_some() {
-            0
-        } else {
-            1
-        })
+        Ok::<i32, ()>(
+            if let Some(response) = runtime.responses.remove(&response) {
+                if let NativeResponseBody::Stream { source, .. } = response.body {
+                    let _ = core::stream_close_value(&source);
+                }
+                0
+            } else {
+                1
+            },
+        )
     }))
     .ok()
     .and_then(Result::ok)
@@ -3257,11 +3457,99 @@ mod tests {
         };
         let response = runtime.responses.get(&response).unwrap();
         assert_eq!(response.status, 200);
-        assert_eq!(response.body, b"lazy");
+        assert!(matches!(&response.body, NativeResponseBody::Buffered(body) if body == b"lazy"));
         assert_eq!(response.headers, vec![("x-path".into(), "/hello".into())]);
         assert_eq!(runtime.works.len(), works_before);
         assert!(runtime.events.borrow().is_empty());
         assert!(runtime.requests.borrow().is_empty());
+    }
+
+    #[test]
+    fn request_adapter_retains_and_pulls_hara_stream_bodies() {
+        let mut runtime = HopliteRuntime::new();
+        runtime.work_start(
+            "(ns direct.stream (:require [std.foundation :refer :all])) \
+             (defn show [_request] \
+               {:status 200 \
+                :body {:hoplite/type :stream \
+                       :source (std.native.Stream/generate \
+                                (fn [] \
+                                  (std.foundation.coroutine/yield \"first\") \
+                                  (std.foundation.coroutine/yield \"second\") \
+                                  :done))}}) nil",
+            None,
+        );
+        let bootstrap = take_event(&mut runtime);
+        assert!(
+            matches!(&bootstrap, Value::Vector(values) if matches!(values.get(0), Some(Value::Number(0)))),
+            "bootstrap failed: {bootstrap:?}"
+        );
+        runtime
+            .apps_prepare(manifest_v2("direct.stream/show", "request"))
+            .unwrap();
+        let mut context = TestRequest { headers: vec![] };
+        let InvokeState::Complete(response) = runtime
+            .app_invoke(1, test_request(&mut context, "/stream"))
+            .unwrap()
+        else {
+            panic!("stream response suspended")
+        };
+        let runtime_ptr = &mut runtime as *mut HopliteRuntime;
+        unsafe {
+            assert_eq!(hoplite_response_body_kind_v3(runtime_ptr, response), 1);
+            let mut output = HopliteSlice {
+                data: ptr::null(),
+                len: 0,
+            };
+            assert_eq!(
+                hoplite_response_stream_next_v3(runtime_ptr, response, &mut output),
+                0
+            );
+            assert_eq!(slice::from_raw_parts(output.data, output.len), b"first");
+            assert_eq!(
+                hoplite_response_stream_next_v3(runtime_ptr, response, &mut output),
+                0
+            );
+            assert_eq!(slice::from_raw_parts(output.data, output.len), b"second");
+            assert_eq!(
+                hoplite_response_stream_next_v3(runtime_ptr, response, &mut output),
+                2
+            );
+            assert_eq!(
+                hoplite_response_stream_next_v3(runtime_ptr, response, &mut output),
+                2
+            );
+            assert_eq!(hoplite_response_close_v2(runtime_ptr, response), 0);
+        }
+    }
+
+    #[test]
+    fn native_response_rejects_forged_stream_descriptors() {
+        let response = Value::Map(
+            [(
+                Value::Keyword("body".into()),
+                Value::Map(
+                    [
+                        (
+                            Value::Keyword("hoplite/type".into()),
+                            Value::Keyword("stream".into()),
+                        ),
+                        (
+                            Value::Keyword("source".into()),
+                            Value::Vector(Vec::new().into()),
+                        ),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ),
+            )]
+            .into_iter()
+            .collect(),
+        );
+        assert!(native_response(response)
+            .err()
+            .unwrap()
+            .contains("hoplite/stream-invalid"));
     }
 
     #[test]
@@ -3285,7 +3573,7 @@ mod tests {
         };
         let response = runtime.responses.get(&response).unwrap();
         assert_eq!(response.status, 201);
-        assert_eq!(response.body, b"/raw");
+        assert!(matches!(&response.body, NativeResponseBody::Buffered(body) if body == b"/raw"));
         assert_eq!(response.headers, vec![("x-mode".into(), "raw".into())]);
         assert_eq!(runtime.works.len(), works_before);
     }
@@ -3314,7 +3602,9 @@ mod tests {
         else {
             panic!("body route suspended")
         };
-        assert_eq!(runtime.responses[&response].body, b"present");
+        assert!(
+            matches!(&runtime.responses[&response].body, NativeResponseBody::Buffered(body) if body == b"present")
+        );
         assert!(runtime.resources.borrow().is_empty());
         assert_eq!(body_context.close_count, 1);
     }

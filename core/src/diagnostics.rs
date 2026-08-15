@@ -730,6 +730,8 @@ mod tests {
                 ],
                 request_body: None,
                 proxies: Vec::new(),
+                channels: Vec::new(),
+                peers: Vec::new(),
                 openapi_path: None,
             }],
         };

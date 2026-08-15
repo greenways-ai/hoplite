@@ -304,6 +304,19 @@ hoplite_write_u32(hoplite_writer_t *writer, uint32_t value)
 }
 
 static ngx_int_t
+hoplite_write_i64(hoplite_writer_t *writer, int64_t value)
+{
+    uint64_t raw = (uint64_t) value;
+    u_char bytes[8] = {
+        (u_char) (raw >> 56), (u_char) (raw >> 48),
+        (u_char) (raw >> 40), (u_char) (raw >> 32),
+        (u_char) (raw >> 24), (u_char) (raw >> 16),
+        (u_char) (raw >> 8), (u_char) raw
+    };
+    return hoplite_write(writer, bytes, sizeof(bytes));
+}
+
+static ngx_int_t
 hoplite_write_text(hoplite_writer_t *writer, u_char tag, const ngx_str_t *value)
 {
     if (value->len > UINT32_MAX
@@ -455,6 +468,33 @@ hoplite_hta_encode_string(ngx_pool_t *pool, const ngx_str_t *value,
         return NGX_ERROR;
     }
     output->len = writer.cursor;
+    return NGX_OK;
+}
+
+ngx_int_t
+hoplite_hta_encode_number(ngx_pool_t *pool, int64_t value, ngx_str_t *output)
+{
+    hoplite_writer_t writer;
+    size_t capacity = sizeof(hoplite_magic) + 1 + 8;
+
+    if (pool == NULL || output == NULL) {
+        return NGX_ERROR;
+    }
+    output->data = ngx_palloc(pool, capacity);
+    if (output->data == NULL) {
+        return NGX_ERROR;
+    }
+    output->len = capacity;
+    writer.data = output->data;
+    writer.len = capacity;
+    writer.cursor = 0;
+    if (hoplite_write(&writer, hoplite_magic, sizeof(hoplite_magic)) != NGX_OK
+        || hoplite_write_byte(&writer, OH_I64) != NGX_OK
+        || hoplite_write_i64(&writer, value) != NGX_OK
+        || writer.cursor != capacity)
+    {
+        return NGX_ERROR;
+    }
     return NGX_OK;
 }
 

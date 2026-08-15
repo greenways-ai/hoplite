@@ -26,6 +26,7 @@ mod platform;
 mod repl;
 
 const NGINX_VERSION: &str = "1.30.4";
+const NCHAN_VERSION: &str = "1.3.8";
 #[cfg(feature = "embedded-nginx")]
 const EMBEDDED_NGINX: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -46,6 +47,8 @@ fn run(arguments: Vec<String>) -> Result<(), String> {
             println!("Hoplite {}", env!("CARGO_PKG_VERSION"));
             println!("Hara {}", env!("CARGO_PKG_VERSION"));
             println!("Nginx {} ({})", NGINX_VERSION, nginx_distribution());
+            println!("Nchan {} (embedded Nginx module)", NCHAN_VERSION);
+            println!("WebRTC str0m/0.21.0 (Sans-I/O host engine)");
         }
         Some("serve") => run_serve_command(&arguments[1..])?,
         Some("doctor") => doctor::run(&arguments[1..])?,
@@ -1018,6 +1021,27 @@ fn nginx_proxy_location(proxy: &app::Proxy, trusted_ca: Option<&Path>) -> Result
     ))
 }
 
+fn nginx_channel_locations(application: &app::App, channel: &app::Channel) -> String {
+    let authorize = channel.authorize_path(application.id);
+    let admit = channel.admit_path(application.id);
+    let group = format!("hoplite_{}_{}", application.id, channel.name);
+    let transports = channel.transports.join(" ");
+    format!(
+        "        location = {authorize} {{\n            internal;\n            hoplite_app {};\n        }}\n        location = {admit} {{\n            internal;\n            client_max_body_size 65536;\n            hoplite_request_body on;\n            hoplite_request_body_max 65536;\n            hoplite_request_body_chunk 65536;\n            hoplite_app {};\n        }}\n        location ~ ^{}/([A-Za-z0-9_-]{{22,{}}})$ {{\n            client_max_body_size 65536;\n            nchan_channel_id $1;\n            nchan_channel_group {};\n            nchan_max_channel_id_length {};\n            nchan_max_channel_subscribers {};\n            nchan_message_buffer_length {};\n            nchan_message_timeout {}s;\n            nchan_authorize_request {};\n            nchan_publisher_upstream_request {};\n            nchan_pubsub {transports};\n        }}\n",
+        application.id,
+        application.id,
+        channel.path_prefix,
+        channel.max_channel_id_bytes,
+        group,
+        channel.max_channel_id_bytes,
+        channel.max_subscribers,
+        channel.message_buffer,
+        channel.message_timeout_seconds,
+        authorize,
+        admit,
+    )
+}
+
 fn nginx_app_configuration(project: &Project, config: &app::Config) -> Result<String, String> {
     let bootstrap = project
         .root
@@ -1048,6 +1072,9 @@ fn nginx_app_configuration(project: &Project, config: &app::Config) -> Result<St
         for proxy in &application.proxies {
             locations.push_str(&nginx_proxy_location(proxy, trusted_ca.as_deref())?);
         }
+        for channel in &application.channels {
+            locations.push_str(&nginx_channel_locations(application, channel));
+        }
         let request_body = application
             .request_body
             .as_ref()
@@ -1067,9 +1094,16 @@ fn nginx_app_configuration(project: &Project, config: &app::Config) -> Result<St
             application.port, names, locations
         ));
     }
+    let nchan = config
+        .apps
+        .iter()
+        .any(|application| !application.channels.is_empty())
+        .then_some("    nchan_shared_memory_size 32M;\n")
+        .unwrap_or_default();
     Ok(format!(
-        "worker_processes {};\npid .hoplite/nginx.pid;\nerror_log .hoplite/error.log notice;\nevents {{}}\nhttp {{\n    access_log .hoplite/access.log;\n    hoplite_bootstrap {};\n    hoplite_manifest {};\n{} }}\n",
+        "worker_processes {};\npid .hoplite/nginx.pid;\nerror_log .hoplite/error.log notice;\nevents {{}}\nhttp {{\n    access_log .hoplite/access.log;\n{}    hoplite_bootstrap {};\n    hoplite_manifest {};\n{} }}\n",
         config.workers,
+        nchan,
         bootstrap.display(),
         manifest.display(),
         servers
@@ -1208,6 +1242,43 @@ mod tests {
         assert!(location.contains("proxy_set_header Origin \"\";"));
         assert!(location.contains("proxy_pass https://greenways.space/beacon/v1/;"));
         assert!(!location.contains("$request_uri"));
+    }
+
+    #[test]
+    fn renders_bounded_nchan_locations_with_internal_hooks() {
+        let app = app::App {
+            id: 3,
+            name: "tahto".into(),
+            port: 58100,
+            hostnames: Vec::new(),
+            routes: Vec::new(),
+            request_body: None,
+            proxies: Vec::new(),
+            channels: Vec::new(),
+            peers: Vec::new(),
+            openapi_path: None,
+        };
+        let channel = app::Channel {
+            name: "signals".into(),
+            path_prefix: "/tahto/signals".into(),
+            authorize: "tahto.signal/authorize".into(),
+            admit: "tahto.signal/admit".into(),
+            message_buffer: 8,
+            message_timeout_seconds: 30,
+            max_channel_id_bytes: 128,
+            max_subscribers: 4,
+            transports: vec!["websocket".into(), "eventsource".into()],
+        };
+        let configuration = nginx_channel_locations(&app, &channel);
+        assert!(configuration.contains("location ~ ^/tahto/signals/([A-Za-z0-9_-]{22,128})$"));
+        assert!(
+            configuration.contains("nchan_authorize_request /__hoplite/nchan/3/signals/authorize;")
+        );
+        assert!(configuration
+            .contains("nchan_publisher_upstream_request /__hoplite/nchan/3/signals/admit;"));
+        assert!(configuration.contains("nchan_max_channel_subscribers 4;"));
+        assert!(configuration.contains("nchan_pubsub websocket eventsource;"));
+        assert!(!configuration.contains("tahto.signal"));
     }
 
     #[test]

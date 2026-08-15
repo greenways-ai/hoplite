@@ -44,6 +44,7 @@ typedef struct {
     ngx_flag_t active;
     ngx_flag_t submitted;
     ngx_flag_t last;
+    ngx_flag_t native_stream;
 } ngx_http_hoplite_response_source_t;
 
 typedef struct ngx_http_hoplite_ctx_s ngx_http_hoplite_ctx_t;
@@ -58,6 +59,7 @@ typedef struct {
 
 
 typedef struct ngx_http_hoplite_provider_s ngx_http_hoplite_provider_t;
+typedef struct ngx_http_hoplite_rtc_session_s ngx_http_hoplite_rtc_session_t;
 
 typedef struct {
     ngx_http_hoplite_ctx_t *ctx;
@@ -79,6 +81,17 @@ struct ngx_http_hoplite_provider_s {
     ngx_http_hoplite_provider_invoke_pt invoke;
     ngx_http_hoplite_provider_cancel_pt cancel;
     uint32_t capabilities;
+};
+
+struct ngx_http_hoplite_rtc_session_s {
+    uint64_t id;
+    hoplite_rtc_engine_t *engine;
+    ngx_connection_t *udp;
+    ngx_event_t timer;
+    ngx_http_hoplite_ctx_t *receiver;
+    uint64_t receive_call;
+    hoplite_buffer_t received;
+    ngx_http_hoplite_rtc_session_t *next;
 };
 
 #define NGX_HTTP_HOPLITE_PROVIDER_REQUEST_BODY 0x01u
@@ -173,6 +186,8 @@ static hoplite_runtime_t *ngx_http_hoplite_runtime;
 static ngx_queue_t ngx_http_hoplite_requests;
 static ngx_flag_t ngx_http_hoplite_queue_ready;
 static hoplite_host_registry_t ngx_http_hoplite_providers;
+static ngx_http_hoplite_rtc_session_t *ngx_http_hoplite_rtc_sessions;
+static uint64_t ngx_http_hoplite_rtc_next_id;
 
 static ngx_int_t ngx_http_hoplite_handler(ngx_http_request_t *request);
 static char *ngx_http_hoplite_content(ngx_conf_t *cf, ngx_command_t *cmd,
@@ -200,11 +215,28 @@ static const ngx_http_hoplite_provider_t *ngx_http_hoplite_provider_find(
 static ngx_int_t ngx_http_hoplite_nginx_invoke(
     const ngx_http_hoplite_host_call_t *call);
 static void ngx_http_hoplite_nginx_cancel(ngx_http_hoplite_ctx_t *ctx);
+static ngx_int_t ngx_http_hoplite_rtc_invoke(
+    const ngx_http_hoplite_host_call_t *call);
+static void ngx_http_hoplite_rtc_cancel(ngx_http_hoplite_ctx_t *ctx);
+static void ngx_http_hoplite_rtc_clear(void);
+static ngx_int_t ngx_http_hoplite_rtc_pump(
+    ngx_http_hoplite_rtc_session_t *session, ngx_log_t *log);
+static void ngx_http_hoplite_rtc_read_handler(ngx_event_t *event);
+static void ngx_http_hoplite_rtc_timer_handler(ngx_event_t *event);
+static void ngx_http_hoplite_rtc_session_free(
+    ngx_http_hoplite_rtc_session_t *session);
 
 static const ngx_http_hoplite_provider_t ngx_http_hoplite_nginx_provider = {
     {(const uint8_t *) "nginx", sizeof("nginx") - 1},
     ngx_http_hoplite_nginx_invoke,
     ngx_http_hoplite_nginx_cancel,
+    0
+};
+
+static const ngx_http_hoplite_provider_t ngx_http_hoplite_rtc_provider = {
+    {(const uint8_t *) "hoplite.rtc", sizeof("hoplite.rtc") - 1},
+    ngx_http_hoplite_rtc_invoke,
+    ngx_http_hoplite_rtc_cancel,
     0
 };
 
@@ -692,12 +724,32 @@ ngx_http_hoplite_response_source_fill(ngx_http_hoplite_ctx_t *ctx)
     stream->submitted = 0;
     stream->last = 0;
 
-    rc = hoplite_response_source_next_v1(
-        &stream->source,
-        stream->storage,
-        stream->capacity,
-        &returned,
-        &last);
+    if (stream->native_stream) {
+        hoplite_slice_t chunk;
+        rc = hoplite_response_stream_next_v3(
+            ngx_http_hoplite_runtime, ctx->response, &chunk);
+        if (rc == 1) {
+            return NGX_AGAIN;
+        }
+        if (rc == 2) {
+            stream->buffer->last_buf = 1;
+            stream->buffer->last_in_chain = 1;
+            stream->last = 1;
+            return NGX_OK;
+        }
+        if (rc != 0 || chunk.len == 0 || chunk.len > stream->capacity) {
+            return NGX_ERROR;
+        }
+        ngx_memcpy(stream->storage, chunk.data, chunk.len);
+        returned = chunk.len;
+    } else {
+        rc = hoplite_response_source_next_v1(
+            &stream->source,
+            stream->storage,
+            stream->capacity,
+            &returned,
+            &last);
+    }
     if (rc != HOPLITE_RESPONSE_SOURCE_OK || returned == 0) {
         return NGX_ERROR;
     }
@@ -785,11 +837,88 @@ ngx_http_hoplite_response_source_drive(ngx_http_hoplite_ctx_t *ctx)
             return NGX_OK;
         }
 
-        if (ngx_http_hoplite_response_source_fill(ctx) != NGX_OK) {
+        rc = ngx_http_hoplite_response_source_fill(ctx);
+        if (rc == NGX_AGAIN) {
+            if (ngx_http_hoplite_response_source_arm(request) != NGX_OK) {
+                ngx_http_hoplite_response_source_abort(ctx, NGX_ERROR);
+                return NGX_ERROR;
+            }
+            return NGX_AGAIN;
+        }
+        if (rc != NGX_OK) {
             ngx_http_hoplite_response_source_abort(ctx, NGX_ERROR);
             return NGX_ERROR;
         }
     }
+}
+
+static ngx_int_t
+ngx_http_hoplite_native_stream_start(ngx_http_hoplite_ctx_t *ctx,
+                                     uint16_t status)
+{
+    ngx_http_request_t *request = ctx->request;
+    ngx_http_hoplite_response_source_t *stream = &ctx->response_source;
+    hoplite_slice_t key, value;
+    ngx_table_elt_t *header;
+    size_t count, i;
+    ngx_int_t rc;
+
+    count = hoplite_response_header_count_v2(ngx_http_hoplite_runtime,
+                                              ctx->response);
+    for (i = 0; i < count; i++) {
+        if (hoplite_response_header_at_v2(ngx_http_hoplite_runtime,
+                                          ctx->response, i,
+                                          &key, &value) != 0) return NGX_ERROR;
+        if (key.len == sizeof("content-length") - 1
+            && ngx_strncasecmp((u_char *) key.data,
+                               (u_char *) "content-length", key.len) == 0) continue;
+        if (key.len == sizeof("content-type") - 1
+            && ngx_strncasecmp((u_char *) key.data,
+                               (u_char *) "content-type", key.len) == 0) {
+            request->headers_out.content_type.data = (u_char *) value.data;
+            request->headers_out.content_type.len = value.len;
+            continue;
+        }
+        header = ngx_list_push(&request->headers_out.headers);
+        if (header == NULL) return NGX_ERROR;
+        header->hash = 1;
+        header->key.data = (u_char *) key.data;
+        header->key.len = key.len;
+        header->value.data = (u_char *) value.data;
+        header->value.len = value.len;
+    }
+
+    stream->native_stream = 1;
+    if (request->header_only) {
+        request->headers_out.status = status;
+        request->headers_out.content_length_n = -1;
+        rc = ngx_http_send_header(request);
+        ngx_http_hoplite_finish(ctx);
+        ngx_http_finalize_request(request, rc);
+        return NGX_OK;
+    }
+    stream->capacity = NGX_HTTP_HOPLITE_RESPONSE_SOURCE_CHUNK;
+    stream->storage = ngx_pnalloc(request->pool, stream->capacity);
+    stream->buffer = ngx_calloc_buf(request->pool);
+    if (stream->storage == NULL || stream->buffer == NULL) return NGX_ERROR;
+    stream->buffer->start = stream->storage;
+    stream->buffer->end = stream->storage + stream->capacity;
+    stream->buffer->temporary = 1;
+    stream->buffer->tag = (ngx_buf_tag_t) &ngx_http_hoplite_module;
+    stream->chain.buf = stream->buffer;
+    stream->chain.next = NULL;
+    request->headers_out.status = status;
+    request->headers_out.content_length_n = -1;
+    if (request->headers_out.content_type.len == 0) {
+        ngx_str_set(&request->headers_out.content_type, "application/octet-stream");
+    }
+    stream->active = 1;
+    rc = ngx_http_send_header(request);
+    if (rc == NGX_ERROR || rc > NGX_OK) return rc;
+    rc = ngx_http_hoplite_response_source_fill(ctx);
+    if (rc == NGX_ERROR) return NGX_ERROR;
+    if (rc == NGX_AGAIN) return ngx_http_hoplite_response_source_arm(request);
+    return ngx_http_hoplite_response_source_drive(ctx);
 }
 
 static void
@@ -946,12 +1075,16 @@ ngx_http_hoplite_send_native(ngx_http_hoplite_ctx_t *ctx)
     size_t count, i;
 
     if (hoplite_response_status_v2(ngx_http_hoplite_runtime, ctx->response,
-                                   &status) != 0
-        || hoplite_response_body_v2(ngx_http_hoplite_runtime, ctx->response,
-                                    &body) != 0)
+                                   &status) != 0)
     {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
+    if (hoplite_response_body_kind_v3(ngx_http_hoplite_runtime,
+                                      ctx->response) == 1) {
+        return ngx_http_hoplite_native_stream_start(ctx, status);
+    }
+    if (hoplite_response_body_v2(ngx_http_hoplite_runtime, ctx->response,
+                                 &body) != 0) return NGX_HTTP_INTERNAL_SERVER_ERROR;
 
     count = hoplite_response_header_count_v2(ngx_http_hoplite_runtime,
                                               ctx->response);
@@ -1329,6 +1462,529 @@ ngx_http_hoplite_nginx_invoke(const ngx_http_hoplite_host_call_t *call)
     call->ctx->sleep = sleep;
     ngx_add_timer(&sleep->event, (ngx_msec_t) delay);
     return NGX_AGAIN;
+}
+
+static ngx_flag_t
+ngx_http_hoplite_operation(const ngx_str_t *actual, const char *expected)
+{
+    size_t len = ngx_strlen(expected);
+    return actual->len == len
+        && ngx_strncmp(actual->data, expected, len) == 0;
+}
+
+static ngx_http_hoplite_rtc_session_t *
+ngx_http_hoplite_rtc_find(uint64_t id)
+{
+    ngx_http_hoplite_rtc_session_t *session;
+    for (session = ngx_http_hoplite_rtc_sessions;
+         session != NULL; session = session->next)
+    {
+        if (session->id == id) {
+            return session;
+        }
+    }
+    return NULL;
+}
+
+static ngx_int_t
+ngx_http_hoplite_rtc_handle(const ngx_http_hoplite_host_call_t *call,
+                            size_t count,
+                            ngx_http_hoplite_rtc_session_t **session)
+{
+    int64_t id;
+    if (call->arguments == NULL
+        || call->arguments->kind != HOPLITE_HTA_VECTOR
+        || call->arguments->as.vector.count != count
+        || hoplite_hta_number(call->arguments->as.vector.items[0], &id) != NGX_OK
+        || id <= 0)
+    {
+        return NGX_ERROR;
+    }
+    *session = ngx_http_hoplite_rtc_find((uint64_t) id);
+    return *session == NULL ? NGX_ERROR : NGX_OK;
+}
+
+static ngx_int_t
+ngx_http_hoplite_rtc_resolve_buffer(const ngx_http_hoplite_host_call_t *call,
+                                    hoplite_buffer_t *buffer)
+{
+    ngx_str_t value, encoded;
+    ngx_int_t rc;
+    value.data = buffer->data;
+    value.len = buffer->len;
+    rc = hoplite_hta_encode_string(call->pool, &value, &encoded) == NGX_OK
+        && hoplite_call_resolve(ngx_http_hoplite_runtime, call->call,
+                                encoded.data, encoded.len) == 0
+        ? NGX_OK : NGX_ERROR;
+    hoplite_buffer_free(buffer->data, buffer->len);
+    buffer->data = NULL;
+    buffer->len = 0;
+    return rc;
+}
+
+static void
+ngx_http_hoplite_rtc_buffer_free(hoplite_buffer_t *buffer)
+{
+    if (buffer->data != NULL) {
+        hoplite_buffer_free(buffer->data, buffer->len);
+        buffer->data = NULL;
+        buffer->len = 0;
+    }
+}
+
+static ngx_int_t
+ngx_http_hoplite_rtc_deliver(ngx_http_hoplite_rtc_session_t *session,
+                             hoplite_buffer_t *buffer, ngx_log_t *log)
+{
+    ngx_http_hoplite_ctx_t *ctx = session->receiver;
+    ngx_str_t value, encoded;
+    uint64_t call = session->receive_call;
+
+    if (ctx == NULL || ctx->done || ctx->provider != &ngx_http_hoplite_rtc_provider) {
+        return NGX_DECLINED;
+    }
+    value.data = buffer->data;
+    value.len = buffer->len;
+    if (hoplite_hta_encode_string(ctx->request->pool, &value, &encoded) != NGX_OK) {
+        return NGX_ERROR;
+    }
+    session->receiver = NULL;
+    session->receive_call = 0;
+    ctx->provider = NULL;
+    ngx_http_hoplite_rtc_buffer_free(buffer);
+    if (hoplite_call_resolve(ngx_http_hoplite_runtime, call,
+                             encoded.data, encoded.len) != 0
+        || ngx_http_hoplite_drain(log) != NGX_OK)
+    {
+        return NGX_ERROR;
+    }
+    return NGX_OK;
+}
+
+static ngx_int_t
+ngx_http_hoplite_rtc_send_udp(ngx_http_hoplite_rtc_session_t *session,
+                              hoplite_rtc_poll_t *output, ngx_log_t *log)
+{
+    ngx_pool_t *pool;
+    ngx_addr_t address;
+    ssize_t sent;
+
+    pool = ngx_create_pool(1024, log);
+    if (pool == NULL) {
+        return NGX_ERROR;
+    }
+    if (ngx_parse_addr(pool, &address, output->destination.data,
+                       output->destination.len) != NGX_OK)
+    {
+        ngx_destroy_pool(pool);
+        return NGX_ERROR;
+    }
+    sent = sendto(session->udp->fd, output->payload.data, output->payload.len,
+                  0, address.sockaddr, address.socklen);
+    ngx_destroy_pool(pool);
+    return sent == (ssize_t) output->payload.len ? NGX_OK : NGX_ERROR;
+}
+
+static ngx_int_t
+ngx_http_hoplite_rtc_pump(ngx_http_hoplite_rtc_session_t *session,
+                          ngx_log_t *log)
+{
+    hoplite_rtc_poll_t output;
+    ngx_int_t rc = NGX_OK;
+    ngx_msec_t delay;
+
+    while (hoplite_rtc_poll(session->engine, &output) == 0) {
+        if (output.kind == 0) {
+            if (session->timer.timer_set) {
+                ngx_del_timer(&session->timer);
+            }
+            delay = output.timeout_millis > 3600000
+                ? 3600000 : (ngx_msec_t) output.timeout_millis;
+            ngx_add_timer(&session->timer, ngx_max(delay, 1));
+        } else if (output.kind == 1) {
+            if (ngx_http_hoplite_rtc_send_udp(session, &output, log) != NGX_OK) {
+                rc = NGX_ERROR;
+            }
+        } else if (output.kind == 2) {
+            if (session->receiver != NULL) {
+                if (ngx_http_hoplite_rtc_deliver(session, &output.payload, log)
+                    != NGX_OK)
+                {
+                    rc = NGX_ERROR;
+                }
+            } else if (session->received.data == NULL) {
+                session->received = output.payload;
+                output.payload.data = NULL;
+                output.payload.len = 0;
+            } else {
+                ngx_log_error(NGX_LOG_WARN, log, 0,
+                              "dropping RTC message: bounded receive slot is full");
+            }
+        }
+        ngx_http_hoplite_rtc_buffer_free(&output.source);
+        ngx_http_hoplite_rtc_buffer_free(&output.destination);
+        ngx_http_hoplite_rtc_buffer_free(&output.payload);
+        if (output.kind == 0 || rc != NGX_OK) {
+            break;
+        }
+    }
+    return rc;
+}
+
+static void
+ngx_http_hoplite_rtc_timer_handler(ngx_event_t *event)
+{
+    ngx_http_hoplite_rtc_session_t *session = event->data;
+    if (session == NULL
+        || hoplite_rtc_handle_timeout(session->engine) != 0
+        || ngx_http_hoplite_rtc_pump(session, event->log) != NGX_OK)
+    {
+        ngx_log_error(NGX_LOG_ERR, event->log, 0, "RTC timer drive failed");
+    }
+}
+
+static void
+ngx_http_hoplite_rtc_read_handler(ngx_event_t *event)
+{
+    ngx_connection_t *connection = event->data;
+    ngx_http_hoplite_rtc_session_t *session = connection->data;
+    struct sockaddr_storage source, local;
+    socklen_t source_len, local_len;
+    u_char packet[2048], source_text[NGX_SOCKADDR_STRLEN];
+    u_char local_text[NGX_SOCKADDR_STRLEN];
+    size_t source_text_len, local_text_len;
+    ssize_t received;
+
+    for ( ;; ) {
+        source_len = sizeof(source);
+        received = recvfrom(connection->fd, packet, sizeof(packet), 0,
+                            (struct sockaddr *) &source, &source_len);
+        if (received < 0) {
+            if (ngx_socket_errno == NGX_EAGAIN) {
+                return;
+            }
+            ngx_log_error(NGX_LOG_ERR, event->log, ngx_socket_errno,
+                          "RTC recvfrom() failed");
+            return;
+        }
+        local_len = sizeof(local);
+        if (getsockname(connection->fd, (struct sockaddr *) &local,
+                        &local_len) == -1)
+        {
+            return;
+        }
+        source_text_len = ngx_sock_ntop((struct sockaddr *) &source, source_len,
+                                        source_text, sizeof(source_text), 1);
+        local_text_len = ngx_sock_ntop((struct sockaddr *) &local, local_len,
+                                       local_text, sizeof(local_text), 1);
+        if (source_text_len == 0 || local_text_len == 0
+            || hoplite_rtc_handle_udp(session->engine,
+                                      source_text, source_text_len,
+                                      local_text, local_text_len,
+                                      packet, (size_t) received) != 0
+            || ngx_http_hoplite_rtc_pump(session, event->log) != NGX_OK)
+        {
+            ngx_log_error(NGX_LOG_ERR, event->log, 0, "RTC UDP drive failed");
+            return;
+        }
+    }
+}
+
+static void
+ngx_http_hoplite_rtc_session_free(ngx_http_hoplite_rtc_session_t *session)
+{
+    if (session->timer.timer_set) {
+        ngx_del_timer(&session->timer);
+    }
+    if (session->udp != NULL) {
+        ngx_close_connection(session->udp);
+    }
+    ngx_http_hoplite_rtc_buffer_free(&session->received);
+    hoplite_rtc_engine_free(session->engine);
+    ngx_free(session);
+}
+
+static ngx_int_t
+ngx_http_hoplite_rtc_bind(ngx_http_hoplite_rtc_session_t *session,
+                          ngx_str_t *bind_address, ngx_pool_t *pool,
+                          ngx_log_t *log)
+{
+    ngx_url_t url;
+    ngx_socket_t fd;
+    ngx_connection_t *connection;
+    struct sockaddr_storage local;
+    socklen_t local_len;
+    u_char local_text[NGX_SOCKADDR_STRLEN];
+    size_t local_text_len;
+    ngx_int_t event_flags;
+
+    ngx_memzero(&url, sizeof(url));
+    url.url = *bind_address;
+    url.no_resolve = 1;
+    if (ngx_parse_url(pool, &url) != NGX_OK || url.naddrs != 1) {
+        return NGX_ERROR;
+    }
+    fd = ngx_socket(url.addrs[0].sockaddr->sa_family, SOCK_DGRAM, 0);
+    if (fd == (ngx_socket_t) -1) {
+        return NGX_ERROR;
+    }
+    if (ngx_nonblocking(fd) == -1
+        || bind(fd, url.addrs[0].sockaddr, url.addrs[0].socklen) == -1)
+    {
+        ngx_close_socket(fd);
+        return NGX_ERROR;
+    }
+    connection = ngx_get_connection(fd, log);
+    if (connection == NULL) {
+        ngx_close_socket(fd);
+        return NGX_ERROR;
+    }
+    connection->data = session;
+    connection->read->handler = ngx_http_hoplite_rtc_read_handler;
+    connection->read->log = log;
+    connection->write->log = log;
+    session->udp = connection;
+
+    event_flags = (ngx_event_flags & NGX_USE_CLEAR_EVENT)
+        ? NGX_CLEAR_EVENT : NGX_LEVEL_EVENT;
+    if (ngx_add_event(connection->read, NGX_READ_EVENT, event_flags) != NGX_OK) {
+        ngx_close_connection(connection);
+        session->udp = NULL;
+        return NGX_ERROR;
+    }
+    local_len = sizeof(local);
+    if (getsockname(fd, (struct sockaddr *) &local, &local_len) == -1) {
+        ngx_close_connection(connection);
+        session->udp = NULL;
+        return NGX_ERROR;
+    }
+    local_text_len = ngx_sock_ntop((struct sockaddr *) &local, local_len,
+                                   local_text, sizeof(local_text), 1);
+    if (local_text_len == 0
+        || hoplite_rtc_add_local_udp_candidate(session->engine,
+                                               local_text,
+                                               local_text_len) != 0)
+    {
+        ngx_close_connection(connection);
+        session->udp = NULL;
+        return NGX_ERROR;
+    }
+    return NGX_OK;
+}
+
+static ngx_int_t
+ngx_http_hoplite_rtc_create(const ngx_http_hoplite_host_call_t *call)
+{
+    hoplite_hta_value_t *options, *value;
+    ngx_http_hoplite_rtc_session_t *session;
+    ngx_str_t label, bind_address = ngx_string("127.0.0.1:0"), encoded;
+    int64_t max_message = 65536;
+
+    if (call->arguments == NULL
+        || call->arguments->kind != HOPLITE_HTA_VECTOR
+        || call->arguments->as.vector.count != 1
+        || (options = call->arguments->as.vector.items[0]) == NULL
+        || options->kind != HOPLITE_HTA_MAP
+        || (value = hoplite_hta_map_get(options, "label")) == NULL
+        || hoplite_hta_text(value, &label) != NGX_OK)
+    {
+        return ngx_http_hoplite_reject(
+            call->call, call->pool,
+            "hoplite.rtc/create expects [{:label string ...}]");
+    }
+    value = hoplite_hta_map_get(options, "max-message-bytes");
+    if (value != NULL
+        && (hoplite_hta_number(value, &max_message) != NGX_OK
+            || max_message < 1 || max_message > 1048576))
+    {
+        return ngx_http_hoplite_reject(
+            call->call, call->pool,
+                                       "hoplite.rtc max-message-bytes must be between 1 and 1048576");
+    }
+    value = hoplite_hta_map_get(options, "bind-address");
+    if (value != NULL && hoplite_hta_text(value, &bind_address) != NGX_OK) {
+        return ngx_http_hoplite_reject(call->call, call->pool,
+                                       "hoplite.rtc bind-address must be a string");
+    }
+    session = ngx_alloc(sizeof(*session), call->log);
+    if (session == NULL) {
+        return NGX_ERROR;
+    }
+    ngx_memzero(session, sizeof(*session));
+    session->engine = hoplite_rtc_engine_new(
+        label.data, label.len, (size_t) max_message);
+    if (session->engine == NULL) {
+        ngx_free(session);
+        return ngx_http_hoplite_reject(call->call, call->pool,
+                                       "invalid hoplite.rtc configuration");
+    }
+    session->timer.handler = ngx_http_hoplite_rtc_timer_handler;
+    session->timer.data = session;
+    session->timer.log = call->log;
+    if (ngx_http_hoplite_rtc_bind(session, &bind_address,
+                                  call->pool, call->log) != NGX_OK)
+    {
+        ngx_http_hoplite_rtc_session_free(session);
+        return ngx_http_hoplite_reject(call->call, call->pool,
+                                       "could not bind hoplite.rtc UDP socket");
+    }
+    if (ngx_http_hoplite_rtc_next_id == UINT64_MAX) {
+        ngx_http_hoplite_rtc_session_free(session);
+        return NGX_ERROR;
+    }
+    session->id = ++ngx_http_hoplite_rtc_next_id;
+    session->next = ngx_http_hoplite_rtc_sessions;
+    ngx_http_hoplite_rtc_sessions = session;
+    if (ngx_http_hoplite_rtc_pump(session, call->log) != NGX_OK
+        || hoplite_hta_encode_number(call->pool, (int64_t) session->id,
+                                  &encoded) != NGX_OK
+        || hoplite_call_resolve(ngx_http_hoplite_runtime, call->call,
+                                encoded.data, encoded.len) != 0)
+    {
+        ngx_http_hoplite_rtc_sessions = session->next;
+        ngx_http_hoplite_rtc_session_free(session);
+        return NGX_ERROR;
+    }
+    return NGX_OK;
+}
+
+static ngx_int_t
+ngx_http_hoplite_rtc_invoke(const ngx_http_hoplite_host_call_t *call)
+{
+    ngx_http_hoplite_rtc_session_t *session, **link;
+    hoplite_hta_value_t *value;
+    hoplite_buffer_t buffer = {NULL, 0};
+    ngx_str_t text;
+    int rc;
+
+    if (ngx_http_hoplite_operation(&call->operation, "create")
+        || ngx_http_hoplite_operation(&call->operation, "connect"))
+    {
+        return ngx_http_hoplite_rtc_create(call);
+    }
+    if (ngx_http_hoplite_rtc_handle(call,
+            (ngx_http_hoplite_operation(&call->operation, "create-offer")
+             || ngx_http_hoplite_operation(&call->operation, "receive")
+             || ngx_http_hoplite_operation(&call->operation, "close")) ? 1 : 2,
+            &session) != NGX_OK)
+    {
+        return ngx_http_hoplite_reject(call->call, call->pool,
+                                       "unknown hoplite.rtc session handle");
+    }
+    if (ngx_http_hoplite_operation(&call->operation, "create-offer")) {
+        rc = hoplite_rtc_create_offer(session->engine, &buffer);
+        if (rc != 0 || ngx_http_hoplite_rtc_pump(session, call->log) != NGX_OK) {
+            ngx_http_hoplite_rtc_buffer_free(&buffer);
+            return ngx_http_hoplite_reject(call->call, call->pool,
+                                           "could not create RTC offer");
+        }
+        return ngx_http_hoplite_rtc_resolve_buffer(call, &buffer);
+    }
+    if (ngx_http_hoplite_operation(&call->operation, "receive")) {
+        if (session->received.data != NULL) {
+            return ngx_http_hoplite_rtc_resolve_buffer(call, &session->received);
+        }
+        if (session->receiver != NULL) {
+            return ngx_http_hoplite_reject(call->call, call->pool,
+                                           "RTC session already has a pending receive");
+        }
+        session->receiver = call->ctx;
+        session->receive_call = call->call;
+        return NGX_AGAIN;
+    }
+    value = call->arguments->as.vector.items[1];
+    if (ngx_http_hoplite_operation(&call->operation, "accept-offer")) {
+        if (hoplite_hta_text(value, &text) != NGX_OK
+            || hoplite_rtc_accept_offer(session->engine, text.data, text.len,
+                                        &buffer) != 0)
+        {
+            return ngx_http_hoplite_reject(call->call, call->pool,
+                                           "invalid RTC offer");
+        }
+        if (ngx_http_hoplite_rtc_pump(session, call->log) != NGX_OK) {
+            ngx_http_hoplite_rtc_buffer_free(&buffer);
+            return NGX_ERROR;
+        }
+        return ngx_http_hoplite_rtc_resolve_buffer(call, &buffer);
+    }
+    if (ngx_http_hoplite_operation(&call->operation, "accept-answer")) {
+        if (hoplite_hta_text(value, &text) != NGX_OK
+            || hoplite_rtc_accept_answer(session->engine, text.data, text.len) != 0)
+        {
+            return ngx_http_hoplite_reject(call->call, call->pool,
+                                           "invalid RTC answer");
+        }
+        return ngx_http_hoplite_rtc_pump(session, call->log) == NGX_OK
+               && hoplite_call_resolve(ngx_http_hoplite_runtime,
+                                       call->call, NULL, 0) == 0
+            ? NGX_OK : NGX_ERROR;
+    }
+    if (ngx_http_hoplite_operation(&call->operation, "send")) {
+        if (hoplite_hta_text(value, &text) != NGX_OK
+            || hoplite_rtc_send(session->engine, text.data, text.len) < 0)
+        {
+            return ngx_http_hoplite_reject(call->call, call->pool,
+                                           "RTC channel is not writable");
+        }
+        return ngx_http_hoplite_rtc_pump(session, call->log) == NGX_OK
+               && hoplite_call_resolve(ngx_http_hoplite_runtime,
+                                       call->call, NULL, 0) == 0
+            ? NGX_OK : NGX_ERROR;
+    }
+    if (ngx_http_hoplite_operation(&call->operation, "close")) {
+        for (link = &ngx_http_hoplite_rtc_sessions; *link != NULL;
+             link = &(*link)->next)
+        {
+            if (*link == session) {
+                *link = session->next;
+                if (session->receiver != NULL) {
+                    ngx_http_hoplite_ctx_t *receiver = session->receiver;
+                    uint64_t receive_call = session->receive_call;
+                    receiver->provider = NULL;
+                    session->receiver = NULL;
+                    session->receive_call = 0;
+                    if (!receiver->done
+                        && hoplite_call_resolve(ngx_http_hoplite_runtime,
+                                                receive_call, NULL, 0) == 0)
+                    {
+                        (void) ngx_http_hoplite_drain(call->log);
+                    }
+                }
+                ngx_http_hoplite_rtc_session_free(session);
+                break;
+            }
+        }
+        return hoplite_call_resolve(ngx_http_hoplite_runtime,
+                                    call->call, NULL, 0) == 0 ? NGX_OK : NGX_ERROR;
+    }
+    return ngx_http_hoplite_reject(call->call, call->pool,
+                                   "unsupported hoplite.rtc operation");
+}
+
+static void
+ngx_http_hoplite_rtc_cancel(ngx_http_hoplite_ctx_t *ctx)
+{
+    ngx_http_hoplite_rtc_session_t *session;
+    for (session = ngx_http_hoplite_rtc_sessions;
+         session != NULL; session = session->next)
+    {
+        if (session->receiver == ctx) {
+            session->receiver = NULL;
+            session->receive_call = 0;
+        }
+    }
+}
+
+static void
+ngx_http_hoplite_rtc_clear(void)
+{
+    ngx_http_hoplite_rtc_session_t *session;
+    while (ngx_http_hoplite_rtc_sessions != NULL) {
+        session = ngx_http_hoplite_rtc_sessions;
+        ngx_http_hoplite_rtc_sessions = session->next;
+        ngx_http_hoplite_rtc_session_free(session);
+    }
+    ngx_http_hoplite_rtc_next_id = 0;
 }
 
 static ngx_int_t
@@ -1996,7 +2652,9 @@ ngx_http_hoplite_init_process(ngx_cycle_t *cycle)
     ngx_http_hoplite_queue_ready = 1;
     hoplite_host_registry_init(&ngx_http_hoplite_providers);
     if (ngx_http_hoplite_provider_register(
-            &ngx_http_hoplite_nginx_provider) != NGX_OK)
+            &ngx_http_hoplite_nginx_provider) != NGX_OK
+        || ngx_http_hoplite_provider_register(
+            &ngx_http_hoplite_rtc_provider) != NGX_OK)
     {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
                       "hoplite native host providers could not be registered");
@@ -2041,6 +2699,7 @@ static void
 ngx_http_hoplite_exit_process(ngx_cycle_t *cycle)
 {
     (void) cycle;
+    ngx_http_hoplite_rtc_clear();
     if (ngx_http_hoplite_runtime != NULL) {
         hoplite_runtime_free(ngx_http_hoplite_runtime);
         ngx_http_hoplite_runtime = NULL;

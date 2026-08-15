@@ -1,5 +1,5 @@
 (ns hoplite.raw
-  (:require [std.foundation :refer :all]))
+  (:config {}))
 
 (defn method [exchange]
   (:method exchange))

@@ -54,46 +54,22 @@ fn bind_lock(project: &Project, config: &mut Config) -> Result<(), String> {
             path.display()
         )
     })?;
-    let form = parse(&source).map_err(|error| format!("{}: {error}", path.display()))?;
-    let lock = form_map(&form, "project.lock.edn must be an EDN map")?;
-    if !matches!(lookup(lock, "lock/format"), Some(Form::String(version)) if version == "0.0.0-alpha")
-    {
-        return Err("project.lock.edn requires :lock/format \"0.0.0-alpha\"".into());
-    }
-    let packages = form_map(
-        required(lock, "packages", "project.lock.edn")?,
-        "project.lock.edn :packages must be a map",
-    )?;
+    let packages = hara_wasm::package_catalog::catalog_from_lock(&source)
+        .map_err(|error| format!("{}: {error}", path.display()))?;
     let mut resolved = BTreeMap::new();
-    for (coordinate, descriptor) in packages {
-        let coordinate = normalize_module_coordinate(&scalar(
-            coordinate,
-            "project.lock.edn package coordinate",
-        )?)?;
-        let descriptor = form_map(descriptor, "locked package descriptor must be a map")?;
-        let version = Version::parse(&string(
-            required(descriptor, "version", "locked package")?,
-            "locked package :version",
-        )?)
-        .map_err(|error| format!("locked package version is invalid: {error}"))?;
-        let digest = string(
-            required(descriptor, "archive-sha256", "locked package")?,
-            "locked package :archive-sha256",
-        )?;
-        if !valid_sha256(&digest) {
-            return Err(format!(
-                "locked package {coordinate} has invalid :archive-sha256"
-            ));
-        }
+    for package in packages {
+        let coordinate = normalize_module_coordinate(&package.coordinate)?;
+        let version = Version::parse(&package.version)
+            .map_err(|error| format!("locked package version is invalid: {error}"))?;
         if resolved
-            .insert(coordinate.clone(), (version, digest))
+            .insert(coordinate.clone(), (version, package))
             .is_some()
         {
             return Err(format!("duplicate locked package {coordinate}"));
         }
     }
     for module in &mut config.modules {
-        let (version, digest) = resolved
+        let (version, package) = resolved
             .get(&module.id)
             .ok_or_else(|| format!("project.lock.edn does not lock module {}", module.id))?;
         if version != &module.version {
@@ -102,15 +78,16 @@ fn bind_lock(project: &Project, config: &mut Config) -> Result<(), String> {
                 module.id, module.version, version
             ));
         }
-        module.archive_sha256 = Some(digest.clone());
+        crate::package::ensure_locked(package)?;
+        module.archive_sha256 = Some(format!(
+            "sha256:{}",
+            package
+                .archive_sha256
+                .strip_prefix("sha256:")
+                .unwrap_or(&package.archive_sha256)
+        ));
     }
     Ok(())
-}
-
-fn valid_sha256(value: &str) -> bool {
-    value.strip_prefix("sha256:").is_some_and(|digest| {
-        digest.len() == 64 && digest.chars().all(|value| value.is_ascii_hexdigit())
-    })
 }
 
 fn parse_profile(manifest: &Form, profile_name: &str) -> Result<Config, String> {

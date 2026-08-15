@@ -10,6 +10,7 @@ pub const CORE_SOURCE: &str = include_str!("../lib/src/hoplite/core.hal");
 pub const HOST_SOURCE: &str = include_str!("../lib/src/hoplite/host.hal");
 pub const INTERNAL_SOURCE: &str = include_str!("../lib/src/hoplite/internal.hal");
 pub const RAW_SOURCE: &str = include_str!("../lib/src/hoplite/raw.hal");
+pub const RTC_SOURCE: &str = include_str!("../lib/src/hoplite/rtc.hal");
 pub const RESPONSE_SOURCE: &str = include_str!("../lib/src/hoplite/response_source.hal");
 #[cfg(test)]
 const CORE_TEST_SOURCE: &str = include_str!("../lib/test/hoplite/core_test.hal");
@@ -76,6 +77,39 @@ pub struct Proxy {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Channel {
+    pub name: String,
+    pub path_prefix: String,
+    pub authorize: String,
+    pub admit: String,
+    pub message_buffer: usize,
+    pub message_timeout_seconds: usize,
+    pub max_channel_id_bytes: usize,
+    pub max_subscribers: usize,
+    pub transports: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Peer {
+    pub name: String,
+    pub channel: String,
+    pub handler: String,
+    pub label: String,
+    pub max_message_bytes: usize,
+    pub idle_timeout_seconds: usize,
+}
+
+impl Channel {
+    pub fn authorize_path(&self, app_id: u64) -> String {
+        format!("/__hoplite/nchan/{app_id}/{}/authorize", self.name)
+    }
+
+    pub fn admit_path(&self, app_id: u64) -> String {
+        format!("/__hoplite/nchan/{app_id}/{}/admit", self.name)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct App {
     pub id: u64,
     pub name: String,
@@ -84,6 +118,8 @@ pub struct App {
     pub routes: Vec<Route>,
     pub request_body: Option<RequestBodyPolicy>,
     pub proxies: Vec<Proxy>,
+    pub channels: Vec<Channel>,
+    pub peers: Vec<Peer>,
     pub openapi_path: Option<String>,
 }
 
@@ -102,6 +138,7 @@ pub fn register_resources(runtime: &mut Runtime) {
     runtime.register_resource("hoplite.host", HOST_SOURCE);
     runtime.register_resource("hoplite.internal", INTERNAL_SOURCE);
     runtime.register_resource("hoplite.raw", RAW_SOURCE);
+    runtime.register_resource("hoplite.rtc", RTC_SOURCE);
     register_contract_resources(runtime);
 }
 
@@ -270,6 +307,52 @@ fn parse_app(
         .map(|(index, value)| parse_proxy(&value, &format!("Hoplite app {name:?} proxy {index}")))
         .collect::<Result<Vec<_>, _>>()?;
     validate_proxies(&proxies, &name)?;
+    let channels = sequence_field(&value, "channels")
+        .unwrap_or_default()
+        .into_iter()
+        .enumerate()
+        .map(|(index, value)| {
+            parse_channel(&value, &format!("Hoplite app {name:?} channel {index}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    for (index, channel) in channels.iter().enumerate() {
+        if channels[..index]
+            .iter()
+            .any(|other| other.name == channel.name || other.path_prefix == channel.path_prefix)
+        {
+            return Err(format!(
+                "Hoplite app {name:?} has a duplicate channel name or path"
+            ));
+        }
+        if proxies.iter().any(|proxy| {
+            channel
+                .path_prefix
+                .starts_with(proxy.path.trim_end_matches('/'))
+                || proxy.path.starts_with(&channel.path_prefix)
+        }) {
+            return Err(format!(
+                "Hoplite app {name:?} channel {:?} overlaps a proxy path",
+                channel.name
+            ));
+        }
+    }
+    let peers = sequence_field(&value, "peers")
+        .unwrap_or_default()
+        .into_iter()
+        .enumerate()
+        .map(|(index, value)| {
+            parse_peer(
+                &value,
+                &channels,
+                &format!("Hoplite app {name:?} peer {index}"),
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    for (index, peer) in peers.iter().enumerate() {
+        if peers[..index].iter().any(|other| other.name == peer.name) {
+            return Err(format!("Hoplite app {name:?} has a duplicate peer name"));
+        }
+    }
 
     let mut routes = Vec::new();
     if let Some(handler) = field(&value, "handler") {
@@ -284,6 +367,24 @@ fn parse_app(
     }
     for resource in sequence_field(&value, "resources").unwrap_or_default() {
         flatten_resource(&resource, "", &default_adapter, &mut routes)?;
+    }
+    for channel in &channels {
+        routes.push(Route {
+            method: "GET".into(),
+            path: channel.authorize_path(id),
+            handler: channel.authorize.clone(),
+            name: Some(format!("{}/authorize", channel.name)),
+            summary: None,
+            adapter: RouteAdapter::Request,
+        });
+        routes.push(Route {
+            method: "POST".into(),
+            path: channel.admit_path(id),
+            handler: channel.admit.clone(),
+            name: Some(format!("{}/admit", channel.name)),
+            summary: None,
+            adapter: RouteAdapter::Request,
+        });
     }
     if routes.is_empty() {
         return Err(format!("Hoplite app {name:?} has no resource operations"));
@@ -308,7 +409,218 @@ fn parse_app(
         routes,
         request_body,
         proxies,
+        channels,
+        peers,
         openapi_path,
+    })
+}
+
+fn parse_peer(value: &Value, channels: &[Channel], context: &str) -> Result<Peer, String> {
+    if keyword_field(value, "hoplite/type").as_deref() != Some("peer") {
+        return Err(format!(
+            "{context} must be constructed with hoplite.core/peer"
+        ));
+    }
+    let entries = core::map_entries(value).ok_or_else(|| format!("{context} must be a map"))?;
+    for (key, _) in entries {
+        let Value::Keyword(key) = key else {
+            return Err(format!("{context} keys must be keywords"));
+        };
+        if !matches!(
+            key.as_str(),
+            "hoplite/type"
+                | "name"
+                | "channel"
+                | "handler"
+                | "label"
+                | "max-message-bytes"
+                | "idle-timeout-seconds"
+        ) {
+            return Err(format!(
+                "{context} contains unsupported field :{}",
+                key.as_str()
+            ));
+        }
+    }
+    let name = text_field(value, "name").ok_or_else(|| format!("{context} requires :name"))?;
+    if name.is_empty()
+        || name.len() > 64
+        || !name
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        return Err(format!("{context} :name must be safe ASCII"));
+    }
+    let channel =
+        text_field(value, "channel").ok_or_else(|| format!("{context} requires :channel"))?;
+    if !channels.iter().any(|candidate| candidate.name == channel) {
+        return Err(format!("{context} references unknown channel {channel:?}"));
+    }
+    let handler = field(value, "handler")
+        .ok_or_else(|| format!("{context} requires :handler"))
+        .and_then(|value| callable_name(&value))?;
+    let label = text_field(value, "label").unwrap_or_else(|| name.clone());
+    if label.is_empty()
+        || label.len() > 64
+        || !label.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
+    {
+        return Err(format!("{context} :label must be safe ASCII"));
+    }
+    Ok(Peer {
+        name,
+        channel,
+        handler,
+        label,
+        max_message_bytes: bounded_channel_number(
+            value,
+            "max-message-bytes",
+            65_536,
+            1,
+            1_048_576,
+            context,
+        )?,
+        idle_timeout_seconds: bounded_channel_number(
+            value,
+            "idle-timeout-seconds",
+            120,
+            5,
+            3600,
+            context,
+        )?,
+    })
+}
+
+fn bounded_channel_number(
+    value: &Value,
+    field_name: &str,
+    default: usize,
+    minimum: usize,
+    maximum: usize,
+    context: &str,
+) -> Result<usize, String> {
+    let candidate = number_field(value, field_name)
+        .and_then(|number| usize::try_from(number).ok())
+        .unwrap_or(default);
+    (minimum..=maximum)
+        .contains(&candidate)
+        .then_some(candidate)
+        .ok_or_else(|| format!("{context} :{field_name} must be between {minimum} and {maximum}"))
+}
+
+fn parse_channel(value: &Value, context: &str) -> Result<Channel, String> {
+    if keyword_field(value, "hoplite/type").as_deref() != Some("channel") {
+        return Err(format!(
+            "{context} must be constructed with hoplite.core/channel"
+        ));
+    }
+    let entries = core::map_entries(value).ok_or_else(|| format!("{context} must be a map"))?;
+    for (key, _) in entries {
+        let Value::Keyword(key) = key else {
+            return Err(format!("{context} keys must be keywords"));
+        };
+        if !matches!(
+            key.as_str(),
+            "hoplite/type"
+                | "name"
+                | "path"
+                | "profile"
+                | "authorize"
+                | "admit"
+                | "message-buffer"
+                | "message-timeout-seconds"
+                | "max-channel-id-bytes"
+                | "max-subscribers"
+                | "transports"
+        ) {
+            return Err(format!(
+                "{context} contains unsupported field :{}",
+                key.as_str()
+            ));
+        }
+    }
+    if keyword_field(value, "profile")
+        .as_deref()
+        .unwrap_or("ephemeral")
+        != "ephemeral"
+    {
+        return Err(format!("{context} :profile must be :ephemeral"));
+    }
+    let name = text_field(value, "name").ok_or_else(|| format!("{context} requires :name"))?;
+    if name.is_empty()
+        || name.len() > 64
+        || !name
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        return Err(format!(
+            "{context} :name must contain only ASCII letters, digits, - or _"
+        ));
+    }
+    let path = text_field(value, "path").ok_or_else(|| format!("{context} requires :path"))?;
+    let path_prefix = path
+        .strip_suffix("/:channel")
+        .filter(|prefix| !prefix.is_empty() && safe_proxy_path(prefix))
+        .ok_or_else(|| format!("{context} :path must be a safe path ending in /:channel"))?
+        .to_owned();
+    let authorize = field(value, "authorize")
+        .ok_or_else(|| format!("{context} requires :authorize"))
+        .and_then(|value| callable_name(&value))?;
+    let admit = field(value, "admit")
+        .ok_or_else(|| format!("{context} requires :admit"))
+        .and_then(|value| callable_name(&value))?;
+    let transports = match field(value, "transports") {
+        Some(value) => {
+            sequence(&value).ok_or_else(|| format!("{context} :transports must be a collection"))?
+        }
+        None => vec![
+            Value::Keyword("websocket".into()),
+            Value::Keyword("sse".into()),
+        ],
+    };
+    let mut transport_names = Vec::new();
+    for transport in transports {
+        let transport = match transport {
+            Value::Keyword(value) if value.as_str() == "websocket" => "websocket",
+            Value::Keyword(value) if value.as_str() == "sse" => "eventsource",
+            _ => {
+                return Err(format!(
+                    "{context} :transports may contain only :websocket and :sse"
+                ))
+            }
+        };
+        if !transport_names.iter().any(|value| value == transport) {
+            transport_names.push(transport.to_owned());
+        }
+    }
+    if transport_names.is_empty() {
+        return Err(format!("{context} :transports must not be empty"));
+    }
+    Ok(Channel {
+        name,
+        path_prefix,
+        authorize,
+        admit,
+        message_buffer: bounded_channel_number(value, "message-buffer", 8, 0, 64, context)?,
+        message_timeout_seconds: bounded_channel_number(
+            value,
+            "message-timeout-seconds",
+            30,
+            1,
+            300,
+            context,
+        )?,
+        max_channel_id_bytes: bounded_channel_number(
+            value,
+            "max-channel-id-bytes",
+            128,
+            22,
+            256,
+            context,
+        )?,
+        max_subscribers: bounded_channel_number(value, "max-subscribers", 4, 1, 64, context)?,
+        transports: transport_names,
     })
 }
 
@@ -595,6 +907,30 @@ pub fn manifest(config: &Config) -> Result<Vec<u8>, String> {
             map_value(vec![
                 (keyword("id"), Value::Number(app.id as i64)),
                 (
+                    keyword("peers"),
+                    Value::Vector(
+                        app.peers
+                            .iter()
+                            .map(|peer| {
+                                map_value(vec![
+                                    (keyword("name"), Value::String(peer.name.clone())),
+                                    (keyword("channel"), Value::String(peer.channel.clone())),
+                                    (keyword("handler"), Value::String(peer.handler.clone())),
+                                    (keyword("label"), Value::String(peer.label.clone())),
+                                    (
+                                        keyword("max-message-bytes"),
+                                        Value::Number(peer.max_message_bytes as i64),
+                                    ),
+                                    (
+                                        keyword("idle-timeout-seconds"),
+                                        Value::Number(peer.idle_timeout_seconds as i64),
+                                    ),
+                                ])
+                            })
+                            .collect(),
+                    ),
+                ),
+                (
                     keyword("routes"),
                     Value::Vector(
                         app.routes
@@ -626,7 +962,7 @@ pub fn manifest(config: &Config) -> Result<Vec<u8>, String> {
 pub fn openapi(app: &App) -> String {
     let mut paths = JsonMap::new();
     for route in &app.routes {
-        if route.method == "ANY" {
+        if route.method == "ANY" || route.path.starts_with("/__hoplite/") {
             continue;
         }
         let path = openapi_path(&route.path);
@@ -718,6 +1054,7 @@ fn sequence(value: &Value) -> Option<Vec<Value>> {
         Value::Vector(values) => Some(values.iter().cloned().collect()),
         Value::List(values) => Some(values.iter().cloned().collect()),
         Value::Tuple(values) => Some(values.iter().cloned().collect()),
+        Value::Set(values) => Some(values.iter().cloned().collect()),
         _ => None,
     }
 }
@@ -847,6 +1184,69 @@ mod tests {
         assert!(app.proxies[0].secure);
         assert!(!app.proxies[1].secure);
         assert!(openapi(&app).contains("x-hoplite-static-proxies"));
+    }
+
+    #[test]
+    fn parses_closed_nchan_channel_declarations() {
+        let mut runtime = Runtime::new();
+        runtime.register_resource("hoplite.core", CORE_SOURCE);
+        let value = runtime
+            .eval_native_value(
+                "(ns sample.channel (:require [hoplite.core :as h])) \
+                 (defn authorize [_request] {:status 204}) \
+                 (defn admit [_request] {:status 304}) \
+                 (defn connected [_duplex] nil) \
+                 (h/app {:name :sample \
+                         :channels [(h/channel \
+                                    {:name :signals \
+                                     :path \"/tahto/signals/:channel\" \
+                                     :profile :ephemeral \
+                                     :authorize #'authorize \
+                                     :admit #'admit})] \
+                         :peers [(h/peer \
+                                 {:name :sync \
+                                  :channel :signals \
+                                  :handler #'connected \
+                                  :label \"tahto.sync\"})]})",
+            )
+            .unwrap();
+        let app = parse_app(value, 7, 58100, vec![], false).unwrap();
+        assert_eq!(app.channels.len(), 1);
+        assert_eq!(app.channels[0].path_prefix, "/tahto/signals");
+        assert_eq!(app.channels[0].authorize, "sample.channel/authorize");
+        assert_eq!(app.channels[0].admit, "sample.channel/admit");
+        assert_eq!(app.channels[0].message_buffer, 8);
+        assert_eq!(app.channels[0].transports, ["websocket", "eventsource"]);
+        assert_eq!(app.peers.len(), 1);
+        assert_eq!(app.peers[0].channel, "signals");
+        assert_eq!(app.peers[0].handler, "sample.channel/connected");
+        assert_eq!(app.peers[0].max_message_bytes, 65_536);
+        assert_eq!(app.routes[0].path, "/__hoplite/nchan/7/signals/authorize");
+        assert_eq!(app.routes[1].path, "/__hoplite/nchan/7/signals/admit");
+        assert!(!openapi(&app).contains("/__hoplite/"));
+    }
+
+    #[test]
+    fn rejects_open_ended_nchan_configuration() {
+        let value = map_value(vec![
+            (keyword("hoplite/type"), keyword("channel")),
+            (keyword("name"), keyword("signals")),
+            (
+                keyword("path"),
+                Value::String("/signals/$request_uri".into()),
+            ),
+            (
+                keyword("authorize"),
+                Value::Symbol("sample/authorize".into()),
+            ),
+            (keyword("admit"), Value::Symbol("sample/admit".into())),
+            (
+                keyword("nginx/directives"),
+                Value::String("return 200;".into()),
+            ),
+        ]);
+        let error = parse_channel(&value, "test channel").unwrap_err();
+        assert!(error.contains("unsupported field"), "{error}");
     }
 
     #[test]

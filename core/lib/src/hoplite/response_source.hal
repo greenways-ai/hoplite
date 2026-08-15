@@ -7,7 +7,7 @@
 ;; work that created it and close it on completion or cancellation.
 ;; ==========================================================================
 (ns hoplite.response-source
-  (:require [std.foundation :refer :all]))
+  (:config {}))
 
 (def protocol
   "hoplite.response-source/0-alpha")
@@ -22,7 +22,7 @@
   "Returns true when value is an integer portable without precision loss."
   [value]
   (and
-   (= :hara.type/integer (type value))
+   (= :hara/Integer (type value))
    (<= safe-integer-min value)
    (<= value safe-integer-max)))
 

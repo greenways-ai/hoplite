@@ -61,6 +61,10 @@ ngx_int_t hoplite_hta_encode_string(ngx_pool_t *pool,
                                     const ngx_str_t *value,
                                     ngx_str_t *output);
 
+ngx_int_t hoplite_hta_encode_number(ngx_pool_t *pool,
+                                    int64_t value,
+                                    ngx_str_t *output);
+
 hoplite_hta_value_t *hoplite_hta_map_get(const hoplite_hta_value_t *map,
                                          const char *name);
 

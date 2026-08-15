@@ -7,11 +7,21 @@
 #include "../abi/data-plane-ffi/include/hoplite_data_plane.h"
 
 typedef struct hoplite_runtime hoplite_runtime_t;
+typedef struct hoplite_rtc_engine hoplite_rtc_engine_t;
 
 typedef struct {
     uint8_t *data;
     size_t len;
 } hoplite_buffer_t;
+
+typedef struct {
+    uint32_t kind;
+    uint64_t timeout_millis;
+    hoplite_buffer_t source;
+    hoplite_buffer_t destination;
+    hoplite_buffer_t payload;
+    uint32_t binary;
+} hoplite_rtc_poll_t;
 
 typedef struct {
     const uint8_t *data;
@@ -183,6 +193,13 @@ int hoplite_response_status_v2(hoplite_runtime_t *runtime,
 int hoplite_response_body_v2(hoplite_runtime_t *runtime,
                              uint64_t response,
                              hoplite_slice_t *body);
+/* Body kind: 0 buffered, 1 worker-local Hara Stream, -1 unknown response. */
+int hoplite_response_body_kind_v3(hoplite_runtime_t *runtime,
+                                  uint64_t response);
+/* Stream pull: 0 chunk, 1 pending, 2 EOF, -1 error. */
+int hoplite_response_stream_next_v3(hoplite_runtime_t *runtime,
+                                    uint64_t response,
+                                    hoplite_slice_t *chunk);
 size_t hoplite_response_header_count_v2(hoplite_runtime_t *runtime,
                                         uint64_t response);
 int hoplite_response_header_at_v2(hoplite_runtime_t *runtime,
@@ -204,6 +221,41 @@ int hoplite_handler_close(hoplite_runtime_t *runtime, uint64_t handler);
 size_t hoplite_work_poll(hoplite_runtime_t *runtime);
 int hoplite_work_next_event(hoplite_runtime_t *runtime, hoplite_buffer_t *output);
 void hoplite_buffer_free(uint8_t *data, size_t len);
+
+/*
+ * Worker-local Sans-I/O WebRTC engine. The caller owns the opaque engine and
+ * drives its socket/timer lifecycle; returned buffers use hoplite_buffer_free.
+ */
+hoplite_rtc_engine_t *hoplite_rtc_engine_new(const uint8_t *label,
+                                             size_t label_len,
+                                             size_t max_message_bytes);
+void hoplite_rtc_engine_free(hoplite_rtc_engine_t *engine);
+int hoplite_rtc_add_local_udp_candidate(hoplite_rtc_engine_t *engine,
+                                        const uint8_t *address,
+                                        size_t address_len);
+int hoplite_rtc_accept_offer(hoplite_rtc_engine_t *engine,
+                             const uint8_t *offer,
+                             size_t offer_len,
+                             hoplite_buffer_t *answer);
+int hoplite_rtc_create_offer(hoplite_rtc_engine_t *engine,
+                             hoplite_buffer_t *offer);
+int hoplite_rtc_accept_answer(hoplite_rtc_engine_t *engine,
+                              const uint8_t *answer,
+                              size_t answer_len);
+int hoplite_rtc_send(hoplite_rtc_engine_t *engine,
+                     const uint8_t *message,
+                     size_t message_len);
+int hoplite_rtc_handle_timeout(hoplite_rtc_engine_t *engine);
+int hoplite_rtc_handle_udp(hoplite_rtc_engine_t *engine,
+                           const uint8_t *source,
+                           size_t source_len,
+                           const uint8_t *destination,
+                           size_t destination_len,
+                           const uint8_t *contents,
+                           size_t contents_len);
+/* kind: 0 timeout, 1 UDP transmit, 2 channel data, 3 connected, 4 closed, 5 other. */
+int hoplite_rtc_poll(hoplite_rtc_engine_t *engine,
+                     hoplite_rtc_poll_t *output);
 
 int hoplite_work_send(hoplite_runtime_t *runtime,
                       uint64_t work,

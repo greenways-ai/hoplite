@@ -71,6 +71,19 @@ Unknown adapters fail during application validation. Method/path matching and
 handler preparation occur before request execution; production dispatch must not
 parse or compile application source per request.
 
+`hoplite.core/channel` declares a bounded ephemeral pub/sub endpoint backed by
+the Nchan module compiled into Hoplite's Nginx. The declaration is closed: it
+accepts a safe `/:channel` path, authorization and publisher-admission handler
+Vars, the `:ephemeral` profile, explicit `:websocket`/`:sse` transports, and
+bounded channel ID, subscriber, buffer, and timeout limits. It does not accept
+raw Nginx directives, Redis coordinates, or arbitrary upstream URLs. Hoplite
+generates internal handler routes for Nchan's authorization subrequests; those
+routes are present in the runtime manifest but omitted from public OpenAPI.
+
+Nchan is a signalling and fan-out transport, not durable application state.
+Applications remain responsible for authenticating both hooks and validating
+the structure, sender, recipient, ordering, and lifetime of published records.
+
 A request-body policy is application configuration. Request-body handles are
 opaque request-scoped capabilities, never paths, descriptors, credentials, or
 portable authority. `:request+hta` routes cannot be combined with the native
@@ -106,6 +119,19 @@ semantics must remain provider-replaceable.
 
 `hoplite.dev` is development-only and is not part of source-free production
 startup.
+
+`hoplite.rtc` is experimental. It separates worker-local session creation and
+SDP offer/answer exchange from `connect`, which wraps an already-signalled
+session as a native Duplex. Session handles are opaque worker authority and
+must not be persisted, transferred between workers, or confused with Tahto
+identity and grant records.
+
+Each session owns a nonblocking UDP socket registered with the Nginx worker
+event loop and a worker timer driven by the RTC engine's next timeout. `open`
+accepts `:bind-address` as a numeric `"address:port"`; it defaults to
+`"127.0.0.1:0"`. Use a concrete reachable interface address for peer traffic.
+Inbound messages satisfy one pending Duplex read or occupy one bounded receive
+slot; request cancellation detaches that read without closing the session.
 
 `hoplite.internal` is implementation-only. Applications importing it receive no
 compatibility promise.

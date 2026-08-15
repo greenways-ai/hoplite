@@ -1,0 +1,55 @@
+(ns hoplite.rtc
+  (:config {}))
+
+(defn host-call
+  [operation arguments]
+  (Host/call "hoplite.rtc" operation arguments))
+
+(defn ^:async open
+  "Creates one worker-local WebRTC session and returns its opaque handle."
+  [options]
+  (co/await
+   (host-call "create" [options])))
+
+(defn ^:async offer
+  "Creates the local SDP offer for an initiating session."
+  [handle]
+  (co/await
+   (host-call "create-offer" [handle])))
+
+(defn ^:async answer
+  "Accepts a remote SDP offer and returns the local SDP answer."
+  [handle remote-offer]
+  (co/await
+   (host-call "accept-offer" [handle remote-offer])))
+
+(defn ^:async accept-answer
+  "Completes an initiating session with its remote SDP answer."
+  [handle remote-answer]
+  (co/await
+   (host-call "accept-answer" [handle remote-answer])))
+
+(defn receive-stream
+  "Creates the pull side of an RTC transport. A nil host result closes it."
+  [handle]
+  (Stream/generate
+   (fn []
+     (loop []
+       (let [item
+             (co/await
+              (host-call "receive" [handle]))]
+         (if (nil? item)
+           :done
+           (do
+             (co/yield item)
+             (recur))))))))
+
+(defn connect
+  "Wraps an already-signalled RTC session as a native Duplex."
+  [handle]
+  (Duplex/create
+   (receive-stream handle)
+   (fn [item]
+     (host-call "send" [handle item]))
+   (fn []
+     (host-call "close" [handle]))))

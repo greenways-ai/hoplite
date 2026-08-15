@@ -1,5 +1,5 @@
 (ns hoplite.internal
-  (:require [std.foundation :refer :all]))
+  (:config {}))
 
 (defn config
   "Defines an advanced single- or multi-app Hoplite host configuration."

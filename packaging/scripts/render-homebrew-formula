@@ -7,6 +7,8 @@ set -eu
 : "${LICENSE:?set LICENSE}"
 : "${NGINX_VERSION:?set NGINX_VERSION}"
 : "${NGINX_SHA256:?set NGINX_SHA256}"
+: "${NCHAN_VERSION:?set NCHAN_VERSION}"
+: "${NCHAN_SHA256:?set NCHAN_SHA256}"
 
 HARA_ARCHIVE_URL="https://github.com/hara-lang/hara/archive/${HARA_REVISION}.tar.gz"
 if [ -z "${HARA_SHA256:-}" ]; then
@@ -51,6 +53,11 @@ class Hoplite < Formula
     sha256 "${NGINX_SHA256}"
   end
 
+  resource "nchan" do
+    url "https://github.com/slact/nchan/archive/refs/tags/v${NCHAN_VERSION}.tar.gz"
+    sha256 "${NCHAN_SHA256}"
+  end
+
   def install
     hara_source = buildpath.parent/"#{buildpath.basename}.hara"
     resource("hara").stage do
@@ -60,6 +67,11 @@ class Hoplite < Formula
     nginx_source = buildpath/"core/target/sources/nginx-${NGINX_VERSION}"
     resource("nginx").stage do
       nginx_source.install Pathname.pwd.children
+    end
+
+    nchan_source = buildpath/"core/target/sources/nchan-${NCHAN_VERSION}"
+    resource("nchan").stage do
+      nchan_source.install Pathname.pwd.children
     end
 
     hara_rust = (hara_source/"core/rust").to_s
@@ -77,6 +89,7 @@ class Hoplite < Formula
 
     system "make", "-C", "core", "embedded-cli",
            "NGINX_SRC=#{nginx_source}",
+           "NCHAN_SRC=#{nchan_source}",
            "NGINX_CC_OPT=#{include_flags}",
            "NGINX_LD_OPT=#{library_flags}"
 

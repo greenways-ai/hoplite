@@ -1,9 +1,14 @@
 NGINX_VERSION := 1.30.4
 NGINX_SHA256 := 4261dc90e9e47c1c4041276e9aaa3d48ebe2e664f728e14fa95ae6c67d57a08b
+NCHAN_VERSION := 1.3.8
+NCHAN_SHA256 := 86e40f97bf380cb81d62c279aa0f992c2d8c93ebcfe242cf0be95e5b6ade9a98
 SOURCE_ROOT := $(abspath $(CURDIR)/target/sources)
 NGINX_ARCHIVE := $(SOURCE_ROOT)/nginx-$(NGINX_VERSION).tar.gz
+NCHAN_ARCHIVE := $(SOURCE_ROOT)/nchan-$(NCHAN_VERSION).tar.gz
 DEFAULT_NGINX_SRC := $(SOURCE_ROOT)/nginx-$(NGINX_VERSION)
+DEFAULT_NCHAN_SRC := $(SOURCE_ROOT)/nchan-$(NCHAN_VERSION)
 NGINX_SRC ?= $(DEFAULT_NGINX_SRC)
+NCHAN_SRC ?= $(DEFAULT_NCHAN_SRC)
 RUNTIME_DIR := $(CURDIR)/target/release
 UNAME_S := $(shell uname -s)
 HOPLITE_VERSION := $(shell grep -m1 '^version = ' $(CURDIR)/Cargo.toml | cut -d'"' -f2)
@@ -31,7 +36,7 @@ else
 NGINX_LD_OPT ?= -Wl,--gc-sections -Wl,--exclude-libs,ALL
 endif
 
-.PHONY: help setup check runtime runtime-production cli embedded-cli server-cli test nginx nginx-source docker \
+.PHONY: help setup check runtime runtime-production cli embedded-cli server-cli test nginx nginx-source nchan-source docker \
 	check-macos macos macos-package osx install uninstall example-check \
 	example-build example-dev example-prod benchmark-bytecode
 
@@ -112,16 +117,29 @@ $(NGINX_ARCHIVE):
 $(DEFAULT_NGINX_SRC)/configure: $(NGINX_ARCHIVE)
 	tar -xzf $(NGINX_ARCHIVE) -C $(SOURCE_ROOT)
 
-nginx-source: $(NGINX_SRC)/configure
+$(NCHAN_ARCHIVE):
+	mkdir -p $(SOURCE_ROOT)
+	curl --fail --location --retry 3 \
+		https://github.com/slact/nchan/archive/refs/tags/v$(NCHAN_VERSION).tar.gz \
+		--output $@.tmp
+	echo "$(NCHAN_SHA256)  $@.tmp" | shasum -a 256 --check
+	mv $@.tmp $@
 
-nginx: runtime-production nginx-source
+$(DEFAULT_NCHAN_SRC)/config: $(NCHAN_ARCHIVE)
+	tar -xzf $(NCHAN_ARCHIVE) -C $(SOURCE_ROOT)
+
+nginx-source: $(NGINX_SRC)/configure
+nchan-source: $(NCHAN_SRC)/config
+
+nginx: runtime-production nginx-source nchan-source
 	cd $(NGINX_SRC) && \
 		HOPLITE_RUNTIME_DIR=$(RUNTIME_DIR) \
 		./configure --prefix=$(CURDIR)/target/nginx \
 			--with-http_ssl_module --with-threads \
 			$(if $(NGINX_CC_OPT),--with-cc-opt="$(NGINX_CC_OPT)") \
 			$(if $(NGINX_LD_OPT),--with-ld-opt="$(NGINX_LD_OPT)") \
-			--add-module=$(CURDIR)/nginx && \
+			--add-module=$(CURDIR)/nginx \
+			--add-module=$(NCHAN_SRC) && \
 		$(MAKE) && $(MAKE) install
 	../packaging/scripts/verify-production-link.sh target/nginx/sbin/nginx
 	$(STRIP) $(STRIP_FLAGS) target/nginx/sbin/nginx

@@ -12,6 +12,7 @@ use std::process;
 use std::process::Command;
 
 const NGINX_VERSION: &str = "1.30.4";
+const NCHAN_VERSION: &str = "1.3.8";
 
 // Nginx removes inherited environment variables from workers unless each
 // name is allowlisted in the main context. A distribution may embed a bounded
@@ -42,6 +43,7 @@ fn run(arguments: impl IntoIterator<Item = String>) -> Result<(), String> {
     ) {
         println!("Hoplite server {}", env!("CARGO_PKG_VERSION"));
         println!("Nginx {NGINX_VERSION} ({})", nginx_distribution());
+        println!("Nchan {NCHAN_VERSION} (embedded Nginx module)");
         return Ok(());
     }
     if matches!(
