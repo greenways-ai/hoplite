@@ -42,7 +42,7 @@ const requiredMarkers = {
   "concepts/data-plane-providers.md": ["Data-plane boundaries", "retired in 0.2.0"],
   "concepts/runtime-model.md": ["Nchan", "worker-local WebRTC sessions", "hoplite.core/stream"],
   "guides/realtime-channels-and-webrtc.mdx": ["hoplite.core/channel", "hoplite.rtc/open", ":max-subscribers", "worker-local"],
-  "reference/hoplite-core.mdx": [":stream/invalid-source", "hoplite.core/channel", "hoplite.core/peer"],
+  "reference/hoplite-core.mdx": [":stream/invalid-source", "## `channel`", "## `peer`"],
   "reference/hoplite-rtc.mdx": ["accept-answer", "1048576", "worker authority", "native `Duplex`"],
   "reference/project-schema.mdx": ["## Channel definition", "## Peer definition", ":idle-timeout-seconds"],
 };
