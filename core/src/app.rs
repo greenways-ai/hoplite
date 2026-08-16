@@ -1,10 +1,13 @@
 use hara_wasm::core::{self, Value};
 use hara_wasm::kernel::{parse_forms, Form};
-use hara_wasm::project::{self, Project};
+use hara_wasm::project::Project;
 use hara_wasm::Runtime;
 use serde_json::{json, Map as JsonMap, Value as JsonValue};
+use std::any::Any;
+use std::collections::{BTreeSet, VecDeque};
+use std::ffi::OsStr;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub const CORE_SOURCE: &str = include_str!("../lib/src/hoplite/core.hal");
 pub const HOST_SOURCE: &str = include_str!("../lib/src/hoplite/host.hal");
@@ -12,6 +15,13 @@ pub const INTERNAL_SOURCE: &str = include_str!("../lib/src/hoplite/internal.hal"
 pub const RAW_SOURCE: &str = include_str!("../lib/src/hoplite/raw.hal");
 pub const RTC_SOURCE: &str = include_str!("../lib/src/hoplite/rtc.hal");
 pub const RESPONSE_SOURCE: &str = include_str!("../lib/src/hoplite/response_source.hal");
+
+// Loading a registered application namespace adds one nested Hara resource
+// boundary beyond direct source evaluation. The reviewed alpha runtime needs
+// more than libtest's 2 MiB worker stack, so keep that finite evaluator depth
+// inside one explicit Hoplite-owned build thread rather than changing every
+// process or test through RUST_MIN_STACK.
+const APPLICATION_BUILD_STACK_BYTES: usize = 8 * 1024 * 1024;
 #[cfg(test)]
 const CORE_TEST_SOURCE: &str = include_str!("../lib/test/hoplite/core_test.hal");
 #[cfg(test)]
@@ -142,9 +152,122 @@ pub fn register_resources(runtime: &mut Runtime) {
     register_contract_resources(runtime);
 }
 
-fn generated_output(path: &Path) -> bool {
-    path.components()
-        .any(|component| component.as_os_str().to_str() == Some(".hoplite"))
+fn generated_output(root: &Path, path: &Path) -> bool {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .components()
+        .any(|component| component.as_os_str() == OsStr::new(".hoplite"))
+}
+
+fn editor_artifact(path: &Path) -> bool {
+    path.file_name()
+        .and_then(OsStr::to_str)
+        .is_some_and(|name| {
+            name.starts_with(".#") || (name.starts_with('#') && name.ends_with('#'))
+        })
+}
+
+fn excluded_application_paths(project: &Project, root: &Path) -> Vec<PathBuf> {
+    let mut paths = vec![root.join(".hoplite")];
+    paths.extend(project.artifact_paths.iter().map(|path| root.join(path)));
+    if let Some(path) = &project.runtime_target_path {
+        paths.push(root.join(path));
+    }
+    paths
+}
+
+fn excluded_application_path(path: &Path, excluded: &[PathBuf]) -> bool {
+    excluded
+        .iter()
+        .any(|root| path == root || path.starts_with(root))
+}
+
+fn application_source_files(project: &Project) -> Result<Vec<PathBuf>, String> {
+    let root = project.root.canonicalize().map_err(|error| {
+        format!(
+            "cannot resolve project root {}: {error}",
+            project.root.display()
+        )
+    })?;
+    let excluded = excluded_application_paths(project, &root);
+    let mut pending = VecDeque::new();
+
+    for relative in &project.source_paths {
+        let declared = project.root.join(relative);
+        if !declared.exists() {
+            continue;
+        }
+        let metadata = fs::symlink_metadata(&declared).map_err(|error| {
+            format!("cannot inspect source root {}: {error}", declared.display())
+        })?;
+        if metadata.file_type().is_symlink() {
+            return Err(format!(
+                "application source root cannot be a symlink: {}",
+                declared.display()
+            ));
+        }
+        if !metadata.is_dir() {
+            return Err(format!(
+                "application source root is not a directory: {}",
+                declared.display()
+            ));
+        }
+        let directory = declared.canonicalize().map_err(|error| {
+            format!("cannot resolve source root {}: {error}", declared.display())
+        })?;
+        if !directory.starts_with(&root) {
+            return Err(format!(
+                "application source root escapes the project: {}",
+                declared.display()
+            ));
+        }
+        if generated_output(&root, &directory) || excluded_application_path(&directory, &excluded) {
+            return Err(format!(
+                "project source path {:?} points inside generated output",
+                relative
+            ));
+        }
+        pending.push_back(directory);
+    }
+
+    let mut visited = BTreeSet::new();
+    let mut sources = BTreeSet::new();
+    while let Some(directory) = pending.pop_front() {
+        if !visited.insert(directory.clone()) {
+            continue;
+        }
+        let mut entries = fs::read_dir(&directory)
+            .map_err(|error| format!("cannot enumerate {}: {error}", directory.display()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("cannot enumerate {}: {error}", directory.display()))?;
+        entries.sort_by_key(|entry| entry.file_name());
+
+        for entry in entries {
+            let path = entry.path();
+            if entry.file_name() == OsStr::new(".hoplite")
+                || editor_artifact(&path)
+                || excluded_application_path(&path, &excluded)
+            {
+                continue;
+            }
+            let kind = entry
+                .file_type()
+                .map_err(|error| format!("cannot inspect {}: {error}", path.display()))?;
+            if kind.is_symlink() {
+                return Err(format!(
+                    "application source discovery does not follow symlinks: {}",
+                    path.display()
+                ));
+            }
+            if kind.is_dir() {
+                pending.push_back(path);
+            } else if kind.is_file() && path.extension().and_then(OsStr::to_str) == Some("hal") {
+                sources.insert(path);
+            }
+        }
+    }
+
+    Ok(sources.into_iter().collect())
 }
 
 fn declared_namespace(source: &str) -> Result<Option<String>, String> {
@@ -162,10 +285,7 @@ fn declared_namespace(source: &str) -> Result<Option<String>, String> {
 }
 
 fn register_project_sources(project: &Project, runtime: &mut Runtime) -> Result<(), String> {
-    for path in project::files_in(&project.root, &project.source_paths)?
-        .into_iter()
-        .filter(|path| !generated_output(path))
-    {
+    for path in application_source_files(project)? {
         let source = fs::read_to_string(&path)
             .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
         let namespace = declared_namespace(&source)
@@ -177,6 +297,37 @@ fn register_project_sources(project: &Project, runtime: &mut Runtime) -> Result<
 }
 
 pub fn load(project: &Project, profile: Option<&str>, production: bool) -> Result<Config, String> {
+    let project = project.clone();
+    let profile = profile.map(str::to_owned);
+    let build = std::thread::Builder::new()
+        .name("hoplite-application-build".into())
+        .stack_size(APPLICATION_BUILD_STACK_BYTES)
+        .spawn(move || load_inner(&project, profile.as_deref(), production))
+        .map_err(|error| format!("cannot start Hoplite application build: {error}"))?;
+    match build.join() {
+        Ok(result) => result,
+        Err(payload) => Err(format!(
+            "Hoplite application build panicked: {}",
+            panic_message(payload)
+        )),
+    }
+}
+
+fn panic_message(payload: Box<dyn Any + Send>) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        (*message).to_owned()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "non-string panic payload".into()
+    }
+}
+
+fn load_inner(
+    project: &Project,
+    profile: Option<&str>,
+    production: bool,
+) -> Result<Config, String> {
     if project.root.join("server.edn").is_file() || project.root.join("routes.edn").is_file() {
         return Err("server.edn and routes.edn are no longer supported; define a hoplite.core/app and select it with :project/profiles".into());
     }
@@ -1139,6 +1290,47 @@ fn map_value(entries: Vec<(Value, Value)>) -> Value {
 mod tests {
     use super::*;
 
+    fn temp_project(name: &str) -> PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("hoplite-{name}-{}-{unique}", std::process::id()))
+    }
+
+    fn write_project(root: &Path, source_paths: &str) {
+        fs::create_dir_all(root).unwrap();
+        let manifest = r#"{:hara/type :project
+ :hara/version "1.0.0"
+ :project/id demo/app
+ :project/version "0.1.0"
+ :project/source-paths [SOURCE_PATHS]
+ :project/test-paths []
+ :project/extension-paths []
+ :project/capabilities #{}
+ :project/main demo.app
+ :project/default-profile :server
+ :project/profiles {:server {:profile/language :hoplite
+                             :profile/main demo.app/app}}}"#
+            .replace("SOURCE_PATHS", source_paths);
+        fs::write(root.join("project.edn"), manifest).unwrap();
+    }
+
+    fn write_minimal_app(path: &Path) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(
+            path,
+            r#"(ns demo.app (:require [hoplite.core :as h]))
+(defn hello [_request] {:status 200 :body "ok"})
+(def app
+  (h/app {:name "demo"
+          :resources [["/hello" {:get {:handler #'hello}}]]}))"#,
+        )
+        .unwrap();
+    }
+
     #[test]
     fn app_sources_evaluate_and_preserve_handler_vars() {
         let mut runtime = Runtime::new();
@@ -1313,33 +1505,117 @@ mod tests {
     }
 
     #[test]
-    fn generated_hoplite_output_is_never_registered_as_application_source() {
-        let unique = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "hoplite-generated-source-filter-{}-{unique}",
-            std::process::id()
-        ));
-        fs::create_dir_all(root.join(".hoplite")).unwrap();
+    fn application_source_discovery_prunes_generated_output_before_descent() {
+        let root = temp_project("generated-source-filter");
+        write_project(&root, r#"".""#);
+        fs::write(root.join("app.hal"), "(ns demo.app)").unwrap();
+        fs::create_dir_all(root.join(".hoplite/nested")).unwrap();
         fs::write(
-    root.join("project.edn"),
-    r#"{:hara/type :project :hara/version "1.0.0" :project/id demo/app :project/version "0.1.0" :project/source-paths ["."] :project/test-paths [] :project/extension-paths [] :project/capabilities #{} :project/main demo.app :project/default-profile :server :project/profiles {:server {:profile/language :hoplite :profile/main demo.app/app}}}"#,
-        )
-        .unwrap();
-        fs::write(
-    root.join("app.hal"),
-    r#"(ns demo.app (:require [hoplite.core :as h])) (defn hello [_request] {:status 200 :body "ok"}) (def app (h/app {:name "demo" :resources [["/hello" {:get {:handler #'hello}}]]}))"#,
-        )
-        .unwrap();
-        fs::write(
-            root.join(".hoplite/app.hal"),
+            root.join(".hoplite/nested/app.hal"),
             "this generated projection is deliberately not valid HAL",
         )
         .unwrap();
 
-        let project = project::read(&root).unwrap();
+        let project = hara_wasm::project::read(&root).unwrap();
+        let sources = application_source_files(&project).unwrap();
+        assert_eq!(sources, vec![root.join("app.hal").canonicalize().unwrap()]);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn application_source_discovery_deduplicates_overlapping_roots() {
+        let root = temp_project("overlapping-source-roots");
+        write_project(&root, r#""." "src""#);
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("app.hal"), "(ns demo.app)").unwrap();
+        fs::write(root.join("src/helper.hal"), "(ns demo.helper)").unwrap();
+
+        let project = hara_wasm::project::read(&root).unwrap();
+        let sources = application_source_files(&project).unwrap();
+        let mut expected = vec![
+            root.join("app.hal").canonicalize().unwrap(),
+            root.join("src/helper.hal").canonicalize().unwrap(),
+        ];
+        expected.sort();
+        assert_eq!(sources, expected);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn application_source_discovery_ignores_editor_artifacts() {
+        let root = temp_project("editor-artifacts");
+        write_project(&root, r#""src""#);
+        fs::create_dir_all(root.join("src/demo")).unwrap();
+        fs::write(root.join("src/demo/core.hal"), "(ns demo.core)").unwrap();
+        fs::write(root.join("src/demo/.#core.hal"), "unreadable editor lock").unwrap();
+        fs::write(root.join("src/demo/#core.hal#"), "invalid editor backup").unwrap();
+
+        let project = hara_wasm::project::read(&root).unwrap();
+        let sources = application_source_files(&project).unwrap();
+        assert_eq!(
+            sources,
+            vec![root.join("src/demo/core.hal").canonicalize().unwrap()]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn application_source_discovery_rejects_generated_source_roots() {
+        let root = temp_project("generated-source-root");
+        write_project(&root, r#"".hoplite""#);
+        fs::create_dir_all(root.join(".hoplite")).unwrap();
+        fs::write(root.join(".hoplite/app.hal"), "(ns demo.app)").unwrap();
+
+        let project = hara_wasm::project::read(&root).unwrap();
+        let error = application_source_files(&project).unwrap_err();
+        assert!(error.contains("inside generated output"), "{error}");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn application_source_discovery_rejects_directory_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let root = temp_project("source-symlink");
+        write_project(&root, r#""src""#);
+        fs::create_dir_all(root.join("src/real")).unwrap();
+        fs::write(root.join("src/real/app.hal"), "(ns demo.app)").unwrap();
+        symlink(root.join("src/real"), root.join("src/link")).unwrap();
+
+        let project = hara_wasm::project::read(&root).unwrap();
+        let error = application_source_files(&project).unwrap_err();
+        assert!(error.contains("does not follow symlinks"), "{error}");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn application_source_discovery_handles_deep_trees_iteratively() {
+        let root = temp_project("deep-source-tree");
+        write_project(&root, r#""src""#);
+        let mut directory = root.join("src");
+        for index in 0..256 {
+            directory.push(format!("d{index}"));
+        }
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(directory.join("deep.hal"), "(ns demo.deep)").unwrap();
+
+        let project = hara_wasm::project::read(&root).unwrap();
+        let sources = application_source_files(&project).unwrap();
+        assert_eq!(
+            sources,
+            vec![directory.join("deep.hal").canonicalize().unwrap()]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn minimal_application_project_loads() {
+        let root = temp_project("minimal-application-load");
+        write_project(&root, r#""src""#);
+        write_minimal_app(&root.join("src/demo/app.hal"));
+
+        let project = hara_wasm::project::read(&root).unwrap();
         let config = load(&project, None, true).unwrap();
         assert_eq!(config.apps[0].name, "demo");
         fs::remove_dir_all(root).unwrap();
