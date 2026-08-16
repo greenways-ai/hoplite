@@ -1,17 +1,24 @@
 ---
 title: Status and roadmap
-description: Current Hoplite maturity, platform support, realtime transport, active milestones, and project links.
+description: Current Hoplite maturity, platform support, realtime transport, release state, and active milestones.
 ---
 
-<span class="doc-badge doc-badge--caution">Pre-1.0</span> <span class="doc-badge doc-badge--success">Release 0.2.0</span> <span class="doc-badge doc-badge--note">Active development</span>
+<span class="doc-badge doc-badge--caution">Pre-1.0</span> <span class="doc-badge doc-badge--note">0.2.0 development line</span> <span class="doc-badge doc-badge--success">Latest tag v0.1.0</span>
 
-Hoplite is published through Homebrew, standalone macOS and Linux binaries,
-and the `ghcr.io/greenways-ai/hoplite` OCI image. The current release is usable
-for application and integration work, while interfaces may still change before 1.0.
+These documentation pages track the current `main` branch. Hoplite's latest
+tagged binary release is [`v0.1.0`](https://github.com/greenways-ai/hoplite/releases/tag/v0.1.0);
+the source tree and documentation are now on the 0.2.0 development line. Features
+labelled **Current main** are not a promise that the same interface exists in an
+installed v0.1.0 binary.
+
+The tagged release is published through standalone macOS and Linux binaries,
+Homebrew distribution, and the `ghcr.io/greenways-ai/hoplite` OCI image. The
+current source line remains suitable for application and integration work, while
+interfaces may still change before 1.0.
 
 ![A rabbit moving through the junction of three sunlit mosaic garden paths](https://oss.greenways.ai/visual-language/artwork/hoplite/branching-paths-day.webp)
 
-## Platform matrix
+## Current-main platform matrix
 
 | Area | Current status |
 | --- | --- |
@@ -27,7 +34,7 @@ for application and integration work, while interfaces may still change before 1
 | Production startup | Source-free, transactional worker bootstrap with reload and fresh-recreation evidence |
 | Operator diagnostics | Public source-free `verify`, `inspect`, and local-environment `doctor` commands |
 | Portable host providers | Fixed worker-local registry with bounded HTA request and completion contracts |
-| Historical products | Authority, blob, value, store, provider, and migration implementations retired in 0.2.0 |
+| Historical products | Authority, blob, value, store, provider, and migration implementations retired on the 0.2.0 line |
 | Authentication | Application-owned HAL policy; no default account, session, or management service |
 
 ## Active milestones
