@@ -1,5 +1,6 @@
 (ns hoplite.core
-  (:config {}))
+  (:config {:override [stream]})
+  (:require [std.foundation :as foundation]))
 
 (defn- tagged
   [kind value]
@@ -24,7 +25,7 @@
 
 (defn- iterator-stream
   [iterator]
-  (Stream/generate
+  (foundation/stream
    (fn [input]
      (try
        (loop []

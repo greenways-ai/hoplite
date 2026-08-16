@@ -1,5 +1,6 @@
 (ns hoplite.rtc
-  (:config {}))
+  (:config {})
+  (:require [std.stream.duplex :as duplex]))
 
 (defn host-call
   [operation arguments]
@@ -32,7 +33,7 @@
 (defn receive-stream
   "Creates the pull side of an RTC transport. A nil host result closes it."
   [handle]
-  (Stream/generate
+  (stream
    (fn []
      (loop []
        (let [item
@@ -45,9 +46,9 @@
              (recur))))))))
 
 (defn connect
-  "Wraps an already-signalled RTC session as a native Duplex."
+  "Wraps an already-signalled RTC session through the public stream Duplex facade."
   [handle]
-  (Duplex/create
+  (duplex/create
    (receive-stream handle)
    (fn [item]
      (host-call "send" [handle item]))
