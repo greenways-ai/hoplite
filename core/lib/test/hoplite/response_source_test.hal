@@ -1,6 +1,15 @@
 (ns hoplite.response-source-test
   (:require [hoplite.response-source :as source]))
 
+(defn test-check
+  [name actual expected]
+  (if (= actual expected)
+    true
+    (throw
+     (ex-info name
+              {:actual actual
+               :expected expected}))))
+
 (def valid
   (source/response-source "hoplite.blob" 17 4 9))
 
