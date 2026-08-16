@@ -197,8 +197,9 @@ fn application_source_files(project: &Project) -> Result<Vec<PathBuf>, String> {
         if !declared.exists() {
             continue;
         }
-        let metadata = fs::symlink_metadata(&declared)
-            .map_err(|error| format!("cannot inspect source root {}: {error}", declared.display()))?;
+        let metadata = fs::symlink_metadata(&declared).map_err(|error| {
+            format!("cannot inspect source root {}: {error}", declared.display())
+        })?;
         if metadata.file_type().is_symlink() {
             return Err(format!(
                 "application source root cannot be a symlink: {}",
@@ -220,9 +221,7 @@ fn application_source_files(project: &Project) -> Result<Vec<PathBuf>, String> {
                 declared.display()
             ));
         }
-        if generated_output(&root, &directory)
-            || excluded_application_path(&directory, &excluded)
-        {
+        if generated_output(&root, &directory) || excluded_application_path(&directory, &excluded) {
             return Err(format!(
                 "project source path {:?} points inside generated output",
                 relative
@@ -262,9 +261,7 @@ fn application_source_files(project: &Project) -> Result<Vec<PathBuf>, String> {
             }
             if kind.is_dir() {
                 pending.push_back(path);
-            } else if kind.is_file()
-                && path.extension().and_then(OsStr::to_str) == Some("hal")
-            {
+            } else if kind.is_file() && path.extension().and_then(OsStr::to_str) == Some("hal") {
                 sources.insert(path);
             }
         }
@@ -293,12 +290,7 @@ fn register_project_sources(project: &Project, runtime: &mut Runtime) -> Result<
             .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
         let namespace = declared_namespace(&source)
             .map_err(|error| format!("{}: {error}", path.display()))?
-            .ok_or_else(|| {
-                format!(
-                    "{} does not declare an ns or ns+ namespace",
-                    path.display()
-                )
-            })?;
+            .ok_or_else(|| format!("{} does not declare an ns or ns+ namespace", path.display()))?;
         runtime.register_resource(&namespace, &source);
     }
     Ok(())
@@ -580,7 +572,15 @@ fn parse_peer(value: &Value, channels: &[Channel], context: &str) -> Result<Peer
     }
     reject_fields(
         value,
-        &["hoplite/type", "name", "channel", "handler", "label", "max-message-bytes", "idle-timeout-seconds"],
+        &[
+            "hoplite/type",
+            "name",
+            "channel",
+            "handler",
+            "label",
+            "max-message-bytes",
+            "idle-timeout-seconds",
+        ],
         context,
     )?;
     let name = required_text_field(value, "name", context)?;
@@ -643,7 +643,9 @@ fn parse_channel(value: &Value, context: &str) -> Result<Channel, String> {
         .ok_or_else(|| format!("{context} :path must end with /:channel"))?
         .to_owned();
     if path_prefix.contains(['$', '{', '}', '\\']) || path_prefix.contains("..") {
-        return Err(format!("{context} :path contains dynamic or unsafe segments"));
+        return Err(format!(
+            "{context} :path contains dynamic or unsafe segments"
+        ));
     }
     if keyword_field(value, "profile").as_deref() != Some("ephemeral") {
         return Err(format!("{context} :profile must be :ephemeral"));
@@ -982,7 +984,10 @@ pub fn openapi(app: &App) -> String {
             "responses".into(),
             json!({"200": {"description": "Handler response"}}),
         );
-        methods.insert(route.method.to_ascii_lowercase(), JsonValue::Object(operation));
+        methods.insert(
+            route.method.to_ascii_lowercase(),
+            JsonValue::Object(operation),
+        );
     }
     let proxies = app
         .proxies
@@ -1079,7 +1084,10 @@ pub fn manifest_json(config: &Config) -> JsonValue {
     })
 }
 
-fn parse_request_body(value: Option<Value>, context: &str) -> Result<Option<RequestBodyPolicy>, String> {
+fn parse_request_body(
+    value: Option<Value>,
+    context: &str,
+) -> Result<Option<RequestBodyPolicy>, String> {
     let Some(value) = value else {
         return Ok(None);
     };
@@ -1093,7 +1101,9 @@ fn parse_request_body(value: Option<Value>, context: &str) -> Result<Option<Requ
         .transpose()?
         .unwrap_or(64 * 1024);
     if max_chunk_bytes > max_bytes {
-        return Err(format!("{context} request max-chunk-bytes exceeds max-bytes"));
+        return Err(format!(
+            "{context} request max-chunk-bytes exceeds max-bytes"
+        ));
     }
     Ok(Some(RequestBodyPolicy {
         max_bytes,
@@ -1227,9 +1237,9 @@ fn valid_positive_usize(value: i64) -> Result<usize, String> {
 fn valid_token(value: &str, context: &str) -> Result<(), String> {
     if value.is_empty()
         || value.len() > 128
-        || !value
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.'))
+        || !value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
     {
         Err(format!("{context} is invalid"))
     } else {
@@ -1254,10 +1264,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!(
-            "hoplite-{name}-{}-{unique}",
-            std::process::id()
-        ))
+        std::env::temp_dir().join(format!("hoplite-{name}-{}-{unique}", std::process::id()))
     }
 
     fn write_project(root: &Path, source_paths: &str) {
