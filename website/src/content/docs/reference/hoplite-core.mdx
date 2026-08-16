@@ -98,8 +98,10 @@ native response bodies.
 (channel definition)
 ```
 
-Declares one bounded Nchan-backed publish/subscribe endpoint and tags the map
-with `:hoplite/type :channel`.
+`hoplite.core/channel` remains a compatibility constructor that tags the map
+with `:hoplite/type :channel`. New applications should activate the
+`:hoplite/nchan` package export and use
+[`hoplite.nchan/channel`](/reference/hoplite-nchan/) directly.
 
 ```clojure
 (h/channel

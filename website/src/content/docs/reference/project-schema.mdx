@@ -42,10 +42,16 @@ local `:module/as` alias, and uses an exact SemVer. A package may be activated
 more than once when selecting different exports. Configuration must be inert
 EDN without reader tags or metadata.
 
+During `hoplite serve check` and `hoplite serve build`, Hoplite verifies the
+locked archive, resolves the selected export's `:export/namespace`, follows only
+package-local `:require` edges, and compiles the resulting namespace closure into
+the application HBX0 bundle. Package source is a build input and is not reopened
+by `hoplite-server` during production startup.
+
 Package resolution binds the coordinate, release asset, export, version,
-archive digest and signature to `project.lock.edn`; Hoplite does not perform
-live installation at runtime. Storage and other native authority are selected
-by the distribution, not by application request data.
+archive digest and identity revision to `project.lock.edn`; Hoplite does not
+perform live package lookup at production runtime. Storage and other native
+authority are selected by the distribution, not by application request data.
 
 The default build rejects `:hoplite/authentication`. Account, session, and
 authorization policy belong to the application or an explicitly composed
@@ -53,7 +59,7 @@ distribution; see [Application authentication](/guides/authentication/).
 
 ## Package lock
 
-Every explicit module must have an exact archive binding in
+Every explicit module must have an exact archive and namespace inventory in
 `project.lock.edn`:
 
 ```clojure
@@ -61,12 +67,20 @@ Every explicit module must have an exact archive binding in
  :packages
  {"gh:example:service-package"
   {:version "0.1.0"
-   :archive-sha256 "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}}}
+   :tap "gh"
+   :registry-commit "0123456789abcdef0123456789abcdef01234567"
+   :identity-revision "89abcdef0123456789abcdef0123456789abcdef"
+   :archive-sha256 "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+   :namespaces [example.service]}}}
 ```
 
+The commit fields are lowercase 40-character Git revisions. The namespace
+inventory must be non-empty and include the namespace selected by every active
+export. Two locked packages cannot claim the same namespace.
+
 The requested version, lock entry, installed registration, content-addressed
-root name, HARP identity, and every file digest must all agree before module
-code is evaluated.
+root name, HARP identity, selected export, namespace inventory, and every file
+digest must all agree before module code is evaluated.
 
 ## One authored manifest
 
@@ -86,7 +100,7 @@ of truth.
 | `:route/adapter` | keyword | No | Default route boundary: `:raw`, `:request` (default), or `:request+hta` |
 | `:request/body` | map | No | Enables a bounded native request-body handle for the application |
 | `:proxies` | sequence | No | Closed fixed-prefix, fixed-origin Nginx upstream declarations |
-| `:channels` | sequence | No | Values constructed with `hoplite.core/channel` |
+| `:channels` | sequence | No | Values constructed with `hoplite.nchan/channel`; `hoplite.core/channel` remains compatible |
 | `:peers` | sequence | No | Values constructed with `hoplite.core/peer` |
 | `:openapi :path` | text-like | No | Explicit OpenAPI route; development otherwise defaults to `/openapi.json` |
 
@@ -107,8 +121,10 @@ must run inside the HAL handler.
 
 <span class="doc-badge doc-badge--caution">Experimental</span>
 
-Every item under `:channels` must be constructed with `hoplite.core/channel`.
-The map is closed; unsupported keys are errors.
+Every item under `:channels` must be constructed with
+`hoplite.nchan/channel`. `hoplite.core/channel` remains a compatibility
+constructor for the current pre-1.0 line. The map is closed; unsupported keys
+are errors.
 
 | Field | Type | Required | Default and validation |
 | --- | --- | --- | --- |
@@ -125,7 +141,8 @@ The map is closed; unsupported keys are errors.
 
 Hoplite generates private GET and POST routes for Nchan authorization
 subrequests. They are prepared like other handlers and recorded in the runtime
-manifest, but omitted from public OpenAPI output.
+manifest, but omitted from public OpenAPI output. The application package cannot
+inject raw Nginx directives or replace the statically linked Nchan module.
 
 ## Peer definition
 
@@ -155,4 +172,4 @@ created through `hoplite.rtc` stay inside one Nginx worker.
 
 Instance fields are documented in [Multiple applications](/guides/multiple-applications/).
 
-**Source:** [`core/src/app.rs`](https://github.com/greenways-ai/hoplite/blob/main/core/src/app.rs)
+**Sources:** [`core/src/platform.rs`](https://github.com/greenways-ai/hoplite/blob/main/core/src/platform.rs), [`core/src/package_catalog.rs`](https://github.com/greenways-ai/hoplite/blob/main/core/src/package_catalog.rs), and [`core/src/app.rs`](https://github.com/greenways-ai/hoplite/blob/main/core/src/app.rs)
