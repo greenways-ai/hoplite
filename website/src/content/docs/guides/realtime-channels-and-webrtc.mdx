@@ -1,0 +1,157 @@
+---
+title: Realtime channels and WebRTC
+description: Use bounded Nchan fan-out for signalling and worker-local WebRTC sessions for direct Duplex traffic.
+---
+
+<span class="doc-badge doc-badge--caution">Experimental</span>
+
+Hoplite now exposes two deliberately separate realtime layers:
+
+| Layer | Purpose | Ownership |
+| --- | --- | --- |
+| `hoplite.core/channel` | Bounded WebSocket/SSE publish and subscribe through the Nchan module embedded in Hoplite's Nginx | Ephemeral Nginx channel state |
+| `hoplite.rtc` | SDP negotiation and direct WebRTC data-channel traffic exposed to HAL as a native `Duplex` | One opaque session in one Nginx worker |
+
+The Nchan layer is suitable for signalling and fan-out. It is not durable state,
+a queue, an identity system, or a substitute for application authorization. The
+RTC layer begins only after the application has exchanged SDP through an
+explicit signalling path.
+
+## Declare the signalling channel
+
+Channels and peer handlers are immutable application data:
+
+```clojure
+(ns example.realtime
+  (:require [hoplite.core :as h]))
+
+(defn authorize-subscriber [request]
+  ;; Authenticate the subscriber and authorize the requested channel ID.
+  {:status 204})
+
+(defn admit-publisher [request]
+  ;; Authenticate the publisher and validate the message envelope.
+  {:status 204})
+
+(defn handle-peer [request]
+  ;; Application-owned peer/signalling policy.
+  {:status 204})
+
+(def app
+  (h/app
+   {:name "realtime"
+    :channels
+    [(h/channel
+      {:name "signals"
+       :path "/signals/:channel"
+       :profile :ephemeral
+       :authorize #'authorize-subscriber
+       :admit #'admit-publisher
+       :transports [:websocket :sse]
+       :message-buffer 8
+       :message-timeout-seconds 30
+       :max-channel-id-bytes 128
+       :max-subscribers 4})]
+    :peers
+    [(h/peer
+      {:name "sync"
+       :channel "signals"
+       :handler #'handle-peer
+       :label "sync"
+       :max-message-bytes 65536
+       :idle-timeout-seconds 120})]
+    :resources
+    [["/health" {:get {:handler (fn [_] {:status 200 :body "ok"})}}]]}))
+```
+
+The channel path must be a safe absolute path ending in `/:channel`. Hoplite
+generates private authorization subrequest routes for Nchan; those routes are
+present in the runtime manifest but omitted from public OpenAPI output.
+
+### Closed channel schema
+
+| Field | Default | Accepted values |
+| --- | --- | --- |
+| `:name` | Required | 1–64 ASCII letters, digits, `-`, or `_` |
+| `:path` | Required | Safe absolute path ending in `/:channel` |
+| `:profile` | `:ephemeral` | Only `:ephemeral` |
+| `:authorize` | Required | Callable or Var used for subscriber authorization |
+| `:admit` | Required | Callable or Var used for publisher admission |
+| `:transports` | `[:websocket :sse]` | Non-empty subset of `:websocket` and `:sse` |
+| `:message-buffer` | `8` | `0`–`64` messages |
+| `:message-timeout-seconds` | `30` | `1`–`300` seconds |
+| `:max-channel-id-bytes` | `128` | `22`–`256` bytes |
+| `:max-subscribers` | `4` | `1`–`64` subscribers |
+
+Unknown fields are rejected. Channel names and paths must be unique inside the
+application, and channel paths may not overlap fixed proxy prefixes.
+
+### Closed peer schema
+
+A peer declaration references one channel by name and binds application policy
+to a WebRTC data-channel label.
+
+| Field | Default | Accepted values |
+| --- | --- | --- |
+| `:name` | Required | 1–64 safe ASCII characters |
+| `:channel` | Required | Name of a channel declared by the same application |
+| `:handler` | Required | Callable or Var |
+| `:label` | Peer name | 1–64 ASCII letters, digits, `-`, `_`, or `.` |
+| `:max-message-bytes` | `65536` | `1`–`1048576` bytes |
+| `:idle-timeout-seconds` | `120` | `5`–`3600` seconds |
+
+## Negotiate an RTC session
+
+`hoplite.rtc/open` creates an opaque worker-local session. An initiating side
+creates an offer, exchanges it through application signalling, accepts the
+remote answer, and then wraps the session as a Duplex:
+
+```clojure
+(ns example.rtc-client
+  (:require [hoplite.rtc :as rtc]))
+
+(defn ^:async dial [exchange-offer]
+  (let [handle (co/await
+                (rtc/open {:label "sync"
+                           :bind-address "0.0.0.0:0"
+                           :max-message-bytes 65536}))
+        local-offer (co/await (rtc/offer handle))
+        remote-answer (co/await (exchange-offer local-offer))]
+    (co/await (rtc/accept-answer handle remote-answer))
+    (rtc/connect handle)))
+```
+
+The answering side creates its own session, accepts the remote offer, returns
+the generated answer through signalling, and then connects the same handle:
+
+```clojure
+(defn ^:async answer-peer [remote-offer publish-answer]
+  (let [handle (co/await
+                (rtc/open {:label "sync"
+                           :bind-address "0.0.0.0:0"}))
+        local-answer (co/await (rtc/answer handle remote-offer))]
+    (co/await (publish-answer local-answer))
+    (rtc/connect handle)))
+```
+
+`rtc/connect` returns a native `Duplex`: reads pull from the RTC receive stream,
+writes call the native send operation, and closing the Duplex closes the
+session.
+
+## Authority and lifecycle rules
+
+- A session handle is authority inside one Nginx worker. Do not persist it,
+  serialize it, transfer it to another worker, or treat it as an identity.
+- `:bind-address` is a numeric `"address:port"`. It defaults to
+  `"127.0.0.1:0"`; bind a reachable interface for traffic from another host.
+- The host owns the nonblocking UDP socket, worker event registration, and RTC
+  timer. HAL owns the signalling policy and the lifetime of the returned
+  Duplex.
+- One inbound message satisfies a pending read or occupies the bounded receive
+  slot. Cancelling a pending receive detaches that read without implicitly
+  closing the session.
+- Authenticate both channel hooks and validate message structure, sender,
+  recipient, ordering, replay policy, and expiry in application code.
+
+See [`hoplite.core`](/reference/hoplite-core/) for declaration constructors and
+[`hoplite.rtc`](/reference/hoplite-rtc/) for the function-by-function contract.
