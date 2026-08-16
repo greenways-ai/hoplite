@@ -1,0 +1,87 @@
+name: Validate final source boundary repair
+
+on:
+  push:
+    branches:
+      - agent/prune-generated-source-output
+    paths:
+      - ".github/workflows/agent-validate-source-boundary-final.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/prune-generated-source-output
+          path: hoplite
+          fetch-depth: 0
+
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: 2b3efd14451e96e9e79cd9645fb7e10d9e3782d6
+          path: hara
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Complete the console error handoff
+        working-directory: hoplite
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          for name in [
+              "core/src/console/dispatcher.rs",
+              "core/src/console/supervisor.rs",
+          ]:
+              path = Path(name)
+              source = path.read_text()
+              old = "failure(code, error)"
+              new = "failure(&code, error)"
+              if source.count(old) != 1:
+                  raise SystemExit(
+                      f"expected exactly one owned error-code handoff in {name}; "
+                      f"found {source.count(old)}"
+                  )
+              path.write_text(source.replace(old, new, 1))
+          PY
+          cargo fmt --manifest-path core/Cargo.toml
+          git diff --check
+
+      - name: Publish the final repair
+        working-directory: hoplite
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/agent-validate-source-boundary-final.yml
+          git add -A
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Borrow owned console error codes"
+          git push origin HEAD:agent/prune-generated-source-output
+
+      - name: Test source discovery
+        working-directory: hoplite
+        shell: bash
+        run: cargo test --manifest-path core/Cargo.toml --bin hoplite app::tests::application_source_discovery -- --nocapture
+
+      - name: Test minimal application loading on the default test stack
+        working-directory: hoplite
+        shell: bash
+        run: cargo test --manifest-path core/Cargo.toml --bin hoplite app::tests::minimal_application_project_loads -- --exact --nocapture
+
+      - name: Test the complete Hoplite core workspace
+        working-directory: hoplite
+        shell: bash
+        run: cargo test --manifest-path core/Cargo.toml --workspace --locked
