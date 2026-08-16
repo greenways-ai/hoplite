@@ -1,0 +1,8 @@
+[env]
+# Hara's nested namespace/bootstrap evaluator is exercised inside Rust's test
+# harness threads. Those threads default to a 2 MiB stack on Linux, while the
+# actual Hoplite builder and worker processes use the operating-system process
+# stack. Keep the test harness representative of that production boundary and
+# prevent finite nested module loads from aborting before they can report a
+# structured result.
+RUST_MIN_STACK = "8388608"
