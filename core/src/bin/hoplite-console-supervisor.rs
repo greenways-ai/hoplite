@@ -109,10 +109,7 @@ fn path(values: &BTreeMap<String, String>, flag: &str) -> Result<PathBuf, String
 }
 
 #[cfg(unix)]
-fn optional_number<T>(
-    values: &BTreeMap<String, String>,
-    flag: &str,
-) -> Result<Option<T>, String>
+fn optional_number<T>(values: &BTreeMap<String, String>, flag: &str) -> Result<Option<T>, String>
 where
     T: std::str::FromStr,
 {

@@ -116,16 +116,15 @@ impl InputSchema {
             return Err("console command input schema :type must be :map".into());
         }
         let required = text_set(
-            &map_get(value, "required")
-                .ok_or("console command input schema requires :required")?,
+            &map_get(value, "required").ok_or("console command input schema requires :required")?,
         )?;
         let optional = text_set(
-            &map_get(value, "optional")
-                .ok_or("console command input schema requires :optional")?,
+            &map_get(value, "optional").ok_or("console command input schema requires :optional")?,
         )?;
         if required.iter().any(|field| optional.contains(field)) {
-            return Err("console command input schema fields cannot be both required and optional"
-                .into());
+            return Err(
+                "console command input schema fields cannot be both required and optional".into(),
+            );
         }
         let allowed = required
             .iter()
@@ -144,7 +143,10 @@ impl InputSchema {
                         "console command input :fields contains undeclared field {name:?}"
                     ));
                 }
-                if fields.insert(name, FieldType::parse(&field_type)?).is_some() {
+                if fields
+                    .insert(name, FieldType::parse(&field_type)?)
+                    .is_some()
+                {
                     return Err("console command input :fields contains a duplicate".into());
                 }
             }
@@ -322,22 +324,18 @@ pub struct ConsoleGrant {
 
 impl ConsoleGrant {
     pub fn parse(value: &Value) -> Result<Self, String> {
-        if string_value(
-            &map_get(value, "protocol").ok_or("console grant requires :protocol")?,
-        )?
+        if string_value(&map_get(value, "protocol").ok_or("console grant requires :protocol")?)?
             != GRANT_PROTOCOL
         {
             return Err("console grant protocol is unsupported".into());
         }
-        let console = string_value(
-            &map_get(value, "console").ok_or("console grant requires :console")?,
-        )?;
+        let console =
+            string_value(&map_get(value, "console").ok_or("console grant requires :console")?)?;
         if !identifier(&console) {
             return Err("console grant :console is invalid".into());
         }
-        let commands = text_set(
-            &map_get(value, "commands").ok_or("console grant requires :commands")?,
-        )?;
+        let commands =
+            text_set(&map_get(value, "commands").ok_or("console grant requires :commands")?)?;
         if commands.iter().any(|command| !command_name(command)) {
             return Err("console grant contains an invalid command name".into());
         }
@@ -417,10 +415,10 @@ impl ClientBundle {
     pub fn encode(&self) -> Result<Vec<u8>, String> {
         let namespace = self.namespace.as_bytes();
         let source = self.source.as_bytes();
-        let namespace_len = u16::try_from(namespace.len())
-            .map_err(|_| "console client namespace is too long")?;
-        let source_len = u32::try_from(source.len())
-            .map_err(|_| "console client source is too long")?;
+        let namespace_len =
+            u16::try_from(namespace.len()).map_err(|_| "console client namespace is too long")?;
+        let source_len =
+            u32::try_from(source.len()).map_err(|_| "console client source is too long")?;
         let digest = bundle_digest(namespace, source);
         let mut output = Vec::with_capacity(42 + namespace.len() + source.len());
         output.extend_from_slice(CLIENT_BUNDLE_MAGIC);
@@ -466,7 +464,9 @@ pub fn read_hta_frame<R: Read>(reader: &mut R, maximum: usize) -> Result<Option<
     let Some(bytes) = read_frame(reader, maximum)? else {
         return Ok(None);
     };
-    hta::decode(&bytes).map(Some).map_err(|error| format!("invalid HTA frame: {error}"))
+    hta::decode(&bytes)
+        .map(Some)
+        .map_err(|error| format!("invalid HTA frame: {error}"))
 }
 
 pub fn write_hta_frame<W: Write>(
@@ -539,11 +539,13 @@ pub(crate) fn map_value(entries: Vec<(&str, Value)>) -> Value {
 }
 
 pub(crate) fn map_get(value: &Value, name: &str) -> Option<Value> {
-    core::map_entries(value)?.into_iter().find_map(|(key, value)| {
-        matches!(&key, Value::Keyword(keyword) if keyword.as_str() == name)
-            .then_some(value)
-            .or_else(|| matches!(&key, Value::String(text) if text == name).then_some(value))
-    })
+    core::map_entries(value)?
+        .into_iter()
+        .find_map(|(key, value)| {
+            matches!(&key, Value::Keyword(keyword) if keyword.as_str() == name)
+                .then_some(value)
+                .or_else(|| matches!(&key, Value::String(text) if text == name).then_some(value))
+        })
 }
 
 pub(crate) fn string_value(value: &Value) -> Result<String, String> {
@@ -601,9 +603,9 @@ fn bundle_digest(namespace: &[u8], source: &[u8]) -> [u8; 32] {
 fn command_name(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
-        && value.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_' | b'/')
-        })
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_' | b'/'))
 }
 
 fn identifier(value: &str) -> bool {
@@ -617,11 +619,12 @@ fn identifier(value: &str) -> bool {
 fn namespace_name(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 255
-        && value
-            .split('.')
-            .all(|part| !part.is_empty() && part.bytes().all(|byte| {
-                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')
-            }))
+        && value.split('.').all(|part| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        })
 }
 
 fn timestamp(value: &str) -> bool {
@@ -652,10 +655,7 @@ mod tests {
                     ),
                 ]),
                 map_value(vec![
-                    (
-                        "command",
-                        Value::String("pairing.invitation.issue".into()),
-                    ),
+                    ("command", Value::String("pairing.invitation.issue".into())),
                     ("effect", Value::Keyword("write".into())),
                     (
                         "input",

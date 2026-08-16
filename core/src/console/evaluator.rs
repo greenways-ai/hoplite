@@ -116,10 +116,9 @@ fn install_broker(runtime: &mut Runtime, broker: UnixStream, maximum: usize) {
             ));
         }
         let request = match method.as_str() {
-            "commands" if arguments.is_empty() => map_value(vec![(
-                "op",
-                Value::String("commands".into()),
-            )]),
+            "commands" if arguments.is_empty() => {
+                map_value(vec![("op", Value::String("commands".into()))])
+            }
             "call" if arguments.len() == 1 => {
                 let request = arguments[0].clone();
                 validate_client_call(&request)?;
@@ -131,9 +130,7 @@ fn install_broker(runtime: &mut Runtime, broker: UnixStream, maximum: usize) {
             "commands" => {
                 return Err("hoplite.console/commands-arity: commands expects no arguments".into())
             }
-            "call" => {
-                return Err("hoplite.console/call-arity: call expects one request map".into())
-            }
+            "call" => return Err("hoplite.console/call-arity: call expects one request map".into()),
             _ => {
                 return Err(format!(
                     "hoplite.console/operation-unlisted: evaluator cannot call method {method:?}"
@@ -168,8 +165,7 @@ fn validate_client_call(request: &Value) -> Result<(), String> {
     }
     let input = map_get(request, "input")
         .ok_or_else(|| "hoplite.console/request-invalid: missing input".to_string())?;
-    hta::encode(&input)
-        .map_err(|error| format!("hoplite.console/input-not-immutable: {error}"))?;
+    hta::encode(&input).map_err(|error| format!("hoplite.console/input-not-immutable: {error}"))?;
     Ok(())
 }
 
@@ -178,8 +174,9 @@ fn broker_result(response: Value) -> Result<Value, String> {
         Some(Value::Bool(true)) => map_get(&response, "value")
             .ok_or_else(|| "hoplite.console/broker-response-invalid: missing value".into()),
         Some(Value::Bool(false)) => {
-            let error = map_get(&response, "error")
-                .ok_or_else(|| "hoplite.console/broker-response-invalid: missing error".to_string())?;
+            let error = map_get(&response, "error").ok_or_else(|| {
+                "hoplite.console/broker-response-invalid: missing error".to_string()
+            })?;
             let code = map_get(&error, "code")
                 .and_then(|value| string_value(&value).ok())
                 .unwrap_or_else(|| "hoplite.console/call-failed".into());
@@ -248,11 +245,9 @@ mod tests {
 
     #[test]
     fn client_bundle_must_declare_the_expected_namespace() {
-        assert!(validate_declared_namespace(
-            "(ns tahto.console (:config {}))",
-            "tahto.console"
-        )
-        .is_ok());
+        assert!(
+            validate_declared_namespace("(ns tahto.console (:config {}))", "tahto.console").is_ok()
+        );
         assert!(validate_declared_namespace("(+ 1 2)", "tahto.console").is_err());
         assert!(validate_declared_namespace(
             "(ns tahto.application (:config {}))",
@@ -286,9 +281,7 @@ mod tests {
         assert_eq!(map_get(&decoded, "ok"), Some(Value::Bool(false)));
         assert_eq!(
             map_get(&map_get(&decoded, "error").unwrap(), "code"),
-            Some(Value::String(
-                "hoplite.console/live-result-rejected".into()
-            ))
+            Some(Value::String("hoplite.console/live-result-rejected".into()))
         );
     }
 }
