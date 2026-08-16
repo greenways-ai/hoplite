@@ -1,6 +1,6 @@
 ---
 title: Runtime model
-description: Build/control ownership, worker-local execution, and the slim production server.
+description: Build/control ownership, worker-local execution, embedded realtime transport, and the slim production server.
 ---
 
 Hoplite has two executable surfaces with deliberately different responsibilities.
@@ -10,14 +10,14 @@ hoplite
   build · check · REPL · packages · service lifecycle
 
 hoplite-server
-  Nginx · worker-local Hara runtime · prepared application handlers
+  Nginx · Nchan · worker-local Hara runtime · prepared application handlers
 ```
 
 The all-in-one `hoplite` command remains the development and operational control
 surface. `hoplite-server` is the production data plane: it contains the embedded
-Nginx/Hara server, replaces itself with Nginx at startup, and does not retain the
-compiler, REPL, package tooling, authentication store, or management gateway in
-server memory.
+Nginx/Hara server and Nchan module, replaces itself with Nginx at startup, and
+does not retain the compiler, REPL, package tooling, authentication store, or
+management gateway in server memory.
 
 The core serving plane owns provider-neutral host and request/response
 transport. Storage, blob custody, canonical-value verification, secrets, and
@@ -39,26 +39,39 @@ only `hoplite-server` in the final image.
 There is one Hoplite runtime per Nginx worker. Runtime values do not cross worker boundaries.
 
 ```text
-┌──────────────── Nginx worker ────────────────┐
-│ Hoplite runtime                              │
-│  ├─ decoded application definitions         │
-│  ├─ worker-local router                     │
-│  ├─ compiled handler calls                  │
-│  ├─ values, fibers, and promises            │
-│  └─ handles to explicitly installed hosts   │
-└──────────────────────────────────────────────┘
+┌──────────────────── Nginx worker ────────────────────┐
+│ Hoplite runtime                                      │
+│  ├─ decoded application definitions                 │
+│  ├─ worker-local router and compiled handler calls  │
+│  ├─ values, fibers, promises, and native streams    │
+│  ├─ opaque handles to installed host providers      │
+│  └─ worker-local WebRTC sessions and UDP events     │
+└──────────────────────────────────────────────────────┘
+            │
+            └─ bounded Nchan locations are rendered
+               into the enclosing Nginx configuration
 ```
 
 Native providers are registered during trusted worker initialization. Each
 service has one exact name and immutable descriptor; application values cannot
 register providers or select their paths, drivers, or credentials.
 
+WebRTC session handles are also worker-local. A handle cannot be persisted,
+transferred to another worker, or treated as a Tahto identity or grant. The
+worker owns each nonblocking UDP socket and the RTC timer driven by the engine's
+next timeout.
+
+Nchan channel state belongs to Nginx rather than the Hara runtime. Hoplite emits
+a closed, bounded Nchan configuration from validated `hoplite.core/channel`
+data; applications cannot inject raw directives, Redis coordinates, or dynamic
+upstreams.
+
 ## Startup
 
-1. `hoplite serve build` evaluates the selected project profile and validates the application.
-2. Build output records applications and routes in `apps.hta` and writes the generated Nginx configuration.
+1. `hoplite serve build` evaluates the selected project profile and validates the application, including routes, fixed proxies, channels, and peer declarations.
+2. Build output records applications and prepared routes in `apps.hta` and writes the generated Nginx configuration, including bounded Nchan locations where declared.
 3. `hoplite-server` checks that the build output exists, materializes its embedded server when necessary, and replaces itself with Nginx.
-4. Each Nginx worker creates one Hara runtime, loads the application definitions, prepares its router, and compiles every handler call once.
+4. Each Nginx worker creates one Hara runtime, loads the application definitions, installs trusted host providers, prepares its router, and compiles every handler call once.
 
 The release build strips the native Nginx/Hara server before embedding it in both
 executables. The production artifact therefore carries one stripped serving
@@ -77,6 +90,30 @@ work record or create HTA events.
 Only an actual `await` suspension creates a fiber/work record and enters the
 Nginx event-loop continuation path. `:request+hta` remains available when a
 fully materialized portable value is required.
+
+`hoplite.core/stream` uses the same continuation path for real backpressured
+HTTP bodies. An `IStream` is retained directly; a finite iterable is converted
+to an iterator-backed generated stream whose iterator closes on completion or
+failure.
+
+## Realtime execution
+
+A declared channel is a bounded ephemeral WebSocket/SSE fan-out endpoint. Nchan
+calls application-owned authorization and publisher-admission handlers through
+private prepared routes before accepting traffic. The signalling messages are
+application records: Hoplite does not infer their sender, recipient, ordering,
+replay policy, or expiry.
+
+`hoplite.rtc/open` creates a session in the current worker. SDP offer/answer
+exchange remains application signalling. After negotiation,
+`hoplite.rtc/connect` exposes the session as a native Duplex whose reads, writes,
+timeouts, UDP readiness, cancellation, and close are integrated with that
+worker's Nginx event loop.
+
+One inbound RTC message satisfies a pending read or occupies the bounded receive
+slot. Cancelling a pending read detaches it without implicitly closing the
+session. Explicit close, provider failure, worker shutdown, and cleanup release
+the worker-owned resources.
 
 ## Bytecode status
 
