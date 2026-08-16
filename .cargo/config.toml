@@ -4,5 +4,6 @@
 # actual Hoplite builder and worker processes use the operating-system process
 # stack. Keep the test harness representative of that production boundary and
 # prevent finite nested module loads from aborting before they can report a
-# structured result.
+# structured result. This is intentionally test-process configuration, not an
+# application-runtime capability or evaluator limit.
 RUST_MIN_STACK = "8388608"
