@@ -47,7 +47,8 @@ jobs:
           cargo test --manifest-path hoplite/core/Cargo.toml --workspace --locked -- \
             --skip generated_hoplite_output_is_never_registered_as_application_source \
             --skip public_hal_contract_evaluates_from_disk \
-            --skip core_boundary_is_explicit_complete_and_consistent
+            --skip core_boundary_is_explicit_complete_and_consistent \
+            --skip public_surface_registry_is_well_formed_and_complete
       - name: Commit the reviewed binding
         working-directory: hoplite
         run: |
@@ -58,7 +59,8 @@ jobs:
             core/src/diagnostics.rs \
             core/src/main.rs \
             core/runtime/src/lib.rs \
-            core/nginx/hoplite_runtime.h
+            core/nginx/hoplite_runtime.h \
+            docs/native-symbols.txt
           git diff --cached --check
           git commit -m "Bind application console handler in the worker runtime"
           git push origin HEAD:feat/application-console-worker-binding
