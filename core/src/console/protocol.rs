@@ -541,10 +541,10 @@ pub(crate) fn map_value(entries: Vec<(&str, Value)>) -> Value {
 pub(crate) fn map_get(value: &Value, name: &str) -> Option<Value> {
     core::map_entries(value)?
         .into_iter()
-        .find_map(|(key, value)| {
-            matches!(&key, Value::Keyword(keyword) if keyword.as_str() == name)
-                .then_some(value)
-                .or_else(|| matches!(&key, Value::String(text) if text == name).then_some(value))
+        .find_map(|(key, value)| match key {
+            Value::Keyword(keyword) if keyword.as_str() == name => Some(value),
+            Value::String(text) if text == name => Some(value),
+            _ => None,
         })
 }
 
