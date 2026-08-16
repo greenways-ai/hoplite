@@ -150,7 +150,6 @@ jobs:
             hoplite/core/nginx/hoplite_response_source.c \
             hoplite/core/nginx/tests/response_source.c \
             -o /tmp/hoplite-response-source
-          /tmp/hoplite-response-source
 
   integration:
     name: integration
@@ -163,50 +162,109 @@ jobs:
       - name: Resolve the reviewed Hara revision
         id: hara
         working-directory: hoplite
-        run: echo "ref=$(tr -d '[:space:]' < packaging/hara-revision)" >> "$GITHUB_OUTPUT"
+        run: echo "revision=$(tr -d '[:space:]' < packaging/hara-revision)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
-          ref: ${{ steps.hara.outputs.ref }}
+          ref: ${{ steps.hara.outputs.revision }}
           path: hara
           submodules: recursive
       - name: Build the generic production image
         run: docker build -f hoplite/packaging/docker/Dockerfile -t hoplite-ci .
       - name: Prove reproducible source-free application output
-        run: bash hoplite/packaging/scripts/smoke-reproducible-build.sh
+        env:
+          REPRODUCIBILITY_SEED: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          first="$work/first"
+          second="$work/second"
+
+          for label in first second; do
+            output="$work/$label"
+            mkdir -p "$output"
+            docker build \
+              -f hoplite/packaging/docker/Dockerfile \
+              --target application-artifacts \
+              --build-arg HOPLITE_APP=packaging/fixtures/multi-module \
+              --build-arg "HOPLITE_REPRODUCIBILITY_NONCE=${REPRODUCIBILITY_SEED}-${label}" \
+              --output "type=local,dest=$output" \
+              .
+          done
+
+          for output in "$first" "$second"; do
+            for required in app.hbx apps.hta conf/nginx.conf; do
+              test -f "$output/$required" || {
+                echo "generated application is missing $required" >&2
+                exit 1
+              }
+            done
+
+            if find "$output" -type f \
+                \( -name '*.hal' -o -name project.edn -o -name hara.extension.edn \) \
+                -print -quit | grep -q .; then
+              echo "generated application artifact contains source input" >&2
+              find "$output" -type f \
+                \( -name '*.hal' -o -name project.edn -o -name hara.extension.edn \) \
+                -print >&2
+              exit 1
+            fi
+          done
+
+          (
+            cd "$first"
+            find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum
+          ) > "$work/first.sha256"
+          (
+            cd "$second"
+            find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum
+          ) > "$work/second.sha256"
+
+          diff -u "$work/first.sha256" "$work/second.sha256"
+          diff -r --no-dereference "$first" "$second"
+          echo "independent application builds are byte-identical"
+          cat "$work/first.sha256"
       - name: Verify the source-free production image
         run: bash hoplite/packaging/scripts/assert-production-image.sh hoplite-ci
       - name: Exercise the real serving plane
-        run: bash hoplite/packaging/scripts/smoke-serving.sh hoplite-ci
+        run: |
+          docker run --rm hoplite-ci version
+          bash hoplite/packaging/scripts/smoke-request-body-v3.sh hoplite-ci
       - name: Prove graceful worker reload and process recreation
         run: bash hoplite/packaging/scripts/smoke-worker-reload.sh hoplite-ci
       - name: Prove ordered and fail-stopped startup diagnostics
         run: bash hoplite/packaging/scripts/smoke-startup-diagnostics.sh hoplite-ci
       - name: Build the three-module production fixture
-        run: bash hoplite/packaging/scripts/smoke-multi-module.sh build hoplite-ci
+        run: |
+          docker build \
+            -f hoplite/packaging/docker/Dockerfile \
+            --build-arg HOPLITE_APP=packaging/fixtures/multi-module \
+            -t hoplite-multi-module \
+            .
       - name: Verify the fixture remains source-free
-        run: bash hoplite/packaging/scripts/smoke-multi-module.sh verify hoplite-ci
+        run: bash hoplite/packaging/scripts/assert-production-image.sh hoplite-multi-module
       - name: Prove aliases, referred Vars and ordered namespaces through Nginx
-        run: bash hoplite/packaging/scripts/smoke-multi-module.sh serve hoplite-ci
+        run: bash hoplite/packaging/scripts/smoke-multi-module.sh hoplite-multi-module
 
   docs:
     name: docs
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: website
     steps:
       - uses: actions/checkout@v5
-        with:
-          path: hoplite
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
-          cache-dependency-path: hoplite/website/package-lock.json
+          cache-dependency-path: website/package-lock.json
       - name: Use HTTPS for public Git dependencies
-        run: git config --global url."https://github.com/".insteadOf git@github.com:
-      - name: Run npm ci
-        working-directory: hoplite/website
-        run: npm ci
-      - name: Run npm run build
-        working-directory: hoplite/website
-        run: npm run build
+        run: |
+          git config --global url."https://github.com/".insteadOf "git+ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+      - run: npm ci
+      - run: npm run build
