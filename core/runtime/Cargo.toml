@@ -3,7 +3,7 @@ name = "hoplite-runtime"
 version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
-rust-version = "1.78"
+rust-version = "1.88"
 description = "Native worker-local Hara runtime bridge for Hoplite/Nginx"
 autobins = false
 
