@@ -44,7 +44,9 @@ jobs:
               path = Path(path_name)
               source = path.read_text()
               if source.count(old) != 1:
-                  raise SystemExit(f"expected exactly one match in {path_name}")
+                  raise SystemExit(
+                      f"expected exactly one match in {path_name}; found {source.count(old)}"
+                  )
               path.write_text(source.replace(old, new, 1))
 
           os_path = Path("core/src/console/os.rs")
@@ -55,53 +57,19 @@ jobs:
               os_source.replace("0_c_ulong", "0 as c_ulong").replace("1_c_ulong", "1 as c_ulong")
           )
 
-          replace_once(
-              "core/src/console/dispatcher.rs",
-              '''        match result {
-              Ok(value) => success(value),
-              Err(error) => failure(error_code(&error), error),
-          }
-          ''',
-              '''        match result {
-              Ok(value) => success(value),
-              Err(error) => {
+          error_arm = "            Err(error) => failure(error_code(&error), error),"
+          repaired_arm = """            Err(error) => {
                   let code = error_code(&error);
                   failure(code, error)
-              }
-          }
-          ''',
-          )
+              }"""
+          replace_once("core/src/console/dispatcher.rs", error_arm, repaired_arm)
+          replace_once("core/src/console/supervisor.rs", error_arm, repaired_arm)
 
-          replace_once(
-              "core/src/console/supervisor.rs",
-              '''        ) {
-              Ok(value) => success(value),
-              Err(error) => failure(error_code(&error), error),
-          };
-          ''',
-              '''        ) {
-              Ok(value) => success(value),
-              Err(error) => {
-                  let code = error_code(&error);
-                  failure(code, error)
-              }
-          };
-          ''',
-          )
-
-          replace_once(
-              "core/src/console/protocol.rs",
-              '''pub(crate) fn map_get(value: &Value, name: &str) -> Option<Value> {
-              core::map_entries(value)?
-                  .into_iter()
-                  .find_map(|(key, value)| {
-                      matches!(&key, Value::Keyword(keyword) if keyword.as_str() == name)
-                          .then_some(value)
-                          .or_else(|| matches!(&key, Value::String(text) if text == name).then_some(value))
-                  })
-          }
-          ''',
-              '''pub(crate) fn map_get(value: &Value, name: &str) -> Option<Value> {
+          protocol_path = Path("core/src/console/protocol.rs")
+          protocol_source = protocol_path.read_text()
+          start = protocol_source.index("pub(crate) fn map_get(")
+          end = protocol_source.index("\npub(crate) fn string_value", start)
+          map_get = '''pub(crate) fn map_get(value: &Value, name: &str) -> Option<Value> {
               core::map_entries(value)?
                   .into_iter()
                   .find_map(|(key, value)| match key {
@@ -110,8 +78,8 @@ jobs:
                       _ => None,
                   })
           }
-          ''',
-          )
+          '''
+          protocol_path.write_text(protocol_source[:start] + map_get + protocol_source[end:])
           PY
           cargo fmt --manifest-path core/Cargo.toml
           git diff --check
