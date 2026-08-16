@@ -82,7 +82,7 @@ impl<H: PreparedHalBoundary> ApplicationConsoleDispatcher<H> {
             Ok(value) => success(value),
             Err(error) => {
                 let code = error_code(&error).to_owned();
-                failure(code, error)
+                failure(&code, error)
             }
         }
     }
