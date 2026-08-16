@@ -111,7 +111,10 @@ fn write_immutable(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent).map_err(|error| {
-                format!("cannot create output directory {}: {error}", parent.display())
+                format!(
+                    "cannot create output directory {}: {error}",
+                    parent.display()
+                )
             })?;
         }
     }
