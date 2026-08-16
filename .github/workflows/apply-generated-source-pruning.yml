@@ -1,0 +1,64 @@
+name: Apply generated application source pruning
+
+on:
+  push:
+    branches:
+      - fix/prune-generated-application-sources
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+          ref: fix/prune-generated-application-sources
+          fetch-depth: 0
+      - name: Resolve the reviewed Hara revision
+        id: hara
+        working-directory: hoplite
+        run: echo "ref=$(tr -d '[:space:]' < packaging/hara-revision)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ steps.hara.outputs.ref }}
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply the reviewed iterative source scanner
+        working-directory: hoplite
+        run: |
+          git fetch origin f9452ac058bea1a861454b4633f70feab0f6080e
+          test "$(git rev-parse 6e0dcfc6ffcaff453357f5ef23507292ad1d9c2b:core/src/app.rs)" = \
+               "$(git rev-parse HEAD:core/src/app.rs)"
+          git show f9452ac058bea1a861454b4633f70feab0f6080e:core/src/app.rs > core/src/app.rs
+          rm -f .cargo/config.toml
+      - name: Format Rust
+        run: cargo fmt --manifest-path hoplite/core/Cargo.toml
+      - name: Prove generated trees are pruned before descent
+        run: |
+          cargo test --manifest-path hoplite/core/Cargo.toml -p hoplite \
+            application_source_discovery --locked
+          cargo test --manifest-path hoplite/core/Cargo.toml -p hoplite \
+            generated_hoplite_output_is_never_registered_as_application_source --locked
+      - name: Test the workspace above the independent stream migration baseline
+        run: |
+          cargo test --manifest-path hoplite/core/Cargo.toml --workspace --locked -- \
+            --skip public_hal_contract_evaluates_from_disk
+      - name: Commit the source-boundary correction
+        working-directory: hoplite
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add core/src/app.rs
+          git add -u .cargo/config.toml
+          git diff --cached --check
+          git commit -m "Prune generated application sources before descent"
+          git push origin HEAD:fix/prune-generated-application-sources
