@@ -1,0 +1,31 @@
+name: Validate Hara native Stream constructor
+
+on:
+  push:
+    branches:
+      - fix/hara-native-stream-constructor
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+      - name: Resolve the reviewed Hara revision
+        id: hara
+        working-directory: hoplite
+        run: echo "ref=$(tr -d '[:space:]' < packaging/hara-revision)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ steps.hara.outputs.ref }}
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Evaluate the public HAL contract from disk
+        run: cargo test --manifest-path hoplite/core/Cargo.toml -p hoplite public_hal_contract_evaluates_from_disk --locked
