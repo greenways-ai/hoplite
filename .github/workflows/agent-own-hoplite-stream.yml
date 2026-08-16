@@ -1,4 +1,4 @@
-name: Own the Hoplite stream constructor
+name: Restore native Hoplite stream construction
 
 on:
   push:
@@ -38,7 +38,7 @@ jobs:
           cache: npm
           cache-dependency-path: hoplite/website/package-lock.json
 
-      - name: Declare Hoplite ownership of stream
+      - name: Restore the native Stream constructor
         working-directory: hoplite
         shell: bash
         run: |
@@ -48,22 +48,29 @@ jobs:
 
           path = Path("core/lib/src/hoplite/core.hal")
           source = path.read_text()
-          old = '''(ns hoplite.core
-            (:config {}))
+          header = '''(ns hoplite.core
+            (:config {:override [stream]})
+            (:require [std.foundation :as foundation]))
           '''
-          new = '''(ns hoplite.core
+          corrected_header = '''(ns hoplite.core
             (:config {:override [stream]}))
           '''
-          if source.count(old) != 1:
+          if source.count(header) != 1:
               raise SystemExit(
-                  f"expected one blank hoplite.core config; found {source.count(old)}"
+                  f"expected one Foundation stream alias header; found {source.count(header)}"
               )
-          path.write_text(source.replace(old, new, 1))
+          if source.count("(foundation/stream") != 1:
+              raise SystemExit(
+                  f"expected one foundation/stream call; found {source.count('(foundation/stream')}"
+              )
+          source = source.replace(header, corrected_header, 1)
+          source = source.replace("(foundation/stream", "(Stream/generate", 1)
+          path.write_text(source)
           PY
           cargo fmt --manifest-path core/Cargo.toml
           git diff --check
 
-      - name: Publish the namespace ownership repair
+      - name: Publish the stream repair
         working-directory: hoplite
         shell: bash
         run: |
@@ -73,7 +80,7 @@ jobs:
           git diff --cached --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Declare Hoplite ownership of stream"
+          git commit -m "Restore native Hoplite stream construction"
           git push origin HEAD:agent/prune-generated-source-output
 
       - name: Check Rust formatting
