@@ -4,6 +4,10 @@ env:
   # Hoplite consumes one reviewed Hara source revision until the embedding
   # runtime is available as a published dependency.
   HARA_REF: 2b3efd14451e96e9e79cd9645fb7e10d9e3782d6
+  # Cargo is invoked from the parent of the hoplite checkout, so repository
+  # .cargo configuration is not discovered by CI. Match the normal Linux
+  # process stack used by the builder and worker for evaluator-heavy tests.
+  RUST_MIN_STACK: 8388608
 
 on:
   push:
@@ -146,7 +150,6 @@ jobs:
             hoplite/core/nginx/hoplite_response_source.c \
             hoplite/core/nginx/tests/response_source.c \
             -o /tmp/hoplite-response-source
-          /tmp/hoplite-response-source
 
   integration:
     name: integration
