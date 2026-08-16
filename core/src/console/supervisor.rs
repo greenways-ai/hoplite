@@ -6,8 +6,7 @@ use super::protocol::{
 use hara_wasm::core::{self, Value};
 use hara_wasm::hta;
 use std::fs::{self, File};
-use std::io;
-use std::os::fd::{AsRawFd, RawFd};
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::process::CommandExt;
@@ -18,7 +17,8 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-const READY_PROTOCOL: &str = "hoplite.console-evaluator-ready/0-alpha";
+const EVALUATOR_READY_PROTOCOL: &str = "hoplite.console-evaluator-ready/0-alpha";
+const CONNECTION_READY_PROTOCOL: &str = "hoplite.console-ready/0-alpha";
 const CONNECTION_FRAME_OVERHEAD: usize = 4096;
 static NEXT_CONSOLE: AtomicU64 = AtomicU64::new(1);
 
@@ -189,12 +189,7 @@ fn serve_one_authenticated(
     let (parent_broker, child_broker) =
         UnixStream::pair().map_err(|error| format!("cannot create command broker channel: {error}"))?;
     let bundle = open_immutable_bundle(&config.bundle_path)?;
-    let mut child = spawn_evaluator(
-        &config,
-        child_evaluation,
-        child_broker,
-        bundle,
-    )?;
+    let mut child = spawn_evaluator(&config, child_evaluation, child_broker, bundle)?;
 
     let descriptors_hta = config.descriptors_hta.clone();
     let grant_hta = hta::encode(&grant.to_value())
@@ -218,8 +213,8 @@ fn serve_one_authenticated(
 
     let result = supervise_connection(&mut client, parent_evaluation, &mut child, limits);
     terminate(&mut child);
-    // The broker has bounded socket timeouts in production. Dropping a live
-    // JoinHandle detaches rather than blocking evaluator teardown if an
+    // The production Unix broker has bounded socket timeouts. Dropping a live
+    // JoinHandle detaches rather than blocking evaluator teardown if another
     // implementation violates that contract.
     if broker_worker.is_finished() {
         let _ = broker_worker.join();
@@ -234,6 +229,20 @@ fn supervise_connection(
     limits: ConsoleLimits,
 ) -> Result<(), String> {
     await_ready(client, &mut evaluator, child, limits)?;
+    write_hta_frame(
+        client,
+        &success(map_value(vec![
+            ("protocol", Value::String(CONNECTION_READY_PROTOCOL.into())),
+            ("source-bytes", Value::Number(limits.source_bytes as i64)),
+            ("result-bytes", Value::Number(limits.result_bytes as i64)),
+            (
+                "evaluation-millis",
+                Value::Number(limits.evaluation_millis as i64),
+            ),
+            ("memory-bytes", Value::Number(limits.memory_bytes as i64)),
+        ])),
+        4096,
+    )?;
     loop {
         let Some(request) = read_hta_frame(client, limits.source_bytes + CONNECTION_FRAME_OVERHEAD)?
         else {
@@ -328,15 +337,19 @@ fn await_ready(
             if map_get(&value, "protocol")
                 .and_then(|value| string_value(&value).ok())
                 .as_deref()
-                != Some(READY_PROTOCOL)
+                != Some(EVALUATOR_READY_PROTOCOL)
             {
                 return Err("console evaluator returned an invalid startup handshake".into());
             }
             Ok(())
         }
-        WaitEvent::ClientClosed | WaitEvent::ClientReadable => {
+        WaitEvent::ClientClosed => {
             terminate(child);
             Err("console client disconnected during evaluator startup".into())
+        }
+        WaitEvent::ClientReadable => {
+            terminate(child);
+            Err("console client sent source before the ready handshake".into())
         }
         WaitEvent::Timeout => {
             terminate(child);
@@ -425,13 +438,17 @@ fn handle_evaluator_broker_request(
         .and_then(|value| string_value(&value))?;
     match operation.as_str() {
         "commands" => {
-            if core::map_entries(&request).is_none_or(|entries| entries.len() != 1) {
+            let entries = core::map_entries(&request)
+                .ok_or_else(|| "hoplite.console/commands-invalid".to_string())?;
+            if entries.len() != 1 {
                 return Err("hoplite.console/commands-invalid".into());
             }
             Ok(commands.granted_value(grant))
         }
         "call" => {
-            if core::map_entries(&request).is_none_or(|entries| entries.len() != 2) {
+            let request_entries = core::map_entries(&request)
+                .ok_or_else(|| "hoplite.console/request-invalid".to_string())?;
+            if request_entries.len() != 2 {
                 return Err("hoplite.console/request-invalid".into());
             }
             let client_request = map_get(&request, "request")
