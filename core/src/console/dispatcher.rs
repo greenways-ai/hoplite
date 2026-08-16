@@ -219,7 +219,7 @@ mod tests {
     }
 
     #[test]
-    fn command_listing_is grant_filtered() {
+    fn command_listing_is_grant_filtered() {
         let boundary = RecordingBoundary {
             calls: Rc::new(RefCell::new(Vec::new())),
         };
