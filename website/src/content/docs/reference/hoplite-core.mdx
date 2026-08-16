@@ -1,11 +1,11 @@
 ---
 title: hoplite.core
-description: Public HAL constructors for applications, responses, modules, adapters, stores, and package references.
+description: Public HAL constructors for applications, responses, streams, realtime declarations, modules, adapters, stores, and package references.
 ---
 
-`hoplite.core` contains the public, pure HAL constructors used to describe an
+`hoplite.core` contains the public HAL constructors used to describe an
 application and its logical responses. Constructors return ordinary immutable
-maps; they do not start Nginx or perform I/O.
+values; they do not start Nginx or perform transport I/O.
 
 ```clojure
 (ns example.app
@@ -38,9 +38,9 @@ Defines one immutable resource application. A map is tagged with
 ;;     :hoplite/type :application}
 ```
 
-The definition map is otherwise preserved, so routing and package-owned fields
-remain inspectable application data. Passing `hello` directly produces
-`{:hoplite/type :application :handler hello}`.
+The definition map is otherwise preserved, so routes, channels, peers, and
+package-owned fields remain inspectable application data. Passing `hello`
+directly produces `{:hoplite/type :application :handler hello}`.
 
 ## `response`
 
@@ -68,21 +68,90 @@ needed.
 
 ## `stream`
 
-<span class="doc-badge doc-badge--caution">Experimental</span>
+<span class="doc-badge doc-badge--success">Public</span>
 
 ```clojure
 (stream source)
 ```
 
-Marks a coroutine or producer as a backpressured response stream:
+Constructs a backpressured HTTP body from an `IStream` or a finite iterable.
+An existing `IStream` is retained directly. A finite iterable is converted to an
+iterator-backed generated stream, and that iterator is closed in a `finally`
+boundary when production completes or fails.
 
 ```clojure
-(h/stream producer)
-;; => {:hoplite/type :stream :source producer}
+(h/stream ["first\n" "second\n"])
+;; => {:hoplite/type :stream
+;;     :source #<stream>}
 ```
 
-This constructor currently tags data only. Complete host integration remains
-pre-release; use documented response-source providers for bounded native bodies.
+An unsupported or non-finite source fails synchronously with structured
+`:stream/invalid-source` data. Streaming response production then follows the
+same request cancellation and slow-client backpressure lifecycle as other
+native response bodies.
+
+## `channel`
+
+<span class="doc-badge doc-badge--caution">Experimental</span>
+
+```clojure
+(channel definition)
+```
+
+Declares one bounded Nchan-backed publish/subscribe endpoint and tags the map
+with `:hoplite/type :channel`.
+
+```clojure
+(h/channel
+ {:name "signals"
+  :path "/signals/:channel"
+  :profile :ephemeral
+  :authorize #'authorize-subscriber
+  :admit #'admit-publisher
+  :transports [:websocket :sse]
+  :message-buffer 8
+  :message-timeout-seconds 30
+  :max-channel-id-bytes 128
+  :max-subscribers 4})
+```
+
+The consuming application validator applies a closed schema. The path must be a
+safe absolute path ending in `/:channel`; the profile is only `:ephemeral`; and
+transports are a non-empty subset of `:websocket` and `:sse`. Raw Nginx
+directives, Redis coordinates, arbitrary upstreams, and unknown fields are
+rejected.
+
+Nchan supplies bounded fan-out and signalling, not durable state or application
+identity. Both hook handlers remain application-owned authorization boundaries.
+See [Realtime channels and WebRTC](/guides/realtime-channels-and-webrtc/) for
+limits and a complete application declaration.
+
+## `peer`
+
+<span class="doc-badge doc-badge--caution">Experimental</span>
+
+```clojure
+(peer definition)
+```
+
+Declares one WebRTC peer handler bound to a channel in the same application and
+tags the map with `:hoplite/type :peer`.
+
+```clojure
+(h/peer
+ {:name "sync"
+  :channel "signals"
+  :handler #'handle-peer
+  :label "sync"
+  :max-message-bytes 65536
+  :idle-timeout-seconds 120})
+```
+
+Peer names must be unique, channel references must resolve, message limits are
+bounded from 1 byte through 1 MiB, and idle timeouts are bounded from 5 seconds
+through 1 hour. The declaration selects application policy; actual session
+negotiation and Duplex construction are provided by
+[`hoplite.rtc`](/reference/hoplite-rtc/).
 
 ## `middleware`
 
@@ -153,9 +222,10 @@ the composed application.
 
 ## Failure behavior
 
-These constructors are deliberately small. Map-based constructors rely on
-ordinary map operations, so callers should pass maps where documented. Runtime
-validation of application, package, and experimental definitions happens at the
-build or host boundary that consumes them.
+The small map constructors use ordinary map operations, so callers should pass
+maps where documented. `stream` performs its own source validation. Runtime
+validation of applications, routes, channels, peers, packages, and other
+experimental definitions happens at the build or host boundary that consumes
+them; invalid data fails before a serving runtime is published.
 
 **Source:** [`core/lib/src/hoplite/core.hal`](https://github.com/greenways-ai/hoplite/blob/main/core/lib/src/hoplite/core.hal)

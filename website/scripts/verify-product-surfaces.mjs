@@ -25,6 +25,11 @@ for (const sectionName of ["provider_products", "migration_products"]) {
   if (coreBoundary[sectionName]?.length !== 0) throw new Error(`${sectionName} must remain empty after 0.2.0 retirement`);
 }
 
+const rtcSurface = publicSurfaces.hal_namespaces.find(({ name }) => name === "hoplite.rtc");
+if (rtcSurface?.status !== "experimental" || !rtcSurface.conformance.includes("core/lib/test/hoplite/rtc_test.hal")) {
+  throw new Error("Unexpected hoplite.rtc public-surface contract");
+}
+
 const cliReference = await readFile(join(contentRoot, "reference/cli.mdx"), "utf8");
 for (const command of publicSurfaces.cli_commands.filter(({ status }) => status === "public")) {
   const marker = command.program === "hoplite-server" ? "hoplite-server" : `hoplite ${command.name}`;
@@ -35,6 +40,11 @@ const requiredMarkers = {
   "guides/diagnostics.md": ["hoplite.inspect/0-alpha", "hoplite.doctor/0-alpha", "without accidentally executing source"],
   "reference/build-output.md": ["Source-free production", "hoplite.development-source-projection/0-alpha", "retired in 0.2.0"],
   "concepts/data-plane-providers.md": ["Data-plane boundaries", "retired in 0.2.0"],
+  "concepts/runtime-model.md": ["Nchan", "worker-local WebRTC sessions", "hoplite.core/stream"],
+  "guides/realtime-channels-and-webrtc.mdx": ["hoplite.core/channel", "hoplite.rtc/open", ":max-subscribers", "worker-local"],
+  "reference/hoplite-core.mdx": [":stream/invalid-source", "## `channel`", "## `peer`"],
+  "reference/hoplite-rtc.mdx": ["accept-answer", "1048576", "worker authority", "native `Duplex`"],
+  "reference/project-schema.mdx": ["## Channel definition", "## Peer definition", ":idle-timeout-seconds"],
 };
 for (const [path, markers] of Object.entries(requiredMarkers)) {
   const source = await readFile(join(contentRoot, path), "utf8");

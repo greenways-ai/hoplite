@@ -1,0 +1,158 @@
+---
+title: hoplite.rtc
+description: Experimental worker-local WebRTC session negotiation and native Duplex construction.
+---
+
+<span class="doc-badge doc-badge--caution">Experimental</span> <span class="doc-badge doc-badge--note">Current main</span>
+
+This reference tracks the 0.2.0 development line on `main`. Confirm the surface
+against the installed Hoplite version when using a tagged binary release.
+
+`hoplite.rtc` is the HAL wrapper around the worker-installed `hoplite.rtc` host
+provider. It creates WebRTC sessions, performs SDP offer/answer exchange, and
+turns an already-signalled session into a native `Duplex`.
+
+```clojure
+(ns example.rtc
+  (:require [hoplite.rtc :as rtc]))
+```
+
+The namespace does not provide signalling, identity, grants, durable queues, or
+cross-worker session routing. Applications supply those policies separately,
+usually through a bounded [`hoplite.core/channel`](/guides/realtime-channels-and-webrtc/).
+
+## `open`
+
+```clojure
+(open options) ; async
+```
+
+Creates one WebRTC session in the current Nginx worker and resolves to an opaque
+handle.
+
+```clojure
+(def handle
+  (co/await
+   (rtc/open {:label "sync"
+              :bind-address "127.0.0.1:0"
+              :max-message-bytes 65536})))
+```
+
+| Option | Required | Contract |
+| --- | --- | --- |
+| `:label` | Yes | String naming the WebRTC data channel |
+| `:bind-address` | No | Numeric `"address:port"`; defaults to `"127.0.0.1:0"` |
+| `:max-message-bytes` | No | Integer from `1` through `1048576`; defaults to `65536` |
+
+Replace the loopback bind address with a concrete reachable numeric interface
+address when the remote peer is on another host.
+
+The handle is worker authority, not portable data. It must not be persisted,
+serialized, logged as a reusable credential, or used from another worker.
+
+## `offer`
+
+```clojure
+(offer handle) ; async
+```
+
+Creates and resolves to the local SDP offer for an initiating session. The
+application must send that offer to the intended peer through an authenticated
+signalling protocol.
+
+```clojure
+(def local-offer (co/await (rtc/offer handle)))
+```
+
+## `answer`
+
+```clojure
+(answer handle remote-offer) ; async
+```
+
+Accepts a remote SDP offer and resolves to the local SDP answer.
+
+```clojure
+(def local-answer
+  (co/await (rtc/answer handle remote-offer)))
+```
+
+Return the answer through the same authenticated signalling relationship. The
+answer is negotiation data, not proof of application identity.
+
+## `accept-answer`
+
+```clojure
+(accept-answer handle remote-answer) ; async
+```
+
+Completes an initiating session with the SDP answer returned by the remote peer.
+It resolves after the native provider accepts the answer.
+
+```clojure
+(co/await (rtc/accept-answer handle remote-answer))
+```
+
+## `receive-stream`
+
+```clojure
+(receive-stream handle)
+```
+
+Creates the pull side of the RTC transport as an `IStream`. Each pull awaits one
+native receive operation. A `nil` host result ends the stream.
+
+Most applications should use `connect`, which owns this receive stream together
+with the send and close operations.
+
+## `connect`
+
+```clojure
+(connect handle)
+```
+
+Wraps an already-signalled session as a native `Duplex`:
+
+```clojure
+(def transport (rtc/connect handle))
+```
+
+- reads are supplied by `receive-stream`;
+- writes invoke the provider's `send` operation;
+- closing the Duplex invokes the provider's `close` operation.
+
+`connect` does not perform SDP exchange and does not wait for a remote peer. Call
+`offer` plus `accept-answer`, or `answer`, before exposing the Duplex to
+application code.
+
+## `host-call`
+
+```clojure
+(host-call operation arguments)
+```
+
+This is the low-level namespace wrapper over `Host/call`. The documented
+operations are already represented by the functions above. Calling provider
+operations directly couples application code to the current experimental host
+contract and is not recommended.
+
+## Worker integration
+
+Each session owns a nonblocking UDP socket registered with its Nginx worker and
+a worker timer driven by the RTC engine's next timeout. The provider pumps UDP,
+timeouts, sends, receives, and close events without moving runtime values across
+workers.
+
+One inbound message satisfies one pending Duplex read or occupies the bounded
+receive slot. Request cancellation detaches a pending read without closing the
+session. Explicit Duplex close, provider failure, worker shutdown, and session
+cleanup release the worker-owned resources.
+
+## Failure behavior
+
+Invalid options, unknown handles, oversized messages, malformed SDP, invalid
+state transitions, socket failures, and closed sessions reject the relevant host
+call. Applications should close a session when negotiation cannot complete and
+should never retry by reusing a handle from a different request or worker.
+
+**Source:** [`core/lib/src/hoplite/rtc.hal`](https://github.com/greenways-ai/hoplite/blob/main/core/lib/src/hoplite/rtc.hal)

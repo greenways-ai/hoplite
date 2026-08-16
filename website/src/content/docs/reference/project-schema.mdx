@@ -1,6 +1,6 @@
 ---
 title: Project schema
-description: Hara project and Hoplite profile fields consumed by the application loader.
+description: Hara project, Hoplite profile, application, channel, and peer fields consumed by the current loader.
 ---
 
 <span class="doc-badge doc-badge--caution">Pre-release interface</span>
@@ -81,9 +81,13 @@ of truth.
 | Field | Type | Required | Behavior |
 | --- | --- | --- | --- |
 | `:name` | text-like | No | Defaults to `app-<id>` |
+| `:handler` | callable or Var | Unless resources or generated channel hooks | Creates one `ANY /*path` catch-all route |
 | `:resources` | sequence | Unless catch-all | Flattened into method/path/handler routes |
 | `:route/adapter` | keyword | No | Default route boundary: `:raw`, `:request` (default), or `:request+hta` |
 | `:request/body` | map | No | Enables a bounded native request-body handle for the application |
+| `:proxies` | sequence | No | Closed fixed-prefix, fixed-origin Nginx upstream declarations |
+| `:channels` | sequence | No | Values constructed with `hoplite.core/channel` |
+| `:peers` | sequence | No | Values constructed with `hoplite.core/peer` |
 | `:openapi :path` | text-like | No | Explicit OpenAPI route; development otherwise defaults to `/openapi.json` |
 
 Each resource operation accepts the same `:route/adapter` field and overrides
@@ -98,6 +102,49 @@ an opaque `:body-handle`; the handle is scoped to the owning request and work.
 
 `:route/auth` is not a Hoplite transport field and is rejected. Authorization
 must run inside the HAL handler.
+
+## Channel definition
+
+<span class="doc-badge doc-badge--caution">Experimental</span>
+
+Every item under `:channels` must be constructed with `hoplite.core/channel`.
+The map is closed; unsupported keys are errors.
+
+| Field | Type | Required | Default and validation |
+| --- | --- | --- | --- |
+| `:name` | text-like | Yes | 1–64 ASCII letters, digits, `-`, or `_`; unique per app |
+| `:path` | text-like | Yes | Safe absolute path ending in `/:channel`; unique and non-overlapping with proxies |
+| `:profile` | keyword | No | Defaults to and must equal `:ephemeral` |
+| `:authorize` | callable or Var | Yes | Prepared as the subscriber-authorization handler |
+| `:admit` | callable or Var | Yes | Prepared as the publisher-admission handler |
+| `:transports` | sequence of keywords | No | Defaults to `[:websocket :sse]`; only those values; non-empty |
+| `:message-buffer` | integer | No | Defaults to `8`; range `0`–`64` |
+| `:message-timeout-seconds` | integer | No | Defaults to `30`; range `1`–`300` |
+| `:max-channel-id-bytes` | integer | No | Defaults to `128`; range `22`–`256` |
+| `:max-subscribers` | integer | No | Defaults to `4`; range `1`–`64` |
+
+Hoplite generates private GET and POST routes for Nchan authorization
+subrequests. They are prepared like other handlers and recorded in the runtime
+manifest, but omitted from public OpenAPI output.
+
+## Peer definition
+
+<span class="doc-badge doc-badge--caution">Experimental</span>
+
+Every item under `:peers` must be constructed with `hoplite.core/peer`. The map
+is closed; unsupported keys are errors.
+
+| Field | Type | Required | Default and validation |
+| --- | --- | --- | --- |
+| `:name` | text-like | Yes | 1–64 ASCII letters, digits, `-`, or `_`; unique per app |
+| `:channel` | text-like | Yes | Must name a channel in the same application |
+| `:handler` | callable or Var | Yes | Application-owned peer policy handler |
+| `:label` | text-like | No | Defaults to peer name; 1–64 ASCII letters, digits, `-`, `_`, or `.` |
+| `:max-message-bytes` | integer | No | Defaults to `65536`; range `1`–`1048576` |
+| `:idle-timeout-seconds` | integer | No | Defaults to `120`; range `5`–`3600` |
+
+Peer declarations do not create portable session identities. Runtime handles
+created through `hoplite.rtc` stay inside one Nginx worker.
 
 ## Advanced host configuration
 

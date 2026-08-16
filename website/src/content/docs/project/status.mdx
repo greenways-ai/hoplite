@@ -1,17 +1,24 @@
 ---
 title: Status and roadmap
-description: Current Hoplite maturity, platform support, active milestones, and project links.
+description: Current Hoplite maturity, platform support, realtime transport, release state, and active milestones.
 ---
 
-<span class="doc-badge doc-badge--caution">Pre-1.0</span> <span class="doc-badge doc-badge--success">Release 0.2.0</span> <span class="doc-badge doc-badge--note">Active development</span>
+<span class="doc-badge doc-badge--caution">Pre-1.0</span> <span class="doc-badge doc-badge--note">0.2.0 development line</span> <span class="doc-badge doc-badge--success">Latest tag v0.1.0</span>
 
-Hoplite is published through Homebrew, standalone macOS and Linux binaries,
-and the `ghcr.io/greenways-ai/hoplite` OCI image. The current release is usable
-for application and integration work, while interfaces may still change before 1.0.
+These documentation pages track the current `main` branch. Hoplite's latest
+tagged binary release is [`v0.1.0`](https://github.com/greenways-ai/hoplite/releases/tag/v0.1.0);
+the source tree and documentation are now on the 0.2.0 development line. Features
+labelled **Current main** are not a promise that the same interface exists in an
+installed v0.1.0 binary.
+
+The tagged release is published through standalone macOS and Linux binaries,
+Homebrew distribution, and the `ghcr.io/greenways-ai/hoplite` OCI image. The
+current source line remains suitable for application and integration work, while
+interfaces may still change before 1.0.
 
 ![A rabbit moving through the junction of three sunlit mosaic garden paths](https://oss.greenways.ai/visual-language/artwork/hoplite/branching-paths-day.webp)
 
-## Platform matrix
+## Current-main platform matrix
 
 | Area | Current status |
 | --- | --- |
@@ -20,22 +27,34 @@ for application and integration work, while interfaces may still change before 1
 | Linux arm64 | Supported standalone binary, Homebrew formula, and OCI image |
 | Linux x86-64 | Supported standalone binary, Homebrew formula, and OCI image |
 | Embedded Nginx | Statically linked into the standalone executable |
+| Embedded realtime fan-out | Nchan-backed bounded ephemeral WebSocket/SSE channels; experimental application surface |
+| WebRTC | Worker-local SDP negotiation and native Duplex transport through `hoplite.rtc`; experimental |
 | Hara application bytecode | Deterministic HBX0 modules carried in a manifest-bound HAB0 envelope |
+| Streaming responses | Backpressured native bodies from `IStream` or finite iterable sources |
 | Production startup | Source-free, transactional worker bootstrap with reload and fresh-recreation evidence |
 | Operator diagnostics | Public source-free `verify`, `inspect`, and local-environment `doctor` commands |
 | Portable host providers | Fixed worker-local registry with bounded HTA request and completion contracts |
-| Historical products | Authority, blob, value, store, provider, and migration implementations retired in 0.2.0 |
+| Historical products | Authority, blob, value, store, provider, and migration implementations retired on the 0.2.0 line |
 | Authentication | Application-owned HAL policy; no default account, session, or management service |
 
 ## Active milestones
 
 <div class="doc-card-grid">
   <article class="doc-card"><h3>Request lifecycle</h3><p>Complete real-image coverage for suspension, timeout, cancellation, disconnect, ranges, streaming, and slow-client backpressure.</p></article>
+  <article class="doc-card"><h3>Realtime conformance</h3><p>Extend real-image evidence for bounded Nchan signalling, RTC negotiation, UDP readiness, cancellation, close, and multi-worker failure boundaries.</p></article>
   <article class="doc-card"><h3>Request diagnostics</h3><p>Give request-time failures the same stable, actionable, path-redacted treatment as generated-application diagnostics.</p></article>
   <article class="doc-card"><h3>Public conformance</h3><p>Add positive behavioral evidence and closed failure handling for every remaining published application and embedding surface.</p></article>
   <article class="doc-card"><h3>Generic boundary</h3><p>Keep downstream authority and storage products outside Hoplite while preserving generic ownership and lifecycle invariants.</p></article>
   <article class="doc-card"><h3>Reviewed alpha release</h3><p>Protect main with the permanent checks and publish binaries, image, formula, docs, and reproducible evidence from one reviewed tag.</p></article>
 </div>
+
+## Current documentation
+
+The published documentation covers the current source-free production split,
+HAB0/HBX0/HBC0 application artifacts, provider-neutral request and response
+boundaries, bounded native response sources, Nchan channel declarations, and the
+worker-local `hoplite.rtc` session API. Experimental surfaces are labelled and
+remain free to change during the current alpha epoch.
 
 ## Follow the project
 
