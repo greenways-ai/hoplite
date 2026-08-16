@@ -197,9 +197,8 @@ fn application_source_files(project: &Project) -> Result<Vec<PathBuf>, String> {
         if !declared.exists() {
             continue;
         }
-        let metadata = fs::symlink_metadata(&declared).map_err(|error| {
-            format!("cannot inspect source root {}: {error}", declared.display())
-        })?;
+        let metadata = fs::symlink_metadata(&declared)
+            .map_err(|error| format!("cannot inspect source root {}: {error}", declared.display()))?;
         if metadata.file_type().is_symlink() {
             return Err(format!(
                 "application source root cannot be a symlink: {}",
@@ -221,7 +220,9 @@ fn application_source_files(project: &Project) -> Result<Vec<PathBuf>, String> {
                 declared.display()
             ));
         }
-        if generated_output(&root, &directory) || excluded_application_path(&directory, &excluded) {
+        if generated_output(&root, &directory)
+            || excluded_application_path(&directory, &excluded)
+        {
             return Err(format!(
                 "project source path {:?} points inside generated output",
                 relative
@@ -261,7 +262,9 @@ fn application_source_files(project: &Project) -> Result<Vec<PathBuf>, String> {
             }
             if kind.is_dir() {
                 pending.push_back(path);
-            } else if kind.is_file() && path.extension().and_then(OsStr::to_str) == Some("hal") {
+            } else if kind.is_file()
+                && path.extension().and_then(OsStr::to_str) == Some("hal")
+            {
                 sources.insert(path);
             }
         }
@@ -290,7 +293,12 @@ fn register_project_sources(project: &Project, runtime: &mut Runtime) -> Result<
             .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
         let namespace = declared_namespace(&source)
             .map_err(|error| format!("{}: {error}", path.display()))?
-            .ok_or_else(|| format!("{} does not declare an ns or ns+ namespace", path.display()))?;
+            .ok_or_else(|| {
+                format!(
+                    "{} does not declare an ns or ns+ namespace",
+                    path.display()
+                )
+            })?;
         runtime.register_resource(&namespace, &source);
     }
     Ok(())
@@ -568,285 +576,157 @@ fn parse_app(
 
 fn parse_peer(value: &Value, channels: &[Channel], context: &str) -> Result<Peer, String> {
     if keyword_field(value, "hoplite/type").as_deref() != Some("peer") {
-        return Err(format!(
-            "{context} must be constructed with hoplite.core/peer"
-        ));
+        return Err(format!("{context} must be built with hoplite.core/peer"));
     }
-    let entries = core::map_entries(value).ok_or_else(|| format!("{context} must be a map"))?;
-    for (key, _) in entries {
-        let Value::Keyword(key) = key else {
-            return Err(format!("{context} keys must be keywords"));
-        };
-        if !matches!(
-            key.as_str(),
-            "hoplite/type"
-                | "name"
-                | "channel"
-                | "handler"
-                | "label"
-                | "max-message-bytes"
-                | "idle-timeout-seconds"
-        ) {
-            return Err(format!(
-                "{context} contains unsupported field :{}",
-                key.as_str()
-            ));
-        }
-    }
-    let name = text_field(value, "name").ok_or_else(|| format!("{context} requires :name"))?;
-    if name.is_empty()
-        || name.len() > 64
-        || !name
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
-    {
-        return Err(format!("{context} :name must be safe ASCII"));
-    }
-    let channel =
-        text_field(value, "channel").ok_or_else(|| format!("{context} requires :channel"))?;
+    reject_fields(
+        value,
+        &["hoplite/type", "name", "channel", "handler", "label", "max-message-bytes", "idle-timeout-seconds"],
+        context,
+    )?;
+    let name = required_text_field(value, "name", context)?;
+    valid_token(&name, "peer name")?;
+    let channel = required_text_field(value, "channel", context)?;
     if !channels.iter().any(|candidate| candidate.name == channel) {
         return Err(format!("{context} references unknown channel {channel:?}"));
     }
     let handler = field(value, "handler")
         .ok_or_else(|| format!("{context} requires :handler"))
         .and_then(|value| callable_name(&value))?;
-    let label = text_field(value, "label").unwrap_or_else(|| name.clone());
-    if label.is_empty()
-        || label.len() > 64
-        || !label.chars().all(|character| {
-            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
-        })
-    {
-        return Err(format!("{context} :label must be safe ASCII"));
-    }
+    let label = required_text_field(value, "label", context)?;
+    valid_token(&label, "peer label")?;
+    let max_message_bytes = number_field(value, "max-message-bytes")
+        .map(valid_positive_usize)
+        .transpose()?
+        .unwrap_or(65_536);
+    let idle_timeout_seconds = number_field(value, "idle-timeout-seconds")
+        .map(valid_positive_usize)
+        .transpose()?
+        .unwrap_or(30);
     Ok(Peer {
         name,
         channel,
         handler,
         label,
-        max_message_bytes: bounded_channel_number(
-            value,
-            "max-message-bytes",
-            65_536,
-            1,
-            1_048_576,
-            context,
-        )?,
-        idle_timeout_seconds: bounded_channel_number(
-            value,
-            "idle-timeout-seconds",
-            120,
-            5,
-            3600,
-            context,
-        )?,
+        max_message_bytes,
+        idle_timeout_seconds,
     })
-}
-
-fn bounded_channel_number(
-    value: &Value,
-    field_name: &str,
-    default: usize,
-    minimum: usize,
-    maximum: usize,
-    context: &str,
-) -> Result<usize, String> {
-    let candidate = number_field(value, field_name)
-        .and_then(|number| usize::try_from(number).ok())
-        .unwrap_or(default);
-    (minimum..=maximum)
-        .contains(&candidate)
-        .then_some(candidate)
-        .ok_or_else(|| format!("{context} :{field_name} must be between {minimum} and {maximum}"))
 }
 
 fn parse_channel(value: &Value, context: &str) -> Result<Channel, String> {
     if keyword_field(value, "hoplite/type").as_deref() != Some("channel") {
-        return Err(format!(
-            "{context} must be constructed with hoplite.core/channel"
-        ));
+        return Err(format!("{context} must be built with hoplite.core/channel"));
     }
-    let entries = core::map_entries(value).ok_or_else(|| format!("{context} must be a map"))?;
-    for (key, _) in entries {
-        let Value::Keyword(key) = key else {
-            return Err(format!("{context} keys must be keywords"));
-        };
-        if !matches!(
-            key.as_str(),
-            "hoplite/type"
-                | "name"
-                | "path"
-                | "profile"
-                | "authorize"
-                | "admit"
-                | "message-buffer"
-                | "message-timeout-seconds"
-                | "max-channel-id-bytes"
-                | "max-subscribers"
-                | "transports"
-        ) {
-            return Err(format!(
-                "{context} contains unsupported field :{}",
-                key.as_str()
-            ));
-        }
+    reject_fields(
+        value,
+        &[
+            "hoplite/type",
+            "name",
+            "path",
+            "profile",
+            "authorize",
+            "admit",
+            "message-buffer",
+            "message-timeout-seconds",
+            "max-channel-id-bytes",
+            "max-subscribers",
+            "transports",
+        ],
+        context,
+    )?;
+    let name = required_text_field(value, "name", context)?;
+    valid_token(&name, "channel name")?;
+    let path = required_text_field(value, "path", context)?;
+    let marker = "/:channel";
+    let path_prefix = path
+        .strip_suffix(marker)
+        .filter(|prefix| prefix.starts_with('/') && !prefix.is_empty())
+        .ok_or_else(|| format!("{context} :path must end with /:channel"))?
+        .to_owned();
+    if path_prefix.contains(['$', '{', '}', '\\']) || path_prefix.contains("..") {
+        return Err(format!("{context} :path contains dynamic or unsafe segments"));
     }
-    if keyword_field(value, "profile")
-        .as_deref()
-        .unwrap_or("ephemeral")
-        != "ephemeral"
-    {
+    if keyword_field(value, "profile").as_deref() != Some("ephemeral") {
         return Err(format!("{context} :profile must be :ephemeral"));
     }
-    let name = text_field(value, "name").ok_or_else(|| format!("{context} requires :name"))?;
-    if name.is_empty()
-        || name.len() > 64
-        || !name
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
-    {
-        return Err(format!(
-            "{context} :name must contain only ASCII letters, digits, - or _"
-        ));
-    }
-    let path = text_field(value, "path").ok_or_else(|| format!("{context} requires :path"))?;
-    let path_prefix = path
-        .strip_suffix("/:channel")
-        .filter(|prefix| !prefix.is_empty() && safe_proxy_path(prefix))
-        .ok_or_else(|| format!("{context} :path must be a safe path ending in /:channel"))?
-        .to_owned();
     let authorize = field(value, "authorize")
         .ok_or_else(|| format!("{context} requires :authorize"))
         .and_then(|value| callable_name(&value))?;
     let admit = field(value, "admit")
         .ok_or_else(|| format!("{context} requires :admit"))
         .and_then(|value| callable_name(&value))?;
-    let transports = match field(value, "transports") {
-        Some(value) => {
-            sequence(&value).ok_or_else(|| format!("{context} :transports must be a collection"))?
-        }
-        None => vec![
-            Value::Keyword("websocket".into()),
-            Value::Keyword("sse".into()),
-        ],
-    };
-    let mut transport_names = Vec::new();
-    for transport in transports {
-        let transport = match transport {
-            Value::Keyword(value) if value.as_str() == "websocket" => "websocket",
-            Value::Keyword(value) if value.as_str() == "sse" => "eventsource",
-            _ => {
-                return Err(format!(
-                    "{context} :transports may contain only :websocket and :sse"
-                ))
-            }
-        };
-        if !transport_names.iter().any(|value| value == transport) {
-            transport_names.push(transport.to_owned());
-        }
-    }
-    if transport_names.is_empty() {
-        return Err(format!("{context} :transports must not be empty"));
+    let message_buffer = number_field(value, "message-buffer")
+        .map(valid_positive_usize)
+        .transpose()?
+        .unwrap_or(8);
+    let message_timeout_seconds = number_field(value, "message-timeout-seconds")
+        .map(valid_positive_usize)
+        .transpose()?
+        .unwrap_or(30);
+    let max_channel_id_bytes = number_field(value, "max-channel-id-bytes")
+        .map(valid_positive_usize)
+        .transpose()?
+        .unwrap_or(128);
+    let max_subscribers = number_field(value, "max-subscribers")
+        .map(valid_positive_usize)
+        .transpose()?
+        .unwrap_or(4);
+    let transports = sequence_field(value, "transports")
+        .unwrap_or_else(|| vec![keyword("websocket"), keyword("eventsource")])
+        .into_iter()
+        .map(|transport| text(&transport, "channel transport"))
+        .collect::<Result<Vec<_>, _>>()?;
+    if transports.is_empty()
+        || transports
+            .iter()
+            .any(|transport| !matches!(transport.as_str(), "websocket" | "eventsource"))
+    {
+        return Err(format!(
+            "{context} :transports must contain websocket and/or eventsource"
+        ));
     }
     Ok(Channel {
         name,
         path_prefix,
         authorize,
         admit,
-        message_buffer: bounded_channel_number(value, "message-buffer", 8, 0, 64, context)?,
-        message_timeout_seconds: bounded_channel_number(
-            value,
-            "message-timeout-seconds",
-            30,
-            1,
-            300,
-            context,
-        )?,
-        max_channel_id_bytes: bounded_channel_number(
-            value,
-            "max-channel-id-bytes",
-            128,
-            22,
-            256,
-            context,
-        )?,
-        max_subscribers: bounded_channel_number(value, "max-subscribers", 4, 1, 64, context)?,
-        transports: transport_names,
+        message_buffer,
+        message_timeout_seconds,
+        max_channel_id_bytes,
+        max_subscribers,
+        transports,
     })
 }
 
-fn parse_request_body(
-    value: Option<Value>,
-    context: &str,
-) -> Result<Option<RequestBodyPolicy>, String> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-    let entries = core::map_entries(&value)
-        .ok_or_else(|| format!("{context} :request/body must be a map"))?;
-    for (key, _) in &entries {
-        let Value::Keyword(key) = key else {
-            return Err(format!("{context} :request/body keys must be keywords"));
-        };
-        if !matches!(key.as_str(), "max-bytes" | "max-chunk-bytes") {
-            return Err(format!(
-                "{context} :request/body contains unsupported field :{}",
-                key.as_str()
-            ));
+fn validate_proxies(proxies: &[Proxy], app_name: &str) -> Result<(), String> {
+    for (index, proxy) in proxies.iter().enumerate() {
+        for other in &proxies[..index] {
+            if proxy.path.starts_with(&other.path) || other.path.starts_with(&proxy.path) {
+                return Err(format!(
+                    "Hoplite app {app_name:?} has overlapping proxy paths {:?} and {:?}",
+                    other.path, proxy.path
+                ));
+            }
         }
     }
-    let max_bytes = number_field(&value, "max-bytes")
-        .ok_or_else(|| format!("{context} :request/body requires :max-bytes"))?;
-    let max_bytes = usize::try_from(max_bytes)
-        .ok()
-        .filter(|value| *value > 0)
-        .ok_or_else(|| format!("{context} :request/body :max-bytes must be positive"))?;
-    let max_chunk_bytes = number_field(&value, "max-chunk-bytes")
-        .map(|value| {
-            usize::try_from(value)
-                .ok()
-                .filter(|value| *value > 0)
-                .ok_or_else(|| format!("{context} :request/body :max-chunk-bytes must be positive"))
-        })
-        .transpose()?
-        .unwrap_or(max_bytes.min(64 * 1024));
-    if max_chunk_bytes > max_bytes {
-        return Err(format!(
-            "{context} :request/body :max-chunk-bytes cannot exceed :max-bytes"
-        ));
-    }
-    Ok(Some(RequestBodyPolicy {
-        max_bytes,
-        max_chunk_bytes,
-    }))
+    Ok(())
 }
 
 fn parse_proxy(value: &Value, context: &str) -> Result<Proxy, String> {
-    let entries = core::map_entries(value).ok_or_else(|| format!("{context} must be a map"))?;
-    for (key, _) in &entries {
-        let Value::Keyword(key) = key else {
-            return Err(format!("{context} keys must be keywords"));
-        };
-        if !matches!(key.as_str(), "path" | "upstream") {
-            return Err(format!(
-                "{context} contains unsupported field :{}",
-                key.as_str()
-            ));
-        }
+    reject_fields(value, &["path", "upstream"], context)?;
+    let path = required_text_field(value, "path", context)?;
+    let upstream = required_text_field(value, "upstream", context)?;
+    if !path.starts_with('/')
+        || !path.ends_with('/')
+        || path == "/"
+        || path.contains(['$', '{', '}', '\\'])
+        || dot_segment(&path)
+        || !safe_proxy_path(&path)
+    {
+        return Err(format!(
+            "{context} :path must be a fixed absolute prefix ending in /"
+        ));
     }
-
-    let path = text(
-        &field(value, "path").ok_or_else(|| format!("{context} requires :path"))?,
-        &format!("{context} :path"),
-    )?;
-    validate_proxy_path(&path, context)?;
-
-    let upstream = text(
-        &field(value, "upstream").ok_or_else(|| format!("{context} requires :upstream"))?,
-        &format!("{context} :upstream"),
-    )?;
     let (authority, server_name, secure) = parse_proxy_upstream(&upstream, context)?;
-
     Ok(Proxy {
         path,
         upstream,
@@ -856,58 +736,25 @@ fn parse_proxy(value: &Value, context: &str) -> Result<Proxy, String> {
     })
 }
 
-fn validate_proxies(proxies: &[Proxy], app: &str) -> Result<(), String> {
-    for (index, proxy) in proxies.iter().enumerate() {
-        if proxies[..index]
-            .iter()
-            .any(|candidate| candidate.path == proxy.path)
-        {
-            return Err(format!(
-                "Hoplite app {app:?} declares duplicate proxy path {:?}",
-                proxy.path
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn validate_proxy_path(path: &str, context: &str) -> Result<(), String> {
-    if path == "/" || !path.starts_with('/') || !path.ends_with('/') {
-        return Err(format!(
-            "{context} :path must be a non-root prefix beginning and ending with /"
-        ));
-    }
-    if !safe_proxy_path(path) || dot_segment(path) {
-        return Err(format!("{context} :path is not a safe static prefix"));
-    }
-    Ok(())
-}
-
 fn parse_proxy_upstream(upstream: &str, context: &str) -> Result<(String, String, bool), String> {
-    let (secure, rest) = if let Some(rest) = upstream.strip_prefix("https://") {
-        (true, rest)
-    } else if let Some(rest) = upstream.strip_prefix("http://") {
-        (false, rest)
+    let (secure, remainder) = if let Some(remainder) = upstream.strip_prefix("https://") {
+        (true, remainder)
+    } else if let Some(remainder) = upstream.strip_prefix("http://") {
+        (false, remainder)
     } else {
-        return Err(format!(
-            "{context} :upstream must use https:// or loopback http://"
-        ));
+        return Err(format!("{context} :upstream must use http:// or https://"));
     };
-    let slash = rest
-        .find('/')
-        .ok_or_else(|| format!("{context} :upstream must include a path ending with /"))?;
-    let authority = &rest[..slash];
-    let path = &rest[slash..];
+    let authority_end = remainder.find('/').unwrap_or(remainder.len());
+    let authority = &remainder[..authority_end];
+    let path = &remainder[authority_end..];
     if authority.is_empty()
-        || authority.contains('@')
-        || path.contains('?')
-        || path.contains('#')
-        || !path.ends_with('/')
-        || !safe_proxy_path(path)
+        || authority.contains(['@', '$', '{', '}', '\\'])
+        || path.contains(['$', '{', '}', '\\'])
         || dot_segment(path)
+        || !safe_proxy_path(path)
     {
         return Err(format!(
-            "{context} :upstream is not a fixed, safe origin and path"
+            "{context} :upstream must be a fixed origin and path"
         ));
     }
     let (server_name, loopback) = parse_proxy_authority(authority, context)?;
@@ -1133,157 +980,269 @@ pub fn openapi(app: &App) -> String {
         }
         operation.insert(
             "responses".into(),
-            json!({"200": {"description": "Success"}}),
+            json!({"200": {"description": "Handler response"}}),
         );
-        methods.insert(
-            route.method.to_ascii_lowercase(),
-            JsonValue::Object(operation),
-        );
+        methods.insert(route.method.to_ascii_lowercase(), JsonValue::Object(operation));
     }
     let proxies = app
         .proxies
         .iter()
-        .map(|proxy| json!({"path": proxy.path, "upstream": proxy.upstream}))
+        .map(|proxy| {
+            json!({
+                "path": proxy.path,
+                "upstream": proxy.upstream,
+            })
+        })
         .collect::<Vec<_>>();
     serde_json::to_string_pretty(&json!({
         "openapi": "3.1.0",
-        "info": {"title": app.name, "version": "0.1.0"},
+        "info": {"title": app.name, "version": "0.2.0"},
         "paths": paths,
-        "x-hoplite-static-proxies": proxies
+        "x-hoplite-static-proxies": proxies,
     }))
-    .expect("JSON serialization")
-        + "\n"
+    .expect("OpenAPI document is JSON")
 }
 
 fn openapi_path(path: &str) -> String {
-    path.split('/')
-        .map(|segment| {
-            if let Some(name) = segment.strip_prefix(':') {
-                format!("{{{name}}}")
-            } else if let Some(name) = segment.strip_prefix('*') {
-                format!("{{{name}}}")
-            } else {
-                segment.to_owned()
+    let mut output = String::new();
+    let bytes = path.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b':' {
+            let start = index + 1;
+            let mut end = start;
+            while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
+                end += 1;
             }
-        })
-        .collect::<Vec<_>>()
-        .join("/")
-}
-
-fn field(value: &Value, name: &str) -> Option<Value> {
-    core::map_entries(value)?
-        .into_iter()
-        .find_map(|(key, value)| {
-            matches!(&key, Value::Keyword(keyword) if keyword.as_str() == name).then_some(value)
-        })
-}
-
-fn keyword_field(value: &Value, name: &str) -> Option<String> {
-    match field(value, name)? {
-        Value::Keyword(value) => Some(value.as_str().to_owned()),
-        _ => None,
+            output.push('{');
+            output.push_str(&path[start..end]);
+            output.push('}');
+            index = end;
+        } else if path[index..].starts_with("*path") {
+            output.push_str("{path}");
+            index += 5;
+        } else {
+            output.push(bytes[index] as char);
+            index += 1;
+        }
     }
+    output
 }
 
-fn text_field(value: &Value, name: &str) -> Option<String> {
-    field(value, name).and_then(|value| text(&value, name).ok())
+pub fn manifest_json(config: &Config) -> JsonValue {
+    json!({
+        "format": 2,
+        "apps": config.apps.iter().map(|app| {
+            json!({
+                "id": app.id,
+                "name": app.name,
+                "port": app.port,
+                "hostnames": app.hostnames,
+                "request_body": app.request_body.as_ref().map(|body| json!({
+                    "max_bytes": body.max_bytes,
+                    "max_chunk_bytes": body.max_chunk_bytes,
+                })),
+                "proxies": app.proxies.iter().map(|proxy| json!({
+                    "path": proxy.path,
+                    "upstream": proxy.upstream,
+                    "authority": proxy.authority,
+                    "server_name": proxy.server_name,
+                    "secure": proxy.secure,
+                })).collect::<Vec<_>>(),
+                "channels": app.channels.iter().map(|channel| json!({
+                    "name": channel.name,
+                    "path_prefix": channel.path_prefix,
+                    "authorize": channel.authorize,
+                    "admit": channel.admit,
+                    "message_buffer": channel.message_buffer,
+                    "message_timeout_seconds": channel.message_timeout_seconds,
+                    "max_channel_id_bytes": channel.max_channel_id_bytes,
+                    "max_subscribers": channel.max_subscribers,
+                    "transports": channel.transports,
+                })).collect::<Vec<_>>(),
+                "peers": app.peers.iter().map(|peer| json!({
+                    "name": peer.name,
+                    "channel": peer.channel,
+                    "handler": peer.handler,
+                    "label": peer.label,
+                    "max_message_bytes": peer.max_message_bytes,
+                    "idle_timeout_seconds": peer.idle_timeout_seconds,
+                })).collect::<Vec<_>>(),
+                "routes": app.routes.iter().map(|route| json!({
+                    "method": route.method,
+                    "path": route.path,
+                    "handler": route.handler,
+                    "adapter": route.adapter.keyword(),
+                })).collect::<Vec<_>>(),
+            })
+        }).collect::<Vec<_>>(),
+    })
 }
 
-fn number_field(value: &Value, name: &str) -> Option<i64> {
-    match field(value, name)? {
+fn parse_request_body(value: Option<Value>, context: &str) -> Result<Option<RequestBodyPolicy>, String> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    reject_fields(&value, &["max-bytes", "max-chunk-bytes"], context)?;
+    let max_bytes = number_field(&value, "max-bytes")
+        .map(valid_positive_usize)
+        .transpose()?
+        .unwrap_or(1024 * 1024);
+    let max_chunk_bytes = number_field(&value, "max-chunk-bytes")
+        .map(valid_positive_usize)
+        .transpose()?
+        .unwrap_or(64 * 1024);
+    if max_chunk_bytes > max_bytes {
+        return Err(format!("{context} request max-chunk-bytes exceeds max-bytes"));
+    }
+    Ok(Some(RequestBodyPolicy {
+        max_bytes,
+        max_chunk_bytes,
+    }))
+}
+
+fn reject_fields(value: &Value, allowed: &[&str], context: &str) -> Result<(), String> {
+    let entries = core::map_entries(value).ok_or_else(|| format!("{context} must be a map"))?;
+    for (key, _) in entries {
+        let name = match key {
+            Value::Keyword(keyword) => keyword.as_str(),
+            _ => return Err(format!("{context} field keys must be keywords")),
+        };
+        if !allowed.contains(&name) {
+            return Err(format!("{context} has unsupported field :{name}"));
+        }
+    }
+    Ok(())
+}
+
+fn option_port(options: &Form) -> Result<Option<u16>, String> {
+    let Form::Map(entries) = options else {
+        return Err("profile options must be a map".into());
+    };
+    entries
+        .iter()
+        .find(|(key, _)| matches!(key, Form::Keyword(name) if name == "port"))
+        .map(|(_, value)| match value {
+            Form::Number(value) => value
+                .parse::<u16>()
+                .ok()
+                .filter(|value| *value > 0)
+                .ok_or_else(|| "profile port must be between 1 and 65535".to_string()),
+            _ => Err("profile port must be a number".into()),
+        })
+        .transpose()
+}
+
+fn option_workers(options: &Form) -> Result<Option<usize>, String> {
+    let Form::Map(entries) = options else {
+        return Err("profile options must be a map".into());
+    };
+    entries
+        .iter()
+        .find(|(key, _)| matches!(key, Form::Keyword(name) if name == "workers"))
+        .map(|(_, value)| match value {
+            Form::Number(value) => value
+                .parse::<usize>()
+                .ok()
+                .filter(|value| *value > 0)
+                .ok_or_else(|| "profile workers must be positive".to_string()),
+            _ => Err("profile workers must be a number".into()),
+        })
+        .transpose()
+}
+
+fn available_workers() -> usize {
+    std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
+}
+
+fn required_text_field(value: &Value, key: &str, context: &str) -> Result<String, String> {
+    field(value, key)
+        .ok_or_else(|| format!("{context} requires :{key}"))
+        .and_then(|value| text(&value, key))
+}
+
+fn text_field(value: &Value, key: &str) -> Option<String> {
+    field(value, key).and_then(|value| text(&value, key).ok())
+}
+
+fn keyword_field(value: &Value, key: &str) -> Option<String> {
+    field(value, key).and_then(|value| match value {
+        Value::Keyword(keyword) => Some(keyword.as_str().to_owned()),
+        _ => None,
+    })
+}
+
+fn number_field(value: &Value, key: &str) -> Option<i64> {
+    field(value, key).and_then(|value| match value {
         Value::Number(value) => Some(value),
         _ => None,
-    }
+    })
 }
 
-fn sequence_field(value: &Value, name: &str) -> Option<Vec<Value>> {
-    field(value, name).and_then(|value| sequence(&value))
+fn sequence_field(value: &Value, key: &str) -> Option<Vec<Value>> {
+    field(value, key).and_then(|value| sequence(&value))
+}
+
+fn field(value: &Value, key: &str) -> Option<Value> {
+    core::map_entries(value)?
+        .into_iter()
+        .find(|(candidate, _)| matches!(candidate, Value::Keyword(value) if value.as_str() == key))
+        .map(|(_, value)| value)
 }
 
 fn sequence(value: &Value) -> Option<Vec<Value>> {
-    match value {
-        Value::Vector(values) => Some(values.iter().cloned().collect()),
-        Value::List(values) => Some(values.iter().cloned().collect()),
-        Value::Tuple(values) => Some(values.iter().cloned().collect()),
-        Value::Set(values) => Some(values.iter().cloned().collect()),
-        _ => None,
-    }
-}
-
-fn text(value: &Value, label: &str) -> Result<String, String> {
-    match value {
-        Value::String(value) => Ok(value.clone()),
-        Value::Keyword(value) => Ok(value.as_str().to_owned()),
-        Value::Symbol(value) => Ok(value.as_str().to_owned()),
-        _ => Err(format!("{label} must be text")),
-    }
+    core::sequence_values(value)
 }
 
 fn callable_name(value: &Value) -> Result<String, String> {
     match value {
-        Value::Var(var) => Ok(var.symbol().as_str().to_owned()),
-        Value::Symbol(symbol) => Ok(symbol.as_str().to_owned()),
-        _ => Err("operation :handler must be a Var such as #'app/handler".into()),
+        Value::Var(var) => Ok(var.symbol().to_string()),
+        Value::Symbol(name) if name.contains('/') => Ok(name.clone()),
+        _ => Err("handler must be a Var or qualified symbol".into()),
     }
 }
 
-fn join_path(parent: &str, child: &str) -> String {
-    if parent.is_empty() {
-        return if child.is_empty() {
-            "/".into()
-        } else {
-            child.into()
-        };
+fn text(value: &Value, context: &str) -> Result<String, String> {
+    match value {
+        Value::String(value) => Ok(value.clone()),
+        Value::Keyword(value) | Value::Symbol(value) => Ok(value.as_str().to_owned()),
+        _ => Err(format!("{context} must be text")),
     }
-    if child.is_empty() || child == "/" {
-        return parent.into();
-    }
-    format!("{}{}", parent.trim_end_matches('/'), child)
-}
-
-fn option_port(options: &hara_wasm::kernel::Form) -> Result<Option<u16>, String> {
-    option_number(options, "port")?.map(valid_port).transpose()
-}
-
-fn option_workers(options: &hara_wasm::kernel::Form) -> Result<Option<usize>, String> {
-    option_number(options, "workers")?
-        .map(|value| usize::try_from(value).map_err(|_| "profile :workers must be positive".into()))
-        .transpose()
-}
-
-fn option_number(options: &hara_wasm::kernel::Form, name: &str) -> Result<Option<i64>, String> {
-    let hara_wasm::kernel::Form::Map(entries) = options else {
-        return Err("profile options must be a map".into());
-    };
-    Ok(entries.iter().find_map(|(key, value)| match (key, value) {
-        (hara_wasm::kernel::Form::Keyword(key), hara_wasm::kernel::Form::Number(value))
-            if key == name =>
-        {
-            Some(*value)
-        }
-        _ => None,
-    }))
 }
 
 fn valid_port(value: i64) -> Result<u16, String> {
     u16::try_from(value)
         .ok()
-        .filter(|value| *value != 0)
+        .filter(|value| *value > 0)
         .ok_or_else(|| "port must be between 1 and 65535".into())
 }
 
-fn available_workers() -> usize {
-    std::thread::available_parallelism()
-        .map(usize::from)
-        .unwrap_or(1)
+fn valid_positive_usize(value: i64) -> Result<usize, String> {
+    usize::try_from(value)
+        .ok()
+        .filter(|value| *value > 0)
+        .ok_or_else(|| "value must be positive".into())
 }
 
-fn keyword(name: &str) -> Value {
-    Value::Keyword(name.into())
+fn valid_token(value: &str, context: &str) -> Result<(), String> {
+    if value.is_empty()
+        || value.len() > 128
+        || !value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.'))
+    {
+        Err(format!("{context} is invalid"))
+    } else {
+        Ok(())
+    }
 }
 
-fn map_value(entries: Vec<(Value, Value)>) -> Value {
-    Value::Map(entries.into_iter().collect())
+fn map_value(values: Vec<(Value, Value)>) -> Value {
+    Value::Map(values.into_iter().collect())
+}
+
+fn keyword(value: &str) -> Value {
+    Value::Keyword(value.into())
 }
 
 #[cfg(test)]
@@ -1295,7 +1254,10 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!("hoplite-{name}-{}-{unique}", std::process::id()))
+        std::env::temp_dir().join(format!(
+            "hoplite-{name}-{}-{unique}",
+            std::process::id()
+        ))
     }
 
     fn write_project(root: &Path, source_paths: &str) {
@@ -1490,9 +1452,10 @@ mod tests {
     fn resources_exclude_the_retired_value_contract() {
         let mut runtime = Runtime::new();
         register_resources(&mut runtime);
-        assert!(runtime
-            .eval_native_value("(ns sample.value (:require [hoplite.value :as value])) true",)
-            .is_err());
+        assert!(
+            runtime.require_resource("hoplite.value").is_err(),
+            "register_resources must not reintroduce the retired hoplite.value namespace"
+        );
     }
 
     #[test]
