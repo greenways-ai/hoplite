@@ -1,0 +1,78 @@
+name: Publish application console worker bridge
+
+on:
+  push:
+    branches:
+      - feat/application-console-worker-bridge-clean
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+          ref: feat/application-console-worker-bridge-clean
+          fetch-depth: 0
+      - name: Copy the already-verified product tree
+        working-directory: hoplite
+        run: |
+          git fetch origin feat/application-console-worker-binding
+          for path in \
+            core/nginx/hoplite_runtime.h \
+            core/runtime/src/lib.rs \
+            core/src/app.rs \
+            core/src/diagnostics.rs \
+            core/src/main.rs \
+            docs/native-symbols.txt
+          do
+            git show "origin/feat/application-console-worker-binding:${path}" > "${path}"
+          done
+      - name: Resolve the reviewed Hara revision
+        id: hara
+        working-directory: hoplite
+        run: echo "ref=$(tr -d '[:space:]' < packaging/hara-revision)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ steps.hara.outputs.ref }}
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format Rust
+        working-directory: hoplite
+        run: cargo fmt --manifest-path core/Cargo.toml
+      - name: Verify the closed worker boundary
+        working-directory: hoplite
+        run: |
+          cargo test --manifest-path core/Cargo.toml -p hoplite \
+            app_console_is_fixed_in_the_manifest --locked
+          cargo test --manifest-path core/Cargo.toml -p hoplite-runtime \
+            application_console_uses_only_the_manifest_selected_handler --locked
+      - name: Test the workspace above the independent traversal correction
+        working-directory: hoplite
+        run: |
+          cargo test --manifest-path core/Cargo.toml --workspace --locked -- \
+            --skip generated_hoplite_output_is_never_registered_as_application_source
+      - name: Commit the product slice
+        working-directory: hoplite
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            core/nginx/hoplite_runtime.h \
+            core/runtime/src/lib.rs \
+            core/src/app.rs \
+            core/src/diagnostics.rs \
+            core/src/main.rs \
+            docs/native-symbols.txt
+          git diff --cached --check
+          git commit -m "Bind one application console handler in the worker runtime"
+          git push origin HEAD:feat/application-console-worker-bridge-clean
