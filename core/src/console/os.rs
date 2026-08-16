@@ -156,15 +156,15 @@ mod linux {
         set_limit(RLIMIT_FSIZE, 0)?;
         set_limit(RLIMIT_CORE, 0)?;
         set_limit(RLIMIT_NOFILE, 16)?;
-        if prctl(PR_SET_DUMPABLE, 0_c_ulong) != 0 {
+        if prctl(PR_SET_DUMPABLE, 0 as c_ulong) != 0 {
             return Err(io::Error::last_os_error());
         }
         if prctl(
             PR_SET_NO_NEW_PRIVS,
-            1_c_ulong,
-            0_c_ulong,
-            0_c_ulong,
-            0_c_ulong,
+            1 as c_ulong,
+            0 as c_ulong,
+            0 as c_ulong,
+            0 as c_ulong,
         ) != 0
         {
             return Err(io::Error::last_os_error());
