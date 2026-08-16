@@ -144,6 +144,7 @@ struct AppRoute {
 
 struct AppRouter {
     routes: Vec<AppRoute>,
+    console: Option<HandlerId>,
 }
 
 struct Work {
@@ -1457,7 +1458,10 @@ impl HopliteRuntime {
                         adapter,
                     });
                 }
-                if apps.insert(id, AppRouter { routes }).is_some() {
+                let console = map_optional_string(&app, "console")
+                    .map(|function| self.handler_prepare(&function))
+                    .transpose()?;
+                if apps.insert(id, AppRouter { routes, console }).is_some() {
                     return Err(format!("duplicate app id {id}"));
                 }
             }
@@ -1496,6 +1500,15 @@ impl HopliteRuntime {
             Some(handler) => self.work_call(handler, request),
             None => Ok(self.start_value(response_value(404, "Not Found\n"))),
         }
+    }
+
+    fn app_console_call(&mut self, app: AppId, input: Value) -> Result<WorkId, ()> {
+        let handler = self
+            .apps
+            .get(&app)
+            .and_then(|router| router.console)
+            .ok_or(())?;
+        self.work_call(handler, input)
     }
 
     fn start_value(&mut self, value: Value) -> WorkId {
@@ -2227,6 +2240,23 @@ pub unsafe extern "C" fn hoplite_app_call(
         let runtime = runtime_mut(runtime)?;
         let input = hta::decode(bytes(input_ptr, input_len)?).map_err(|_| ())?;
         runtime.app_call(app, input)
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_app_console_call(
+    runtime: *mut HopliteRuntime,
+    app: u64,
+    input_ptr: *const u8,
+    input_len: usize,
+) -> u64 {
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        let input = hta::decode(bytes(input_ptr, input_len)?).map_err(|_| ())?;
+        runtime.app_console_call(app, input)
     }))
     .ok()
     .and_then(Result::ok)
@@ -3195,6 +3225,65 @@ mod tests {
         )
     }
 
+    fn manifest_v2_with_console(
+        route_handler: &str,
+        adapter: &str,
+        console_handler: &str,
+    ) -> Value {
+        Value::Map(
+            vec![
+                (Value::Keyword("format".into()), Value::Number(2)),
+                (
+                    Value::Keyword("apps".into()),
+                    Value::Vector(
+                        vec![Value::Map(
+                            vec![
+                                (Value::Keyword("id".into()), Value::Number(1)),
+                                (
+                                    Value::Keyword("console".into()),
+                                    Value::String(console_handler.into()),
+                                ),
+                                (
+                                    Value::Keyword("routes".into()),
+                                    Value::Vector(
+                                        vec![Value::Map(
+                                            vec![
+                                                (
+                                                    Value::Keyword("method".into()),
+                                                    Value::String("GET".into()),
+                                                ),
+                                                (
+                                                    Value::Keyword("path".into()),
+                                                    Value::String("/*path".into()),
+                                                ),
+                                                (
+                                                    Value::Keyword("handler".into()),
+                                                    Value::String(route_handler.into()),
+                                                ),
+                                                (
+                                                    Value::Keyword("adapter".into()),
+                                                    Value::Keyword(adapter.into()),
+                                                ),
+                                            ]
+                                            .into_iter()
+                                            .collect(),
+                                        )]
+                                        .into(),
+                                    ),
+                                ),
+                            ]
+                            .into_iter()
+                            .collect(),
+                        )]
+                        .into(),
+                    ),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        )
+    }
+
     fn take_event(runtime: &mut HopliteRuntime) -> Value {
         runtime.drain_ready();
         let bytes = runtime.events.borrow_mut().pop_front().unwrap();
@@ -3324,6 +3413,62 @@ mod tests {
             matches!(event, Value::Vector(values) if matches!(values.get(0), Some(Value::Number(0))))
         );
         assert_eq!(runtime.handlers.len(), 1);
+    }
+
+    #[test]
+    fn application_console_uses_only_the_manifest_selected_handler() {
+        let mut runtime = HopliteRuntime::new();
+        runtime.work_start(
+            "(ns console.bridge) \
+             (defn route [_request] {:status 200 :body \"route\"}) \
+             (defn dispatch [request] request) \
+             nil",
+            None,
+        );
+        let _ = take_event(&mut runtime);
+        runtime
+            .apps_prepare(manifest_v2_with_console(
+                "console.bridge/route",
+                "request",
+                "console.bridge/dispatch",
+            ))
+            .unwrap();
+        assert_eq!(runtime.handlers.len(), 2);
+
+        let input = Value::Map(
+            vec![
+                (
+                    Value::Keyword("grant".into()),
+                    Value::Map(Default::default()),
+                ),
+                (
+                    Value::Keyword("command".into()),
+                    Value::String("status".into()),
+                ),
+                (
+                    Value::Keyword("input".into()),
+                    Value::Map(Default::default()),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let encoded = hta::encode(&input).unwrap();
+        let runtime_ptr = &mut runtime as *mut HopliteRuntime;
+        let work = unsafe {
+            hoplite_app_console_call(runtime_ptr, 1, encoded.as_ptr(), encoded.len())
+        };
+        assert_ne!(work, 0);
+        let Value::Vector(event) = take_event(&mut runtime) else {
+            panic!("console completion event")
+        };
+        assert!(matches!(event.get(0), Some(Value::Number(0))));
+        assert!(matches!(event.get(1), Some(Value::Number(value)) if *value == work as i64));
+        assert_eq!(event.get(2), Some(&input));
+        assert_eq!(
+            unsafe { hoplite_app_console_call(runtime_ptr, 2, encoded.as_ptr(), encoded.len()) },
+            0
+        );
     }
 
     #[test]

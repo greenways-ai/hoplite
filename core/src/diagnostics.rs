@@ -702,6 +702,7 @@ mod tests {
                 name: "example".into(),
                 port: 8080,
                 hostnames: Vec::new(),
+                console: None,
                 routes: vec![
                     Route {
                         method: "GET".into(),

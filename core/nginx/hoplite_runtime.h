@@ -152,6 +152,15 @@ uint64_t hoplite_app_call(hoplite_runtime_t *runtime,
                           uint64_t app,
                           const uint8_t *input,
                           size_t input_len);
+/*
+ * Invoke the one console handler selected from the immutable application
+ * manifest. The caller supplies only app identity and HTA input; no source,
+ * symbol, function name, or handler identifier crosses this boundary.
+ */
+uint64_t hoplite_app_console_call(hoplite_runtime_t *runtime,
+                                  uint64_t app,
+                                  const uint8_t *input,
+                                  size_t input_len);
 int hoplite_app_invoke_v2(hoplite_runtime_t *runtime,
                           uint64_t app,
                           const hoplite_request_v2_t *request,
