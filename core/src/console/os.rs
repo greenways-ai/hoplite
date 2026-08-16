@@ -159,7 +159,14 @@ mod linux {
         if prctl(PR_SET_DUMPABLE, 0_c_ulong) != 0 {
             return Err(io::Error::last_os_error());
         }
-        if prctl(PR_SET_NO_NEW_PRIVS, 1_c_ulong, 0_c_ulong, 0_c_ulong, 0_c_ulong) != 0 {
+        if prctl(
+            PR_SET_NO_NEW_PRIVS,
+            1_c_ulong,
+            0_c_ulong,
+            0_c_ulong,
+            0_c_ulong,
+        ) != 0
+        {
             return Err(io::Error::last_os_error());
         }
         Ok(())
@@ -233,7 +240,9 @@ mod linux {
     pub fn install_evaluator_sandbox() -> Result<(), String> {
         #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
         {
-            return Err("console evaluator seccomp is unsupported on this Linux architecture".into());
+            return Err(
+                "console evaluator seccomp is unsupported on this Linux architecture".into(),
+            );
         }
         #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
         {
@@ -244,10 +253,7 @@ mod linux {
             filters.push(statement(BPF_LD | BPF_W | BPF_ABS, 0));
             for syscall in denied_syscalls() {
                 filters.push(jump(BPF_JMP | BPF_JEQ | BPF_K, syscall, 0, 1));
-                filters.push(statement(
-                    BPF_RET | BPF_K,
-                    SECCOMP_RET_ERRNO | EPERM,
-                ));
+                filters.push(statement(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM));
             }
             filters.push(statement(BPF_RET | BPF_K, SECCOMP_RET_ALLOW));
             let mut program = SockFprog {
@@ -295,8 +301,8 @@ mod linux {
             101, 310, 311, // ptrace and cross-process memory
             165, 166, // mounts
             80, 81, 78, 217, 262, 332, // cwd, directory and path inspection
-            82, 83, 84, 87, 88, 90, 92, 94, 95, 258, 263, 264, 265, 266,
-            267, 268, 269, 316, // path mutation and metadata
+            82, 83, 84, 87, 88, 90, 92, 94, 95, 258, 263, 264, 265, 266, 267, 268, 269,
+            316, // path mutation and metadata
             319, 321, 298, 250, // memfd, bpf, perf and keyrings
         ]
     }
@@ -334,10 +340,7 @@ pub fn peer_uid(_stream: &UnixStream) -> Result<u32, String> {
 }
 
 #[cfg(not(target_os = "linux"))]
-pub unsafe fn configure_child(
-    _inherited_fds: &[RawFd],
-    _limits: ConsoleLimits,
-) -> io::Result<()> {
+pub unsafe fn configure_child(_inherited_fds: &[RawFd], _limits: ConsoleLimits) -> io::Result<()> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "the separate-process console currently requires Linux rlimits",
