@@ -38,6 +38,18 @@ name = "hoplite-server"
 path = "src/bin/hoplite-server.rs"
 
 [[bin]]
+name = "hoplite-console-bundle"
+path = "src/bin/hoplite-console-bundle.rs"
+
+[[bin]]
+name = "hoplite-console-evaluator"
+path = "src/bin/hoplite-console-evaluator.rs"
+
+[[bin]]
+name = "hoplite-console-supervisor"
+path = "src/bin/hoplite-console-supervisor.rs"
+
+[[bin]]
 name = "hoplite-bytecode-loading"
 path = "src/bin/hoplite-bytecode-loading.rs"
 required-features = ["internal-evidence"]
