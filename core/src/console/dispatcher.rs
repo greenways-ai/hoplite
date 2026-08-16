@@ -37,19 +37,10 @@ impl<H: PreparedHalBoundary> ApplicationConsoleDispatcher<H> {
         Ok(self.commands.granted_value(&grant))
     }
 
-    pub fn call(
-        &mut self,
-        grant: &Value,
-        command: &str,
-        input: Value,
-    ) -> Result<Value, String> {
+    pub fn call(&mut self, grant: &Value, command: &str, input: Value) -> Result<Value, String> {
         let parsed_grant = ConsoleGrant::parse(grant)?;
-        self.commands.validate_call(
-            &parsed_grant,
-            command,
-            &input,
-            self.limits.result_bytes,
-        )?;
+        self.commands
+            .validate_call(&parsed_grant, command, &input, self.limits.result_bytes)?;
         let envelope = map_value(vec![
             ("grant", parsed_grant.to_value()),
             ("command", Value::String(command.into())),
