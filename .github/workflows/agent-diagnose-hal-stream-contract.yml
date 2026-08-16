@@ -1,0 +1,108 @@
+name: Diagnose HAL stream contract failure
+
+on:
+  push:
+    branches:
+      - agent/prune-generated-source-output
+    paths:
+      - ".github/workflows/agent-diagnose-hal-stream-contract.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/prune-generated-source-output
+          path: hoplite
+          fetch-depth: 0
+
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: 2b3efd14451e96e9e79cd9645fb7e10d9e3782d6
+          path: hara
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Remove the diagnostic workflow from the branch
+        working-directory: hoplite
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/agent-diagnose-hal-stream-contract.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Remove HAL stream diagnostic workflow"
+          git push origin HEAD:agent/prune-generated-source-output
+
+      - name: Add uncommitted stream probes
+        working-directory: hoplite
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("core/src/app.rs")
+          source = path.read_text()
+          marker = "    #[test]\n    fn public_hal_contract_evaluates_from_disk() {"
+          if source.count(marker) != 1:
+              raise SystemExit("cannot locate public HAL contract test")
+          probe = r'''    #[test]
+          fn diagnose_hal_stream_contract() {
+              let probes = [
+                  ("require", "(ns diagnose.require (:require [hoplite.core :as h])) true"),
+                  ("finite", "(ns diagnose.finite) (Iter/iter-finite? [\"a\" \"b\"] )"),
+                  ("iterator", "(ns diagnose.iterator) (IIter/iter [\"a\" \"b\"] )"),
+                  ("native-stream", "(ns diagnose.native-stream) (Stream/generate (fn [_] nil) nil)"),
+                  ("hoplite-stream", "(ns diagnose.hoplite-stream (:require [hoplite.core :as h])) (h/stream [\"a\" \"b\"] )"),
+                  ("whole-contract", CORE_TEST_SOURCE),
+              ];
+              for (name, probe) in probes {
+                  let mut runtime = Runtime::new();
+                  runtime.register_resource("hoplite.core", CORE_SOURCE);
+                  runtime.register_resource("hoplite.internal", INTERNAL_SOURCE);
+                  let result = runtime.eval_native_value(probe);
+                  println!("PROBE {name}: {result:?}");
+              }
+          }
+
+          '''
+          path.write_text(source.replace(marker, probe + marker, 1))
+          PY
+          cargo fmt --manifest-path core/Cargo.toml
+
+      - name: Run direct stream probes
+        working-directory: hoplite
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+        run: |
+          cargo test --manifest-path core/Cargo.toml \
+            --bin hoplite \
+            app::tests::diagnose_hal_stream_contract \
+            -- --exact --nocapture --test-threads=1
+
+      - name: Run the public HAL contract alone
+        working-directory: hoplite
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+        run: |
+          cargo test --manifest-path core/Cargo.toml \
+            --bin hoplite \
+            app::tests::public_hal_contract_evaluates_from_disk \
+            -- --exact --nocapture --test-threads=1
+
+      - name: Run the complete workspace serially
+        working-directory: hoplite
+        shell: bash
+        run: cargo test --manifest-path core/Cargo.toml --workspace --locked -- --test-threads=1
