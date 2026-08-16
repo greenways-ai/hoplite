@@ -10,12 +10,13 @@ use hara_wasm::kernel::{parse_forms, Form};
 use hara_wasm::Runtime;
 use std::cell::RefCell;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::os::fd::{FromRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 use std::rc::Rc;
 
 const MAX_BUNDLE_FRAME_BYTES: usize = MAX_CLIENT_BUNDLE_BYTES + 4096;
+const READY_PROTOCOL: &str = "hoplite.console-evaluator-ready/0-alpha";
 
 #[derive(Clone, Debug)]
 pub struct EvaluatorConfig {
@@ -54,6 +55,15 @@ pub fn run_evaluator(config: EvaluatorConfig) -> Result<(), String> {
     // cross-process operations at the OS boundary. Source received from the
     // console is evaluated only after this policy is active.
     os::install_evaluator_sandbox()?;
+    write_hta_frame(
+        &mut evaluation,
+        &success(map_value(vec![
+            ("protocol", Value::String(READY_PROTOCOL.into())),
+            ("namespace", Value::String(bundle.namespace)),
+            ("authority", Value::Keyword("zero".into())),
+        ])),
+        4096,
+    )?;
 
     while let Some(request) = read_hta_frame(&mut evaluation, limits.source_bytes + 4096)? {
         let response = evaluate_request(&mut runtime, request, limits);
