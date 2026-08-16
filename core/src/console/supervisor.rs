@@ -420,7 +420,10 @@ fn broker_loop(
             broker.as_ref(),
         ) {
             Ok(value) => success(value),
-            Err(error) => failure(error_code(&error), error),
+            Err(error) => {
+                let code = error_code(&error).to_owned();
+                failure(&code, error)
+            }
         };
         write_hta_frame(&mut stream, &response, limits.result_bytes)?;
     }
