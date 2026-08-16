@@ -1,0 +1,99 @@
+name: Format and validate application source repair
+
+on:
+  push:
+    branches:
+      - fix/application-source-boundary
+    paths:
+      - ".github/workflows/agent-format-and-validate-application-source.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: fix/application-source-boundary
+          path: hoplite
+          fetch-depth: 0
+
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: 2b3efd14451e96e9e79cd9645fb7e10d9e3782d6
+          path: hara
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: hoplite/website/package-lock.json
+
+      - name: Format and publish the clean branch
+        working-directory: hoplite
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --manifest-path core/Cargo.toml
+          git rm .github/workflows/agent-format-and-validate-application-source.yml
+          git add -A
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Format the application source repair"
+          git push origin HEAD:fix/application-source-boundary
+
+      - name: Check Rust formatting
+        working-directory: hoplite
+        run: cargo fmt --manifest-path core/Cargo.toml -- --check
+
+      - name: Check the fail-closed core boundary
+        working-directory: hoplite
+        run: cargo test --manifest-path core/Cargo.toml -p hoplite --test core_boundary
+
+      - name: Test retired resource registration directly
+        working-directory: hoplite
+        run: |
+          cargo test --manifest-path core/Cargo.toml \
+            --bin hoplite \
+            app::tests::resources_exclude_the_retired_value_contract \
+            -- --exact --nocapture --test-threads=1
+
+      - name: Test application source discovery
+        working-directory: hoplite
+        run: cargo test --manifest-path core/Cargo.toml --bin hoplite app::tests::application_source_discovery -- --nocapture
+
+      - name: Test minimal project loading on Cargo's default caller stack
+        working-directory: hoplite
+        run: |
+          unset RUST_MIN_STACK
+          cargo test --manifest-path core/Cargo.toml \
+            --bin hoplite \
+            app::tests::minimal_application_project_loads \
+            -- --exact --nocapture --test-threads=1
+
+      - name: Test the complete Hoplite core workspace
+        working-directory: hoplite
+        run: |
+          unset RUST_MIN_STACK
+          cargo test --manifest-path core/Cargo.toml --workspace --locked
+
+      - name: Build and verify the documentation site
+        working-directory: hoplite/website
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global url."https://github.com/".insteadOf "git+ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+          npm ci
+          npm run build
