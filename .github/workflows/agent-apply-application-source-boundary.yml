@@ -1,0 +1,105 @@
+name: Apply application source boundary repair
+
+on:
+  push:
+    branches:
+      - fix/application-source-boundary
+    paths:
+      - ".github/workflows/agent-apply-application-source-boundary.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: fix/application-source-boundary
+          path: hoplite
+          fetch-depth: 0
+
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: 2b3efd14451e96e9e79cd9645fb7e10d9e3782d6
+          path: hara
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: hoplite/website/package-lock.json
+
+      - name: Apply the reviewed repair onto current main
+        working-directory: hoplite
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin agent/prune-generated-source-output
+          git checkout origin/agent/prune-generated-source-output -- \
+            core/src/app.rs \
+            core/lib/src/hoplite/core.hal \
+            docs/core-boundary.json
+          cargo fmt --manifest-path core/Cargo.toml
+          git diff --check
+
+      - name: Publish the clean repair commit
+        working-directory: hoplite
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/agent-apply-application-source-boundary.yml
+          git add -A
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Prune generated application sources"
+          git push origin HEAD:fix/application-source-boundary
+
+      - name: Check the fail-closed core boundary
+        working-directory: hoplite
+        shell: bash
+        run: cargo test --manifest-path core/Cargo.toml -p hoplite --test core_boundary
+
+      - name: Test the public HAL contract
+        working-directory: hoplite
+        shell: bash
+        run: |
+          cargo test --manifest-path core/Cargo.toml \
+            --bin hoplite \
+            app::tests::public_hal_contract_evaluates_from_disk \
+            -- --exact --nocapture --test-threads=1
+
+      - name: Test application source discovery
+        working-directory: hoplite
+        shell: bash
+        run: cargo test --manifest-path core/Cargo.toml --bin hoplite app::tests::application_source_discovery -- --nocapture
+
+      - name: Test minimal project loading on the default caller stack
+        working-directory: hoplite
+        shell: bash
+        run: cargo test --manifest-path core/Cargo.toml --bin hoplite app::tests::minimal_application_project_loads -- --exact --nocapture
+
+      - name: Test the complete Hoplite core workspace
+        working-directory: hoplite
+        shell: bash
+        run: cargo test --manifest-path core/Cargo.toml --workspace --locked
+
+      - name: Build and verify the documentation site
+        working-directory: hoplite/website
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global url."https://github.com/".insteadOf "git+ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+          npm ci
+          npm run build
