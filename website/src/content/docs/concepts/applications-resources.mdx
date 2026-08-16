@@ -1,6 +1,6 @@
 ---
 title: Applications and resources
-description: How Hoplite represents applications, resources, operations, handlers, and fixed upstreams.
+description: How Hoplite represents applications, routes, handlers, fixed upstreams, bounded channels, and peer declarations.
 ---
 
 <span class="doc-badge doc-badge--success">Public</span>
@@ -41,6 +41,45 @@ At build time, Hoplite flattens the tree into method/path/handler records. An ap
 | `:summary` | No | Human-readable description used by OpenAPI output |
 | `:route/adapter` | No | `:raw`, `:request` (default), or `:request+hta`; overrides the application default |
 
+## Realtime declarations
+
+<span class="doc-badge doc-badge--caution">Experimental</span>
+
+An application may declare bounded ephemeral channels and peer handlers next to
+its HTTP resource tree:
+
+```clojure
+(h/app
+ {:name "collaboration"
+  :channels
+  [(h/channel {:name "signals"
+               :path "/signals/:channel"
+               :authorize #'authorize-subscriber
+               :admit #'admit-publisher})]
+  :peers
+  [(h/peer {:name "sync"
+            :channel "signals"
+            :handler #'handle-peer})]
+  :resources
+  [["/health" {:get {:handler #'health}}]]})
+```
+
+A channel becomes a more-specific Nginx location backed by the embedded Nchan
+module. Hoplite also generates internal GET and POST handler routes for the
+subscriber-authorization and publisher-admission subrequests. Those internal
+routes are part of the prepared runtime manifest but are omitted from public
+OpenAPI output.
+
+A peer declaration references a channel by name and binds application policy to
+one worker-local WebRTC data-channel configuration. It does not create a global
+peer registry or move session handles across Nginx workers. SDP negotiation and
+the resulting native Duplex are exposed through `hoplite.rtc`.
+
+Channel names and paths must be unique, peer names must be unique, peer channel
+references must resolve, and channel paths may not overlap fixed proxies. Both
+declarations use closed schemas with explicit buffer, subscriber, message, and
+timeout bounds. See [Realtime channels and WebRTC](/guides/realtime-channels-and-webrtc/).
+
 ## Fixed upstreams
 
 An application may declare build-time proxy prefixes for a known service origin:
@@ -63,4 +102,4 @@ A fixed upstream is a transport route, not an authentication grant. Hoplite stri
 
 ## Validation
 
-Hoplite rejects relative resource paths, operations without handlers, empty applications, duplicate application IDs, ambiguous default applications sharing a port, duplicate proxy prefixes, dynamic upstreams, and insecure non-loopback HTTP origins.
+Hoplite rejects relative resource paths, operations without handlers, empty applications, duplicate application IDs, ambiguous default applications sharing a port, duplicate proxy prefixes, dynamic upstreams, insecure non-loopback HTTP origins, duplicate channel names or paths, unknown peer channels, duplicate peer names, and unsupported realtime fields.
