@@ -3,7 +3,11 @@ title: Realtime channels and WebRTC
 description: Use bounded Nchan fan-out for signalling and worker-local WebRTC sessions for direct Duplex traffic.
 ---
 
-<span class="doc-badge doc-badge--caution">Experimental</span>
+<span class="doc-badge doc-badge--caution">Experimental</span> <span class="doc-badge doc-badge--note">Current main</span>
+
+This page tracks the 0.2.0 development line on `main`. Tagged binary releases
+may lag the documentation; check [Releases](https://github.com/greenways-ai/hoplite/releases)
+before depending on these experimental interfaces in an installed build.
 
 Hoplite now exposes two deliberately separate realtime layers:
 
@@ -37,6 +41,9 @@ Channels and peer handlers are immutable application data:
   ;; Application-owned peer/signalling policy.
   {:status 204})
 
+(defn health [_request]
+  {:status 200 :body "ok"})
+
 (def app
   (h/app
    {:name "realtime"
@@ -61,7 +68,7 @@ Channels and peer handlers are immutable application data:
        :max-message-bytes 65536
        :idle-timeout-seconds 120})]
     :resources
-    [["/health" {:get {:handler (fn [_] {:status 200 :body "ok"})}}]]}))
+    [["/health" {:get {:handler #'health}}]]}))
 ```
 
 The channel path must be a safe absolute path ending in `/:channel`. Hoplite
@@ -113,7 +120,7 @@ remote answer, and then wraps the session as a Duplex:
 (defn ^:async dial [exchange-offer]
   (let [handle (co/await
                 (rtc/open {:label "sync"
-                           :bind-address "0.0.0.0:0"
+                           :bind-address "127.0.0.1:0"
                            :max-message-bytes 65536}))
         local-offer (co/await (rtc/offer handle))
         remote-answer (co/await (exchange-offer local-offer))]
@@ -128,7 +135,7 @@ the generated answer through signalling, and then connects the same handle:
 (defn ^:async answer-peer [remote-offer publish-answer]
   (let [handle (co/await
                 (rtc/open {:label "sync"
-                           :bind-address "0.0.0.0:0"}))
+                           :bind-address "127.0.0.1:0"}))
         local-answer (co/await (rtc/answer handle remote-offer))]
     (co/await (publish-answer local-answer))
     (rtc/connect handle)))
@@ -143,7 +150,8 @@ session.
 - A session handle is authority inside one Nginx worker. Do not persist it,
   serialize it, transfer it to another worker, or treat it as an identity.
 - `:bind-address` is a numeric `"address:port"`. It defaults to
-  `"127.0.0.1:0"`; bind a reachable interface for traffic from another host.
+  `"127.0.0.1:0"`; replace the loopback address with a concrete reachable
+  interface address for traffic from another host.
 - The host owns the nonblocking UDP socket, worker event registration, and RTC
   timer. HAL owns the signalling policy and the lifetime of the returned
   Duplex.
