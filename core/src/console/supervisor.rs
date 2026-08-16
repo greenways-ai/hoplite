@@ -91,7 +91,10 @@ impl SupervisorConfig {
             )
         })?;
         let grant_hta = fs::read(grant_path).map_err(|error| {
-            format!("cannot read console grant {}: {error}", grant_path.display())
+            format!(
+                "cannot read console grant {}: {error}",
+                grant_path.display()
+            )
         })?;
         let config = Self {
             socket_path,
@@ -186,8 +189,8 @@ fn serve_one_authenticated(
 
     let (parent_evaluation, child_evaluation) =
         UnixStream::pair().map_err(|error| format!("cannot create evaluator channel: {error}"))?;
-    let (parent_broker, child_broker) =
-        UnixStream::pair().map_err(|error| format!("cannot create command broker channel: {error}"))?;
+    let (parent_broker, child_broker) = UnixStream::pair()
+        .map_err(|error| format!("cannot create command broker channel: {error}"))?;
     let bundle = open_immutable_bundle(&config.bundle_path)?;
     let mut child = spawn_evaluator(&config, child_evaluation, child_broker, bundle)?;
 
@@ -198,13 +201,7 @@ fn serve_one_authenticated(
     let broker_worker = thread::Builder::new()
         .name("hoplite-console-command-broker".into())
         .spawn(move || {
-            let _ = broker_loop(
-                parent_broker,
-                descriptors_hta,
-                grant_hta,
-                limits,
-                broker,
-            );
+            let _ = broker_loop(parent_broker, descriptors_hta, grant_hta, limits, broker);
         })
         .map_err(|error| {
             terminate(&mut child);
@@ -244,7 +241,8 @@ fn supervise_connection(
         4096,
     )?;
     loop {
-        let Some(request) = read_hta_frame(client, limits.source_bytes + CONNECTION_FRAME_OVERHEAD)?
+        let Some(request) =
+            read_hta_frame(client, limits.source_bytes + CONNECTION_FRAME_OVERHEAD)?
         else {
             return Ok(());
         };
@@ -268,7 +266,9 @@ fn supervise_connection(
             WaitEvent::ClientReadable => {
                 client
                     .set_read_timeout(Some(Duration::from_millis(250)))
-                    .map_err(|error| format!("cannot configure console cancellation read: {error}"))?;
+                    .map_err(|error| {
+                        format!("cannot configure console cancellation read: {error}")
+                    })?;
                 let cancellation = read_hta_frame(client, CONNECTION_FRAME_OVERHEAD);
                 let _ = client.set_read_timeout(None);
                 let cancellation = cancellation?;
@@ -363,8 +363,9 @@ fn await_ready(
 }
 
 fn validate_eval_request(request: &Value, maximum_source: usize) -> Result<(), String> {
-    let entries = core::map_entries(request)
-        .ok_or_else(|| "hoplite.console/request-invalid: evaluation request must be a map".to_string())?;
+    let entries = core::map_entries(request).ok_or_else(|| {
+        "hoplite.console/request-invalid: evaluation request must be a map".to_string()
+    })?;
     if entries.len() != 2 {
         return Err(
             "hoplite.console/request-invalid: evaluation request must contain exactly op and source"
@@ -419,7 +420,10 @@ fn broker_loop(
             broker.as_ref(),
         ) {
             Ok(value) => success(value),
-            Err(error) => failure(error_code(&error), error),
+            Err(error) => {
+                let code = error_code(&error).to_owned();
+                failure(&code, error)
+            }
         };
         write_hta_frame(&mut stream, &response, limits.result_bytes)?;
     }
@@ -578,8 +582,12 @@ fn open_immutable_bundle(path: &Path) -> Result<File, String> {
             link.uid()
         ));
     }
-    let file = File::open(path)
-        .map_err(|error| format!("cannot open console client bundle {}: {error}", path.display()))?;
+    let file = File::open(path).map_err(|error| {
+        format!(
+            "cannot open console client bundle {}: {error}",
+            path.display()
+        )
+    })?;
     let opened = file
         .metadata()
         .map_err(|error| format!("cannot inspect open console client bundle: {error}"))?;
