@@ -58,6 +58,7 @@ export default defineConfig({
           label: "Guides",
           items: [
             { label: "Writing web services", slug: "guides/writing-web-services" },
+            { label: "Realtime channels & WebRTC", slug: "guides/realtime-channels-and-webrtc" },
             { label: "Async handlers", slug: "guides/async-handlers" },
             { label: "Development console", slug: "guides/development-console" },
             { label: "Multiple applications", slug: "guides/multiple-applications" },
@@ -75,6 +76,7 @@ export default defineConfig({
             { label: "Project schema", slug: "reference/project-schema" },
             { label: "Build output", slug: "reference/build-output" },
             { label: "hoplite.core", slug: "reference/hoplite-core" },
+            { label: "hoplite.rtc", slug: "reference/hoplite-rtc" },
             { label: "hoplite.host", slug: "reference/hoplite-host" },
             { label: "hoplite.response-source", slug: "reference/hoplite-response-source" },
             { label: "hoplite.dev", slug: "reference/hoplite-dev" },
