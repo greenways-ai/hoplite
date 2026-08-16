@@ -1,0 +1,114 @@
+---
+title: hoplite.nchan
+description: Packaged HAL declarations for bounded Nchan-backed WebSocket and SSE channels.
+---
+
+<span class="doc-badge doc-badge--caution">Experimental</span> <span class="doc-badge doc-badge--note">Packaged surface</span>
+
+`hoplite.nchan` owns the application-facing constructor for bounded,
+ephemeral Nchan channels. The namespace is exported from the Hoplite HARP
+package as `:hoplite/nchan` and is imported through an exact package version
+and `project.lock.edn` archive binding.
+
+Nchan itself is **not** loaded from the application package. It remains
+statically linked into the trusted Hoplite/Nginx server distribution. The
+HARP export supplies verified HAL declarations that are compiled into the
+application's HBX0 bundle; production startup remains source-free and
+network-free.
+
+## Activate the export
+
+Select the export under the Hoplite profile:
+
+```clojure
+{:profile/extensions
+ {:extension/hoplite
+  {:hoplite/modules
+   [{:module/id "gh:greenways-ai:hoplite"
+     :module/version "0.2.0"
+     :module/export :hoplite/nchan
+     :module/as :nchan
+     :module/config {}}]}}}
+```
+
+The exact archive must also be present in `project.lock.edn`. During
+`hoplite serve check` and `hoplite serve build`, Hoplite verifies the
+package, resolves the selected export's package-local namespace closure,
+rejects namespace collisions, and compiles the selected HBC0 modules into
+the application HBX0 bundle.
+
+## `channel`
+
+```clojure
+(channel definition)
+```
+
+`hoplite.nchan/channel` tags a closed channel definition for Hoplite's
+application compiler:
+
+```clojure
+(ns example.realtime
+  (:require [hoplite.core :as h]
+            [hoplite.nchan :as nchan]))
+
+(defn authorize-subscriber [_request]
+  {:status 204})
+
+(defn admit-publisher [_request]
+  {:status 204})
+
+(def app
+  (h/app
+   {:name "realtime"
+    :channels
+    [(nchan/channel
+      {:name "signals"
+       :path "/signals/:channel"
+       :profile :ephemeral
+       :authorize #'authorize-subscriber
+       :admit #'admit-publisher
+       :transports [:websocket :sse]
+       :message-buffer 8
+       :message-timeout-seconds 30
+       :max-channel-id-bytes 128
+       :max-subscribers 4})]
+    :resources
+    [["/health"
+      {:get {:handler (fn [_] {:status 200 :body "ok"})}}]]}))
+```
+
+The constructor returns immutable application data. It does not register a
+native module, open a socket, create durable state, or grant publisher or
+subscriber authority.
+
+## Closed channel schema
+
+| Field | Default | Contract |
+| --- | --- | --- |
+| `:name` | Required | 1–64 ASCII letters, digits, `-`, or `_` |
+| `:path` | Required | Safe absolute path ending in `/:channel` |
+| `:profile` | `:ephemeral` | Only `:ephemeral` |
+| `:authorize` | Required | Callable or Var for subscriber authorization |
+| `:admit` | Required | Callable or Var for publisher admission |
+| `:transports` | `[:websocket :sse]` | Non-empty subset of `:websocket` and `:sse` |
+| `:message-buffer` | `8` | `0`–`64` messages |
+| `:message-timeout-seconds` | `30` | `1`–`300` seconds |
+| `:max-channel-id-bytes` | `128` | `22`–`256` bytes |
+| `:max-subscribers` | `4` | `1`–`64` subscribers |
+
+Hoplite rejects unknown fields, duplicate channel names or paths, proxy
+overlap, unsupported transports, unsafe channel paths, and values outside
+the declared bounds before rendering Nginx configuration.
+
+## Native boundary
+
+A selected `:hoplite/nchan` HARP export is a build input. It cannot inject
+raw Nginx directives or select a native binary, process path, credential,
+Redis endpoint, or dynamic upstream. The trusted Hoplite compiler renders
+the validated channel data into its fixed Nchan directive set.
+
+`hoplite.core/channel` remains a compatibility constructor for the current
+pre-1.0 line, but new packaged applications should import
+`hoplite.nchan/channel` directly.
+
+**Source:** [`core/lib/src/hoplite/nchan.hal`](https://github.com/greenways-ai/hoplite/blob/main/core/lib/src/hoplite/nchan.hal)

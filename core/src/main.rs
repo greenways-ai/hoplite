@@ -21,7 +21,10 @@ mod dev_console;
 mod diagnostics;
 mod doctor;
 mod host;
+mod module_import;
 mod package;
+mod package_catalog;
+mod package_export;
 mod platform;
 mod repl;
 
@@ -297,18 +300,25 @@ fn serve_usage() {
 fn check(root: &Path, settings: &BuildSettings) -> Result<Project, String> {
     let project = project::discover(root)?;
     reject_legacy_extension_manifest(&project.root)?;
-    let sources = source_files(&project)?;
+    let (_platform_config, resolved_modules) =
+        platform::load_resolved(&project, settings.profile.as_deref())?;
+    let (compilation_project, _imports) =
+        module_import::augment_project(&project, &resolved_modules)?;
+    let sources = source_files(&compilation_project)?;
     if sources.is_empty() {
         return Err("project has no .hal source files".into());
     }
     let modules = application_modules(&sources)?;
     let hbx0 = compile_application_modules(&modules)
         .map_err(|error| format!("Hoplite bytecode compilation failed: {error}"))?;
-    let app_config = app::load(&project, settings.profile.as_deref(), settings.production)?;
+    let app_config = app::load(
+        &compilation_project,
+        settings.profile.as_deref(),
+        settings.production,
+    )?;
     let manifest = app::manifest(&app_config)?;
     application_bundle::encode(&manifest, &hbx0)
         .map_err(|error| format!("cannot encode Hoplite application bundle: {error}"))?;
-    platform::load(&project, settings.profile.as_deref())?;
     Ok(project)
 }
 
@@ -343,7 +353,11 @@ fn write_runtime_source_projection(
 
 fn build(root: &Path, settings: &BuildSettings) -> Result<PathBuf, String> {
     let project = check(root, settings)?;
-    let sources = source_files(&project)?;
+    let (platform_config, resolved_modules) =
+        platform::load_resolved(&project, settings.profile.as_deref())?;
+    let (compilation_project, _imports) =
+        module_import::augment_project(&project, &resolved_modules)?;
+    let sources = source_files(&compilation_project)?;
     let modules = application_modules(&sources)?;
     let runtime_source = if settings.production {
         None
@@ -352,11 +366,14 @@ fn build(root: &Path, settings: &BuildSettings) -> Result<PathBuf, String> {
     };
     let hbx0 = compile_application_modules(&modules)
         .map_err(|error| format!("Hoplite bytecode compilation failed: {error}"))?;
-    let app_config = app::load(&project, settings.profile.as_deref(), settings.production)?;
+    let app_config = app::load(
+        &compilation_project,
+        settings.profile.as_deref(),
+        settings.production,
+    )?;
     let manifest = app::manifest(&app_config)?;
     let bundle = application_bundle::encode(&manifest, &hbx0)
         .map_err(|error| format!("cannot encode Hoplite application bundle: {error}"))?;
-    let platform_config = platform::load(&project, settings.profile.as_deref())?;
     let output = project.root.join(".hoplite");
     let configuration = output.join("conf");
     fs::create_dir_all(&configuration).map_err(io)?;
@@ -793,6 +810,7 @@ fn application_modules(files: &[PathBuf]) -> Result<Vec<ApplicationModule>, Stri
         app::INTERNAL_SOURCE,
         app::RAW_SOURCE,
         app::RESPONSE_SOURCE,
+        app::RTC_SOURCE,
     ];
     for source in builtins {
         let module = application_module(source)?;
@@ -802,12 +820,16 @@ fn application_modules(files: &[PathBuf]) -> Result<Vec<ApplicationModule>, Stri
         let source = fs::read_to_string(path).map_err(io)?;
         let module =
             application_module(&source).map_err(|error| format!("{}: {error}", path.display()))?;
-        if modules.insert(module.namespace.clone(), module).is_some() {
+        if let Some(existing) = modules.get(&module.namespace) {
+            if existing.source == module.source {
+                continue;
+            }
             return Err(format!(
                 "duplicate Hoplite application namespace in {}",
                 path.display()
             ));
         }
+        modules.insert(module.namespace.clone(), module);
     }
     let mut namespaces = modules.keys().cloned().collect::<Vec<_>>();
     namespaces.sort();
@@ -1137,6 +1159,9 @@ mod tests {
         assert!(!modules
             .iter()
             .any(|module| module.namespace == "hoplite.value"));
+        assert!(modules
+            .iter()
+            .any(|module| module.namespace == "hoplite.rtc"));
     }
 
     #[test]

@@ -22,10 +22,23 @@ Rust sources, and signed WASM or HTA artifacts. Rust crates are publication-time
 build inputs; Hoplite activates their locked artifacts rather than compiling or
 downloading native code at runtime.
 
+## Imported namespace closures
+
+During `hoplite serve check` and `hoplite serve build`, each selected export is
+resolved through the exact `project.lock.edn` package binding. Hoplite reads the
+export's `:export/namespace`, follows only package-local `:require` edges, and
+projects that verified namespace closure into the application compiler. The
+resulting HBC0 modules are carried inside the application HBX0 bundle.
+
+The projection is temporary and is deleted after the build. Production startup
+therefore remains source-free and network-free: `hoplite-server` does not reopen
+the HARP archive or the local package cache.
+
 Exports are independently composable. Hoplite packages contain no native
-provider product or release lifecycle. A `.harp`
-activation cannot select a process path, driver, credential, or native service
-from request data.
+provider product or release lifecycle. A `.harp` activation cannot select a
+process path, driver, credential, or native service from request data. Native
+requirements such as Nchan remain statically linked into the trusted Hoplite
+server distribution.
 
 Historical authentication and provider packaging features were retired in
 0.2.0.

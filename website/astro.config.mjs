@@ -76,6 +76,7 @@ export default defineConfig({
             { label: "Project schema", slug: "reference/project-schema" },
             { label: "Build output", slug: "reference/build-output" },
             { label: "hoplite.core", slug: "reference/hoplite-core" },
+            { label: "hoplite.nchan", slug: "reference/hoplite-nchan" },
             { label: "hoplite.rtc", slug: "reference/hoplite-rtc" },
             { label: "hoplite.host", slug: "reference/hoplite-host" },
             { label: "hoplite.response-source", slug: "reference/hoplite-response-source" },

@@ -8,7 +8,12 @@
  :project/capabilities #{:host/random :host/hash :host/signature :host/clock :host/secret}
  :project/dependencies {}
  :hoplite/exports
- {:hoplite/value-contract {:export/namespace hoplite.value}
-  :hoplite/response-source-contract {:export/namespace hoplite.response-source}
+ {:hoplite/core {:export/namespace hoplite.core}
+  :hoplite/nchan {:export/namespace hoplite.nchan}
+  :hoplite/rtc {:export/namespace hoplite.rtc}
+  :hoplite/host {:export/namespace hoplite.host}
+  :hoplite/raw {:export/namespace hoplite.raw}
+  :hoplite/response-source {:export/namespace hoplite.response-source}
+  :hoplite/dev {:export/namespace hoplite.dev}
   :hoplite/gateway {:export/namespace hoplite.core}
   :hoplite/module-runtime {:export/namespace hoplite.core}}}
