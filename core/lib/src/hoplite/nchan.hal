@@ -1,0 +1,7 @@
+(ns hoplite.nchan
+  (:config {}))
+
+(defn channel
+  "Declares one bounded Nchan-backed publish/subscribe endpoint."
+  [definition]
+  (assoc definition :hoplite/type :channel))

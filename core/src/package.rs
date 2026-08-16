@@ -28,9 +28,7 @@ pub fn run(arguments: &[String]) -> Result<(), String> {
     hara_wasm::package::run(arguments)
 }
 
-pub fn ensure_locked(
-    package: &hara_wasm::package_catalog::LockedPackage,
-) -> Result<PathBuf, String> {
+pub fn ensure_locked(package: &crate::package_catalog::LockedPackage) -> Result<PathBuf, String> {
     let version = Version::parse(&package.version)
         .map_err(|error| format!("invalid locked package version: {error}"))?;
     let expected = package
@@ -109,7 +107,7 @@ fn curl_bytes(url: &str, output: Option<&Path>) -> Result<Vec<u8>, String> {
 
 fn verify_registry_release(
     source: &[u8],
-    package: &hara_wasm::package_catalog::LockedPackage,
+    package: &crate::package_catalog::LockedPackage,
 ) -> Result<(), String> {
     let source = std::str::from_utf8(source).map_err(|_| "package registry is not UTF-8")?;
     let Form::Map(registry) = parse(source)? else {
@@ -412,7 +410,7 @@ mod tests {
 
     #[test]
     fn registry_release_must_match_the_locked_digest_and_identity_revision() {
-        let package = hara_wasm::package_catalog::LockedPackage {
+        let package = crate::package_catalog::LockedPackage {
             coordinate: "gh:greenways-ai:demo".into(),
             version: "1.2.3".into(),
             tap: "hara".into(),

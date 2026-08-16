@@ -2,6 +2,7 @@
   "format": "hoplite.public-surfaces/0-alpha",
   "hal_namespaces": [
     {"name":"hoplite.core","path":"core/lib/src/hoplite/core.hal","status":"public","conformance":["core/lib/test/hoplite/core_test.hal"],"summary":"Application, resource, router and route composition."},
+    {"name":"hoplite.nchan","path":"core/lib/src/hoplite/nchan.hal","status":"experimental","conformance":["core/lib/test/hoplite/nchan_test.hal","core/src/package_catalog.rs","core/src/package_export.rs","core/src/module_import.rs"],"summary":"Packaged bounded Nchan channel declarations imported into application bytecode."},
     {"name":"hoplite.dev","path":"core/lib/src/hoplite/dev.hal","status":"experimental","conformance":["core/lib/test/hoplite/core_test.hal"],"summary":"Development-console helpers excluded from production."},
     {"name":"hoplite.host","path":"core/lib/src/hoplite/host.hal","status":"experimental","conformance":["packaging/scripts/smoke-host-providers.sh"],"summary":"Generic host-service calls."},
     {"name":"hoplite.internal","path":"core/lib/src/hoplite/internal.hal","status":"internal","summary":"Implementation helpers with no compatibility promise."},

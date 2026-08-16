@@ -48,7 +48,7 @@
                         {:phase :stream/invalid-source})))))
 
 (defn channel
-  "Declares one bounded Nchan-backed publish/subscribe endpoint."
+  "Compatibility constructor for hoplite.nchan/channel."
   [definition]
   (tagged :channel definition))
 

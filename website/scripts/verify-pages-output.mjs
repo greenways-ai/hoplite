@@ -15,6 +15,7 @@ const required = [
   "guides/writing-web-services/index.html",
   "guides/diagnostics/index.html",
   "reference/hoplite-response-source/index.html",
+  "reference/hoplite-nchan/index.html",
   "benchmarks/http.json",
   "benchmarks/footprints.json",
   legacyRuntimeModelPath,
@@ -74,6 +75,7 @@ const referenceContracts = {
   "hoplite-dev": ["example.app", "Common failures", ":status :running", "16384"],
   "hoplite-host": ["example.crypto", "Signature verification", "00ff10", "4096"],
   "hoplite-internal": ["example.host", "example.admin", ":profile/main", "configuration errors"],
+  "hoplite-nchan": [":hoplite/nchan", "nchan/channel", "HBX0", "statically linked"],
   "hoplite-response-source": ["example.download", "Using a provider-owned body", "Validation and failures", "69632"],
 };
 

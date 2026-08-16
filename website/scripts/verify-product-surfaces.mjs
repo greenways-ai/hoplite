@@ -29,6 +29,10 @@ const rtcSurface = publicSurfaces.hal_namespaces.find(({ name }) => name === "ho
 if (rtcSurface?.status !== "experimental" || !rtcSurface.conformance.includes("core/lib/test/hoplite/rtc_test.hal")) {
   throw new Error("Unexpected hoplite.rtc public-surface contract");
 }
+const nchanSurface = publicSurfaces.hal_namespaces.find(({ name }) => name === "hoplite.nchan");
+if (nchanSurface?.status !== "experimental" || !nchanSurface.conformance.includes("core/lib/test/hoplite/nchan_test.hal")) {
+  throw new Error("Unexpected hoplite.nchan public-surface contract");
+}
 
 const cliReference = await readFile(join(contentRoot, "reference/cli.mdx"), "utf8");
 for (const command of publicSurfaces.cli_commands.filter(({ status }) => status === "public")) {
@@ -41,7 +45,8 @@ const requiredMarkers = {
   "reference/build-output.md": ["Source-free production", "hoplite.development-source-projection/0-alpha", "retired in 0.2.0"],
   "concepts/data-plane-providers.md": ["Data-plane boundaries", "retired in 0.2.0"],
   "concepts/runtime-model.md": ["Nchan", "worker-local WebRTC sessions", "hoplite.core/stream"],
-  "guides/realtime-channels-and-webrtc.mdx": ["hoplite.core/channel", "hoplite.rtc/open", ":max-subscribers", "worker-local"],
+  "guides/realtime-channels-and-webrtc.mdx": ["hoplite.nchan/channel", ":hoplite/nchan", "hoplite.rtc/open", ":max-subscribers", "worker-local"],
+  "reference/hoplite-nchan.mdx": [":hoplite/nchan", "nchan/channel", "HBX0", "statically linked"],
   "reference/hoplite-core.mdx": [":stream/invalid-source", "## `channel`", "## `peer`"],
   "reference/hoplite-rtc.mdx": ["accept-answer", "1048576", "worker authority", "native `Duplex`"],
   "reference/project-schema.mdx": ["## Channel definition", "## Peer definition", ":idle-timeout-seconds"],

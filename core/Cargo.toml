@@ -3,7 +3,7 @@ name = "hoplite"
 version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
-rust-version = "1.78"
+rust-version = "1.88"
 description = "Hara application server for Nginx"
 default-run = "hoplite"
 autobins = false
@@ -36,6 +36,18 @@ path = "src/main.rs"
 [[bin]]
 name = "hoplite-server"
 path = "src/bin/hoplite-server.rs"
+
+[[bin]]
+name = "hoplite-console-bundle"
+path = "src/bin/hoplite-console-bundle.rs"
+
+[[bin]]
+name = "hoplite-console-evaluator"
+path = "src/bin/hoplite-console-evaluator.rs"
+
+[[bin]]
+name = "hoplite-console-supervisor"
+path = "src/bin/hoplite-console-supervisor.rs"
 
 [[bin]]
 name = "hoplite-bytecode-loading"

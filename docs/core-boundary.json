@@ -22,9 +22,13 @@
     {"path":"core/src/doctor.rs","status":"core","summary":"Path-redacted local runtime diagnostics."},
     {"path":"core/src/host.rs","status":"generic-interface","summary":"Generic host-service integration independent of concrete provider products."},
     {"path":"core/src/main.rs","status":"public","summary":"Hoplite development and control command."},
+    {"path":"core/src/module_import.rs","status":"core","summary":"Materializes verified selected HARP namespace closures for build-time compilation."},
     {"path":"core/src/package.rs","status":"core","summary":"Generic Hara package installation and integrity verification."},
+    {"path":"core/src/package_catalog.rs","status":"core","summary":"Parses exact package-lock catalogs and rejects namespace ownership conflicts."},
+    {"path":"core/src/package_export.rs","status":"core","summary":"Resolves selected package exports and their declared namespace dependency closures."},
     {"path":"core/src/platform.rs","status":"core","summary":"Application-neutral module activation."},
-    {"path":"core/src/repl.rs","status":"development","summary":"Interactive development REPL support."}
+    {"path":"core/src/repl.rs","status":"development","summary":"Interactive development REPL support."},
+    {"path":"core/src/rtc.rs","status":"core","summary":"Worker-local Sans-I/O WebRTC engine and FFI for the experimental realtime transport."}
   ],
   "abi_packages": [
     {"path":"core/abi/data-plane","status":"generic-interface","summary":"Generic request and response data-plane contract."},
@@ -52,7 +56,7 @@
     {"path":"packaging/scripts/validate-benchmark-data.sh","status":"internal-evidence","summary":"Validates measurement data deterministically."},
     {"path":"packaging/scripts/validate-runtime-measurement.mjs","status":"internal-evidence","summary":"Validates and compares versioned runtime measurement reports."},
     {"path":"packaging/scripts/verify-alpha-versioning.sh","status":"distribution","summary":"Protects independent version spaces."},
-    {"path":"packaging/scripts/verify-default-product.sh","status":"distribution","summary":"Proves the generic executable and dependency boundary."}
-    ,{"path":"packaging/scripts/verify-production-link.sh","status":"distribution","summary":"Proves the production Nginx link excludes source/compiler authority."}
+    {"path":"packaging/scripts/verify-default-product.sh","status":"distribution","summary":"Proves the generic executable and dependency boundary."},
+    {"path":"packaging/scripts/verify-production-link.sh","status":"distribution","summary":"Proves the production Nginx link excludes source/compiler authority."}
   ]
 }

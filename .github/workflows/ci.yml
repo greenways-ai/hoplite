@@ -3,7 +3,7 @@ name: CI
 env:
   # Hoplite consumes one reviewed Hara source revision until the embedding
   # runtime is available as a published dependency.
-  HARA_REF: 6dd73bbb9ba546b90dee0a075323998dd3abac85
+  HARA_REF: 2b3efd14451e96e9e79cd9645fb7e10d9e3782d6
 
 on:
   push:
