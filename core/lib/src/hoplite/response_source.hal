@@ -22,7 +22,7 @@
   "Returns true when value is an integer portable without precision loss."
   [value]
   (and
-   (= :hara/Integer (type value))
+   (integer? value)
    (<= safe-integer-min value)
    (<= value safe-integer-max)))
 
