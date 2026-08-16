@@ -43,6 +43,7 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          import base64
 
           old_hara = "6dd73bbb9ba546b90dee0a075323998dd3abac85"
           new_hara = "2b3efd14451e96e9e79cd9645fb7e10d9e3782d6"
@@ -81,118 +82,8 @@ jobs:
               raise SystemExit("unexpected response-source integer contract")
           response_source.write_text(source.replace(old, new))
 
-          Path("core/lib/test/hoplite/response_source_test.hal").write_text(r'''(ns hoplite.response-source-test
-  (:require [hoplite.response-source :as source]))
-
-(def valid
-  (source/response-source "hoplite.blob" 17 4 9))
-
-(Test/run
- [{:name "constructs one closed portable response source"
-   :test (fn [] valid)
-   :expected {:protocol "hoplite.response-source/0-alpha"
-              :service "hoplite.blob"
-              :source-handle 17
-              :offset 4
-              :length 9}}
-
-  {:name "the short constructor starts at offset zero"
-   :test (fn [] (source/response-source "hoplite.blob" 19 7))
-   :expected {:protocol "hoplite.response-source/0-alpha"
-              :service "hoplite.blob"
-              :source-handle 19
-              :offset 0
-              :length 7}}
-
-  {:name "accessors preserve the bounded half-open interval"
-   :test (fn []
-           [(source/source-service valid)
-            (source/source-handle valid)
-            (source/source-offset valid)
-            (source/source-length valid)
-            (source/source-end valid)])
-   :expected ["hoplite.blob" 17 4 9 13]}
-
-  {:name "the descriptor has an exact closed field set"
-   :test (fn []
-           [(source/response-source? valid)
-            (source/response-source? (assoc valid :driver "memory"))
-            (source/response-source? (dissoc valid :length))
-            (source/response-source? (assoc valid :protocol "other/1"))])
-   :expected [true false false false]}
-
-  {:name "portable integer validation includes both exact safe bounds"
-   :test (fn []
-           [(source/safe-integer? source/safe-integer-min)
-            (source/safe-integer? source/safe-integer-max)
-            (source/safe-integer? -9007199254740992)
-            (source/safe-integer? 9007199254740992)
-            (source/safe-integer? 31)])
-   :expected [true true false false true]}
-
-  {:name "handles, offsets and lengths stay inside portable integer bounds"
-   :test (fn []
-           [(source/response-source? (source/response-source "hoplite.blob" 1 1))
-            (source/response-source?
-             (source/response-source
-              "hoplite.blob"
-              source/safe-integer-max
-              0
-              source/safe-integer-max))
-            (source/response-source?
-             {:protocol source/protocol
-              :service "hoplite.blob"
-              :source-handle 0
-              :offset 0
-              :length 1})
-            (source/response-source?
-             {:protocol source/protocol
-              :service "hoplite.blob"
-              :source-handle 1
-              :offset -1
-              :length 1})
-            (source/response-source?
-             {:protocol source/protocol
-              :service "hoplite.blob"
-              :source-handle 1
-              :offset 0
-              :length 0})
-            (source/response-source?
-             {:protocol source/protocol
-              :service "hoplite.blob"
-              :source-handle 1
-              :offset source/safe-integer-max
-              :length 1})])
-   :expected [true true false false false false]}
-
-  {:name "invalid constructors fail with one stable application-neutral error"
-   :test (fn []
-           (try
-             (source/response-source "hoplite.blob" 0 0 1)
-             (catch Throwable error
-               [(ex-message error)
-                (ex-data error)])))
-   :expected ["invalid hoplite.response-source/0-alpha"
-              {:phase :response-source/invalid
-               :reason :descriptor}]}
-
-  {:name "accessors reject forged descriptors through the same boundary"
-   :test (fn []
-           (try
-             (source/source-length {:source-handle 17})
-             (catch Throwable error
-               (ex-data error))))
-   :expected {:phase :response-source/invalid
-              :reason :descriptor}}
-
-  {:name "numeric handles do not carry provider, path or credential metadata"
-   :test (fn []
-           [(has? valid :provider)
-            (has? valid :path)
-            (has? valid :credentials)
-            (has? valid :work)])
-   :expected [false false false false]}])
-''')
+          response_test = base64.b64decode("KG5zIGhvcGxpdGUucmVzcG9uc2Utc291cmNlLXRlc3QKICAoOnJlcXVpcmUgW2hvcGxpdGUucmVzcG9uc2Utc291cmNlIDphcyBzb3VyY2VdKSkKCihkZWYgdmFsaWQKICAoc291cmNlL3Jlc3BvbnNlLXNvdXJjZSAiaG9wbGl0ZS5ibG9iIiAxNyA0IDkpKQoKKFRlc3QvcnVuCiBbezpuYW1lICJjb25zdHJ1Y3RzIG9uZSBjbG9zZWQgcG9ydGFibGUgcmVzcG9uc2Ugc291cmNlIgogICA6dGVzdCAoZm4gW10gdmFsaWQpCiAgIDpleHBlY3RlZCB7OnByb3RvY29sICJob3BsaXRlLnJlc3BvbnNlLXNvdXJjZS8wLWFscGhhIgogICAgICAgICAgICAgIDpzZXJ2aWNlICJob3BsaXRlLmJsb2IiCiAgICAgICAgICAgICAgOnNvdXJjZS1oYW5kbGUgMTcKICAgICAgICAgICAgICA6b2Zmc2V0IDQKICAgICAgICAgICAgICA6bGVuZ3RoIDl9fQoKICB7Om5hbWUgInRoZSBzaG9ydCBjb25zdHJ1Y3RvciBzdGFydHMgYXQgb2Zmc2V0IHplcm8iCiAgIDp0ZXN0IChmbiBbXSAoc291cmNlL3Jlc3BvbnNlLXNvdXJjZSAiaG9wbGl0ZS5ibG9iIiAxOSA3KSkKICAgOmV4cGVjdGVkIHs6cHJvdG9jb2wgImhvcGxpdGUucmVzcG9uc2Utc291cmNlLzAtYWxwaGEiCiAgICAgICAgICAgICAgOnNlcnZpY2UgImhvcGxpdGUuYmxvYiIKICAgICAgICAgICAgICA6c291cmNlLWhhbmRsZSAxOQogICAgICAgICAgICAgIDpvZmZzZXQgMAogICAgICAgICAgICAgIDpsZW5ndGggN319CgogIHs6bmFtZSAiYWNjZXNzb3JzIHByZXNlcnZlIHRoZSBib3VuZGVkIGhhbGYtb3BlbiBpbnRlcnZhbCIKICAgOnRlc3QgKGZuIFtdCiAgICAgICAgICAgWyhzb3VyY2Uvc291cmNlLXNlcnZpY2UgdmFsaWQpCiAgICAgICAgICAgIChzb3VyY2Uvc291cmNlLWhhbmRsZSB2YWxpZCkKICAgICAgICAgICAgKHNvdXJjZS9zb3VyY2Utb2Zmc2V0IHZhbGlkKQogICAgICAgICAgICAoc291cmNlL3NvdXJjZS1sZW5ndGggdmFsaWQpCiAgICAgICAgICAgIChzb3VyY2Uvc291cmNlLWVuZCB2YWxpZCldKQogICA6ZXhwZWN0ZWQgWyJob3BsaXRlLmJsb2IiIDE3IDQgOSAxM119CgogIHs6bmFtZSAidGhlIGRlc2NyaXB0b3IgaGFzIGFuIGV4YWN0IGNsb3NlZCBmaWVsZCBzZXQiCiAgIDp0ZXN0IChmbiBbXQogICAgICAgICAgIFsoc291cmNlL3Jlc3BvbnNlLXNvdXJjZT8gdmFsaWQpCiAgICAgICAgICAgIChzb3VyY2UvcmVzcG9uc2Utc291cmNlPyAoYXNzb2MgdmFsaWQgOmRyaXZlciAibWVtb3J5IikpCiAgICAgICAgICAgIChzb3VyY2UvcmVzcG9uc2Utc291cmNlPyAoZGlzc29jIHZhbGlkIDpsZW5ndGgpKQogICAgICAgICAgICAoc291cmNlL3Jlc3BvbnNlLXNvdXJjZT8gKGFzc29jIHZhbGlkIDpwcm90b2NvbCAib3RoZXIvMSIpKV0pCiAgIDpleHBlY3RlZCBbdHJ1ZSBmYWxzZSBmYWxzZSBmYWxzZV19CgogIHs6bmFtZSAicG9ydGFibGUgaW50ZWdlciB2YWxpZGF0aW9uIGluY2x1ZGVzIGJvdGggZXhhY3Qgc2FmZSBib3VuZHMiCiAgIDp0ZXN0IChmbiBbXQogICAgICAgICAgIFsoc291cmNlL3NhZmUtaW50ZWdlcj8gc291cmNlL3NhZmUtaW50ZWdlci1taW4pCiAgICAgICAgICAgIChzb3VyY2Uvc2FmZS1pbnRlZ2VyPyBzb3VyY2Uvc2FmZS1pbnRlZ2VyLW1heCkKICAgICAgICAgICAgKHNvdXJjZS9zYWZlLWludGVnZXI/IC05MDA3MTk5MjU0NzQwOTkyKQogICAgICAgICAgICAoc291cmNlL3NhZmUtaW50ZWdlcj8gOTAwNzE5OTI1NDc0MDk5MikKICAgICAgICAgICAgKHNvdXJjZS9zYWZlLWludGVnZXI/IDMxKV0pCiAgIDpleHBlY3RlZCBbdHJ1ZSB0cnVlIGZhbHNlIGZhbHNlIHRydWVdfQoKICB7Om5hbWUgImhhbmRsZXMsIG9mZnNldHMgYW5kIGxlbmd0aHMgc3RheSBpbnNpZGUgcG9ydGFibGUgaW50ZWdlciBib3VuZHMiCiAgIDp0ZXN0IChmbiBbXQogICAgICAgICAgIFsoc291cmNlL3Jlc3BvbnNlLXNvdXJjZT8gKHNvdXJjZS9yZXNwb25zZS1zb3VyY2UgImhvcGxpdGUuYmxvYiIgMSAxKSkKICAgICAgICAgICAgKHNvdXJjZS9yZXNwb25zZS1zb3VyY2U/CiAgICAgICAgICAgICAoc291cmNlL3Jlc3BvbnNlLXNvdXJjZQogICAgICAgICAgICAgICJob3BsaXRlLmJsb2IiCiAgICAgICAgICAgICAgc291cmNlL3NhZmUtaW50ZWdlci1tYXgKICAgICAgICAgICAgICAwCiAgICAgICAgICAgICAgc291cmNlL3NhZmUtaW50ZWdlci1tYXgpKQogICAgICAgICAgICAoc291cmNlL3Jlc3BvbnNlLXNvdXJjZT8KICAgICAgICAgICAgIHs6cHJvdG9jb2wgc291cmNlL3Byb3RvY29sCiAgICAgICAgICAgICAgOnNlcnZpY2UgImhvcGxpdGUuYmxvYiIKICAgICAgICAgICAgICA6c291cmNlLWhhbmRsZSAwCiAgICAgICAgICAgICAgOm9mZnNldCAwCiAgICAgICAgICAgICAgOmxlbmd0aCAxfSkKICAgICAgICAgICAgKHNvdXJjZS9yZXNwb25zZS1zb3VyY2U/CiAgICAgICAgICAgICB7OnByb3RvY29sIHNvdXJjZS9wcm90b2NvbAogICAgICAgICAgICAgIDpzZXJ2aWNlICJob3BsaXRlLmJsb2IiCiAgICAgICAgICAgICAgOnNvdXJjZS1oYW5kbGUgMQogICAgICAgICAgICAgIDpvZmZzZXQgLTEKICAgICAgICAgICAgICA6bGVuZ3RoIDF9KQogICAgICAgICAgICAoc291cmNlL3Jlc3BvbnNlLXNvdXJjZT8KICAgICAgICAgICAgIHs6cHJvdG9jb2wgc291cmNlL3Byb3RvY29sCiAgICAgICAgICAgICAgOnNlcnZpY2UgImhvcGxpdGUuYmxvYiIKICAgICAgICAgICAgICA6c291cmNlLWhhbmRsZSAxCiAgICAgICAgICAgICAgOm9mZnNldCAwCiAgICAgICAgICAgICAgOmxlbmd0aCAwfSkKICAgICAgICAgICAgKHNvdXJjZS9yZXNwb25zZS1zb3VyY2U/CiAgICAgICAgICAgICB7OnByb3RvY29sIHNvdXJjZS9wcm90b2NvbAogICAgICAgICAgICAgIDpzZXJ2aWNlICJob3BsaXRlLmJsb2IiCiAgICAgICAgICAgICAgOnNvdXJjZS1oYW5kbGUgMQogICAgICAgICAgICAgIDpvZmZzZXQgc291cmNlL3NhZmUtaW50ZWdlci1tYXgKICAgICAgICAgICAgICA6bGVuZ3RoIDF9KV0pCiAgIDpleHBlY3RlZCBbdHJ1ZSB0cnVlIGZhbHNlIGZhbHNlIGZhbHNlIGZhbHNlXX0KCiAgezpuYW1lICJpbnZhbGlkIGNvbnN0cnVjdG9ycyBmYWlsIHdpdGggb25lIHN0YWJsZSBhcHBsaWNhdGlvbi1uZXV0cmFsIGVycm9yIgogICA6dGVzdCAoZm4gW10KICAgICAgICAgICAodHJ5CiAgICAgICAgICAgICAoc291cmNlL3Jlc3BvbnNlLXNvdXJjZSAiaG9wbGl0ZS5ibG9iIiAwIDAgMSkKICAgICAgICAgICAgIChjYXRjaCBUaHJvd2FibGUgZXJyb3IKICAgICAgICAgICAgICAgWyhleC1tZXNzYWdlIGVycm9yKQogICAgICAgICAgICAgICAgKGV4LWRhdGEgZXJyb3IpXSkpKQogICA6ZXhwZWN0ZWQgWyJpbnZhbGlkIGhvcGxpdGUucmVzcG9uc2Utc291cmNlLzAtYWxwaGEiCiAgICAgICAgICAgICAgezpwaGFzZSA6cmVzcG9uc2Utc291cmNlL2ludmFsaWQKICAgICAgICAgICAgICAgOnJlYXNvbiA6ZGVzY3JpcHRvcn1dfQoKICB7Om5hbWUgImFjY2Vzc29ycyByZWplY3QgZm9yZ2VkIGRlc2NyaXB0b3JzIHRocm91Z2ggdGhlIHNhbWUgYm91bmRhcnkiCiAgIDp0ZXN0IChmbiBbXQogICAgICAgICAgICh0cnkKICAgICAgICAgICAgIChzb3VyY2Uvc291cmNlLWxlbmd0aCB7OnNvdXJjZS1oYW5kbGUgMTd9KQogICAgICAgICAgICAgKGNhdGNoIFRocm93YWJsZSBlcnJvcgogICAgICAgICAgICAgICAoZXgtZGF0YSBlcnJvcikpKSkKICAgOmV4cGVjdGVkIHs6cGhhc2UgOnJlc3BvbnNlLXNvdXJjZS9pbnZhbGlkCiAgICAgICAgICAgICAgOnJlYXNvbiA6ZGVzY3JpcHRvcn19CgogIHs6bmFtZSAibnVtZXJpYyBoYW5kbGVzIGRvIG5vdCBjYXJyeSBwcm92aWRlciwgcGF0aCBvciBjcmVkZW50aWFsIG1ldGFkYXRhIgogICA6dGVzdCAoZm4gW10KICAgICAgICAgICBbKGhhcz8gdmFsaWQgOnByb3ZpZGVyKQogICAgICAgICAgICAoaGFzPyB2YWxpZCA6cGF0aCkKICAgICAgICAgICAgKGhhcz8gdmFsaWQgOmNyZWRlbnRpYWxzKQogICAgICAgICAgICAoaGFzPyB2YWxpZCA6d29yayldKQogICA6ZXhwZWN0ZWQgW2ZhbHNlIGZhbHNlIGZhbHNlIGZhbHNlXX1dKQo=").decode("utf-8")
+          Path("core/lib/test/hoplite/response_source_test.hal").write_text(response_test)
           PY
 
           cargo fmt --manifest-path core/Cargo.toml -- --check
