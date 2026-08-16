@@ -27,8 +27,8 @@ grep -F 'pub const RUNTIME_ABI_VERSION: u32 = 4;' \
   core/application-bundle/src/lib.rs >/dev/null
 
 test "$(tr -d '[:space:]' < packaging/hara-revision)" = \
-  '6dd73bbb9ba546b90dee0a075323998dd3abac85'
-grep -F 'HARA_REF: 6dd73bbb9ba546b90dee0a075323998dd3abac85' \
+  '2b3efd14451e96e9e79cd9645fb7e10d9e3782d6'
+grep -F 'HARA_REF: 2b3efd14451e96e9e79cd9645fb7e10d9e3782d6' \
   .github/workflows/ci.yml >/dev/null
 
 grep -F 'docs/versioning.md' README.md >/dev/null
