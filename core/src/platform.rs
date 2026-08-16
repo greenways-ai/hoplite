@@ -19,7 +19,14 @@ pub struct ModuleActivation {
     pub export: String,
     pub alias: String,
     pub config: Form,
+    pub namespace: Option<String>,
     pub archive_sha256: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedModule {
+    pub alias: String,
+    pub export: crate::package_export::ResolvedExport,
 }
 
 impl Default for Config {
@@ -31,6 +38,13 @@ impl Default for Config {
 }
 
 pub fn load(project: &Project, requested_profile: Option<&str>) -> Result<Config, String> {
+    load_resolved(project, requested_profile).map(|(config, _)| config)
+}
+
+pub fn load_resolved(
+    project: &Project,
+    requested_profile: Option<&str>,
+) -> Result<(Config, Vec<ResolvedModule>), String> {
     let selected = project
         .resolve_profile(requested_profile)?
         .ok_or("Hoplite requires :project/profiles with :profile/language :hoplite")?;
@@ -39,13 +53,13 @@ pub fn load(project: &Project, requested_profile: Option<&str>) -> Result<Config
     let manifest =
         parse(&source).map_err(|error| format!("{}: {error}", project.manifest_path.display()))?;
     let mut config = parse_profile(&manifest, &selected.name)?;
-    bind_lock(project, &mut config)?;
-    Ok(config)
+    let resolved = bind_lock(project, &mut config)?;
+    Ok((config, resolved))
 }
 
-fn bind_lock(project: &Project, config: &mut Config) -> Result<(), String> {
+fn bind_lock(project: &Project, config: &mut Config) -> Result<Vec<ResolvedModule>, String> {
     if config.modules.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     let path = project.root.join("project.lock.edn");
     let source = fs::read_to_string(&path).map_err(|error| {
@@ -54,22 +68,23 @@ fn bind_lock(project: &Project, config: &mut Config) -> Result<(), String> {
             path.display()
         )
     })?;
-    let packages = hara_wasm::package_catalog::catalog_from_lock(&source)
+    let packages = crate::package_catalog::catalog_from_lock(&source)
         .map_err(|error| format!("{}: {error}", path.display()))?;
-    let mut resolved = BTreeMap::new();
+    let mut locked = BTreeMap::new();
     for package in packages {
         let coordinate = normalize_module_coordinate(&package.coordinate)?;
         let version = Version::parse(&package.version)
             .map_err(|error| format!("locked package version is invalid: {error}"))?;
-        if resolved
+        if locked
             .insert(coordinate.clone(), (version, package))
             .is_some()
         {
             return Err(format!("duplicate locked package {coordinate}"));
         }
     }
+    let mut resolved = Vec::with_capacity(config.modules.len());
     for module in &mut config.modules {
-        let (version, package) = resolved
+        let (version, package) = locked
             .get(&module.id)
             .ok_or_else(|| format!("project.lock.edn does not lock module {}", module.id))?;
         if version != &module.version {
@@ -78,16 +93,15 @@ fn bind_lock(project: &Project, config: &mut Config) -> Result<(), String> {
                 module.id, module.version, version
             ));
         }
-        crate::package::ensure_locked(package)?;
-        module.archive_sha256 = Some(format!(
-            "sha256:{}",
-            package
-                .archive_sha256
-                .strip_prefix("sha256:")
-                .unwrap_or(&package.archive_sha256)
-        ));
+        let export = crate::package_export::resolve_locked_export(package, &module.export)?;
+        module.namespace = Some(export.namespace.clone());
+        module.archive_sha256 = Some(export.archive_sha256.clone());
+        resolved.push(ResolvedModule {
+            alias: module.alias.clone(),
+            export,
+        });
     }
-    Ok(())
+    Ok(resolved)
 }
 
 fn parse_profile(manifest: &Form, profile_name: &str) -> Result<Config, String> {
@@ -195,6 +209,7 @@ fn parse_modules(value: &Form) -> Result<Vec<ModuleActivation>, String> {
             export,
             alias,
             config,
+            namespace: None,
             archive_sha256: None,
         });
     }
@@ -257,6 +272,12 @@ fn to_form(config: &Config) -> Form {
                             (keyword("module/as"), keyword(&module.alias)),
                             (keyword("module/config"), module.config.clone()),
                         ];
+                        if let Some(namespace) = &module.namespace {
+                            fields.push((
+                                keyword("module/namespace"),
+                                Form::Symbol(namespace.clone()),
+                            ));
+                        }
                         if let Some(digest) = &module.archive_sha256 {
                             fields.push((
                                 keyword("module/archive-sha256"),

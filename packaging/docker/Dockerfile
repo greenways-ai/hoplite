@@ -1,7 +1,8 @@
 ARG NGINX_VERSION=1.30.4
 ARG NCHAN_VERSION=1.3.8
+ARG RUST_VERSION=1.88.0
 
-FROM rust:1.85-bookworm AS builder
+FROM rust:${RUST_VERSION}-bookworm AS builder
 ARG NGINX_VERSION
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential ca-certificates curl libpcre2-dev libssl-dev zlib1g-dev \

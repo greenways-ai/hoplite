@@ -1,0 +1,12 @@
+(ns hoplite.nchan-test
+  (:config {})
+  (:require [hoplite.nchan :as nchan]))
+
+(Test/run
+ [{:name "Nchan channels remain immutable application data"
+   :test (fn []
+           (nchan/channel {:name "signals"
+                           :path "/signals/:channel"}))
+   :expected {:name "signals"
+              :path "/signals/:channel"
+              :hoplite/type :channel}}])

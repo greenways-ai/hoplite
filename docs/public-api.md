@@ -117,6 +117,12 @@ already-closed handles fail before a provider callback runs.
 `hoplite.host` is experimental convenience over generic host calls. Application
 semantics must remain provider-replaceable.
 
+`hoplite.nchan` is an experimental packaged application surface. Selecting the
+`:hoplite/nchan` HARP export resolves its declared namespace closure, verifies
+those files against the locked archive, and compiles them into the application
+HBX0 bundle. The native Nchan module remains statically linked into the trusted
+Hoplite/Nginx distribution.
+
 `hoplite.dev` is development-only and is not part of source-free production
 startup.
 
