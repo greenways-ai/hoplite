@@ -33,7 +33,9 @@ jobs:
         with:
           components: rustfmt
       - name: Apply the closed application-console binding
-        run: python hoplite/packaging/scripts/apply-application-console-worker-binding.py
+        run: |
+          python hoplite/packaging/scripts/apply-application-console-worker-binding.py
+          python hoplite/packaging/scripts/apply-application-console-initializer-fixes.py
       - name: Format Rust
         run: cargo fmt --manifest-path hoplite/core/Cargo.toml
       - name: Verify the worker binding tests
@@ -47,7 +49,12 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add core/src/app.rs core/runtime/src/lib.rs core/nginx/hoplite_runtime.h
+          git add \
+            core/src/app.rs \
+            core/src/diagnostics.rs \
+            core/src/main.rs \
+            core/runtime/src/lib.rs \
+            core/nginx/hoplite_runtime.h
           git diff --cached --check
           git commit -m "Bind application console handler in the worker runtime"
           git push origin HEAD:feat/application-console-worker-binding
