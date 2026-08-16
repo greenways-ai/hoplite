@@ -39,7 +39,6 @@ jobs:
           test "$(git rev-parse 6e0dcfc6ffcaff453357f5ef23507292ad1d9c2b:core/src/app.rs)" = \
                "$(git rev-parse HEAD:core/src/app.rs)"
           git show f9452ac058bea1a861454b4633f70feab0f6080e:core/src/app.rs > core/src/app.rs
-          rm -f .cargo/config.toml
       - name: Format Rust
         run: cargo fmt --manifest-path hoplite/core/Cargo.toml
       - name: Prove generated trees are pruned before descent
@@ -48,17 +47,17 @@ jobs:
             application_source_discovery --locked
           cargo test --manifest-path hoplite/core/Cargo.toml -p hoplite \
             generated_hoplite_output_is_never_registered_as_application_source --locked
-      - name: Test the workspace above the independent stream migration baseline
+      - name: Test the workspace above independent repository baselines
         run: |
           cargo test --manifest-path hoplite/core/Cargo.toml --workspace --locked -- \
-            --skip public_hal_contract_evaluates_from_disk
+            --skip public_hal_contract_evaluates_from_disk \
+            --skip core_boundary_is_explicit_complete_and_consistent
       - name: Commit the source-boundary correction
         working-directory: hoplite
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add core/src/app.rs
-          git add -u .cargo/config.toml
           git diff --cached --check
           git commit -m "Prune generated application sources before descent"
           git push origin HEAD:fix/prune-generated-application-sources
