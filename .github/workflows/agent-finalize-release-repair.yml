@@ -95,16 +95,7 @@ jobs:
           source = response_test.read_text()
           if "(defn test-check" not in source:
               marker = "(ns hoplite.response-source-test\n  (:require [hoplite.response-source :as source]))\n\n"
-              helper = """(defn test-check
-  [name actual expected]
-  (if (= actual expected)
-    true
-    (throw
-     (ex-info name
-              {:actual actual
-               :expected expected}))))
-
-"""
+              helper = "(defn test-check\n  [name actual expected]\n  (if (= actual expected)\n    true\n    (throw\n     (ex-info name\n              {:actual actual\n               :expected expected}))))\n\n"
               if source.count(marker) != 1:
                   raise SystemExit("unexpected response-source test namespace header")
               source = source.replace(marker, marker + helper)
