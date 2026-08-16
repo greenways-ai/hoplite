@@ -21,7 +21,10 @@
   "cli_programs": [
     {"name":"hoplite","path":"core/src/main.rs","status":"public","availability":"default","conformance":["core/src/diagnostics.rs","core/src/doctor.rs"],"summary":"Development and control CLI."},
     {"name":"hoplite-server","path":"core/src/bin/hoplite-server.rs","status":"public","availability":"default","conformance":["packaging/scripts/smoke-worker-reload.sh"],"summary":"Source-free production serving CLI."},
-    {"name":"hoplite-bytecode-loading","path":"core/src/bin/hoplite-bytecode-loading.rs","status":"internal","availability":"internal-evidence","summary":"Scheduled bytecode measurement program."}
+    {"name":"hoplite-bytecode-loading","path":"core/src/bin/hoplite-bytecode-loading.rs","status":"internal","availability":"internal-evidence","summary":"Scheduled bytecode measurement program."},
+    {"name":"hoplite-console-bundle","path":"core/src/bin/hoplite-console-bundle.rs","status":"experimental","availability":"opt-in application-console tooling","conformance":["core/src/console/protocol.rs"],"summary":"Creates one immutable HCB0 client namespace bundle without overwriting an existing artifact."},
+    {"name":"hoplite-console-evaluator","path":"core/src/bin/hoplite-console-evaluator.rs","status":"internal","availability":"spawned only by the application-console supervisor","summary":"Zero-authority evaluator child process; not a user-facing command."},
+    {"name":"hoplite-console-supervisor","path":"core/src/bin/hoplite-console-supervisor.rs","status":"experimental","availability":"opt-in application-console tooling","conformance":["core/src/console/supervisor.rs","core/src/console/os.rs"],"summary":"Authenticated per-connection supervisor for isolated evaluators and named application commands."}
   ],
   "cli_commands": [
     {"program":"hoplite","name":"doctor","status":"public","availability":"default","conformance":["core/src/doctor.rs"],"summary":"Diagnose the redacted local serving environment."},
