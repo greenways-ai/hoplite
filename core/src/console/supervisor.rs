@@ -421,7 +421,7 @@ fn broker_loop(
         ) {
             Ok(value) => success(value),
             Err(error) => {
-                let code = error_code(&error);
+                let code = error_code(&error).to_owned();
                 failure(code, error)
             }
         };
