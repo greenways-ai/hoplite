@@ -3,7 +3,10 @@ title: hoplite.rtc
 description: Experimental worker-local WebRTC session negotiation and native Duplex construction.
 ---
 
-<span class="doc-badge doc-badge--caution">Experimental</span>
+<span class="doc-badge doc-badge--caution">Experimental</span> <span class="doc-badge doc-badge--note">Current main</span>
+
+This reference tracks the 0.2.0 development line on `main`. Confirm the surface
+against the installed Hoplite version when using a tagged binary release.
 
 `hoplite.rtc` is the HAL wrapper around the worker-installed `hoplite.rtc` host
 provider. It creates WebRTC sessions, performs SDP offer/answer exchange, and
@@ -31,7 +34,7 @@ handle.
 (def handle
   (co/await
    (rtc/open {:label "sync"
-              :bind-address "0.0.0.0:0"
+              :bind-address "127.0.0.1:0"
               :max-message-bytes 65536})))
 ```
 
@@ -40,6 +43,9 @@ handle.
 | `:label` | Yes | String naming the WebRTC data channel |
 | `:bind-address` | No | Numeric `"address:port"`; defaults to `"127.0.0.1:0"` |
 | `:max-message-bytes` | No | Integer from `1` through `1048576`; defaults to `65536` |
+
+Replace the loopback bind address with a concrete reachable numeric interface
+address when the remote peer is on another host.
 
 The handle is worker authority, not portable data. It must not be persisted,
 serialized, logged as a reusable credential, or used from another worker.
