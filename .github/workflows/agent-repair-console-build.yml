@@ -1,0 +1,143 @@
+name: Repair console build and validate source discovery
+
+on:
+  push:
+    branches:
+      - agent/prune-generated-source-output
+    paths:
+      - ".github/workflows/agent-repair-console-build.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/prune-generated-source-output
+          path: hoplite
+          fetch-depth: 0
+
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: 2b3efd14451e96e9e79cd9645fb7e10d9e3782d6
+          path: hara
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Repair the newly merged console code
+        working-directory: hoplite
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path_name: str, old: str, new: str) -> None:
+              path = Path(path_name)
+              source = path.read_text()
+              if source.count(old) != 1:
+                  raise SystemExit(f"expected exactly one match in {path_name}")
+              path.write_text(source.replace(old, new, 1))
+
+          os_path = Path("core/src/console/os.rs")
+          os_source = os_path.read_text()
+          if os_source.count("0_c_ulong") != 4 or os_source.count("1_c_ulong") != 1:
+              raise SystemExit("unexpected prctl literal inventory")
+          os_path.write_text(
+              os_source.replace("0_c_ulong", "0 as c_ulong").replace("1_c_ulong", "1 as c_ulong")
+          )
+
+          replace_once(
+              "core/src/console/dispatcher.rs",
+              '''        match result {
+              Ok(value) => success(value),
+              Err(error) => failure(error_code(&error), error),
+          }
+          ''',
+              '''        match result {
+              Ok(value) => success(value),
+              Err(error) => {
+                  let code = error_code(&error);
+                  failure(code, error)
+              }
+          }
+          ''',
+          )
+
+          replace_once(
+              "core/src/console/supervisor.rs",
+              '''        ) {
+              Ok(value) => success(value),
+              Err(error) => failure(error_code(&error), error),
+          };
+          ''',
+              '''        ) {
+              Ok(value) => success(value),
+              Err(error) => {
+                  let code = error_code(&error);
+                  failure(code, error)
+              }
+          };
+          ''',
+          )
+
+          replace_once(
+              "core/src/console/protocol.rs",
+              '''pub(crate) fn map_get(value: &Value, name: &str) -> Option<Value> {
+              core::map_entries(value)?
+                  .into_iter()
+                  .find_map(|(key, value)| {
+                      matches!(&key, Value::Keyword(keyword) if keyword.as_str() == name)
+                          .then_some(value)
+                          .or_else(|| matches!(&key, Value::String(text) if text == name).then_some(value))
+                  })
+          }
+          ''',
+              '''pub(crate) fn map_get(value: &Value, name: &str) -> Option<Value> {
+              core::map_entries(value)?
+                  .into_iter()
+                  .find_map(|(key, value)| match key {
+                      Value::Keyword(keyword) if keyword.as_str() == name => Some(value),
+                      Value::String(text) if text == name => Some(value),
+                      _ => None,
+                  })
+          }
+          ''',
+          )
+          PY
+          cargo fmt --manifest-path core/Cargo.toml
+          git diff --check
+
+      - name: Publish the compilation repair
+        working-directory: hoplite
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/agent-repair-console-build.yml
+          git add -A
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Repair console compilation"
+          git push origin HEAD:agent/prune-generated-source-output
+
+      - name: Test source discovery and application loading
+        working-directory: hoplite
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --manifest-path core/Cargo.toml --bin hoplite app::tests::application_source_discovery -- --nocapture
+          cargo test --manifest-path core/Cargo.toml --bin hoplite app::tests::minimal_application_project_loads -- --exact --nocapture
+
+      - name: Test the complete Hoplite core workspace
+        working-directory: hoplite
+        shell: bash
+        run: cargo test --manifest-path core/Cargo.toml --workspace --locked
