@@ -122,7 +122,8 @@ startup.
 
 `hoplite.rtc` is experimental. It separates worker-local session creation and
 SDP offer/answer exchange from `connect`, which wraps an already-signalled
-session as a native Duplex. Session handles are opaque worker authority and
+session through `std.stream.duplex`. The facade preserves the native Duplex
+representation. Session handles are opaque worker authority and
 must not be persisted, transferred between workers, or confused with Tahto
 identity and grant records.
 
