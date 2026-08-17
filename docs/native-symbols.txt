@@ -1,5 +1,6 @@
 hoplite_abi_version
 hoplite_app_call
+hoplite_app_console_call
 hoplite_app_invoke_v2
 hoplite_app_invoke_v3
 hoplite_apps_prepare

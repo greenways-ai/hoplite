@@ -1277,6 +1277,7 @@ mod tests {
             port: 58100,
             hostnames: Vec::new(),
             routes: Vec::new(),
+            console: None,
             request_body: None,
             proxies: Vec::new(),
             channels: Vec::new(),

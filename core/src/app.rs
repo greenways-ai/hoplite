@@ -116,6 +116,7 @@ pub struct App {
     pub port: u16,
     pub hostnames: Vec<String>,
     pub routes: Vec<Route>,
+    pub console: Option<String>,
     pub request_body: Option<RequestBodyPolicy>,
     pub proxies: Vec<Proxy>,
     pub channels: Vec<Channel>,
@@ -292,6 +293,12 @@ fn parse_app(
         return Err("app instance :app must be a hoplite.core/app".into());
     }
     let name = text_field(&value, "name").unwrap_or_else(|| format!("app-{id}"));
+    let console = field(&value, "console")
+        .map(|value| callable_name(&value))
+        .transpose()
+        .map_err(|_| {
+            format!("Hoplite app {name:?} :console must be a Var such as #'app/console")
+        })?;
     let default_adapter = RouteAdapter::parse(
         keyword_field(&value, "route/adapter"),
         &format!("Hoplite app {name:?}"),
@@ -407,6 +414,7 @@ fn parse_app(
         port,
         hostnames,
         routes,
+        console,
         request_body,
         proxies,
         channels,
@@ -904,7 +912,7 @@ pub fn manifest(config: &Config) -> Result<Vec<u8>, String> {
         .apps
         .iter()
         .map(|app| {
-            map_value(vec![
+            let mut fields = vec![
                 (keyword("id"), Value::Number(app.id as i64)),
                 (
                     keyword("peers"),
@@ -936,7 +944,7 @@ pub fn manifest(config: &Config) -> Result<Vec<u8>, String> {
                         app.routes
                             .iter()
                             .map(|route| {
-                                let fields = vec![
+                                map_value(vec![
                                     (keyword("method"), Value::String(route.method.clone())),
                                     (keyword("path"), Value::String(route.path.clone())),
                                     (keyword("handler"), Value::String(route.handler.clone())),
@@ -944,13 +952,16 @@ pub fn manifest(config: &Config) -> Result<Vec<u8>, String> {
                                         keyword("adapter"),
                                         Value::Keyword(route.adapter.keyword().into()),
                                     ),
-                                ];
-                                map_value(fields)
+                                ])
                             })
                             .collect(),
                     ),
                 ),
-            ])
+            ];
+            if let Some(console) = &app.console {
+                fields.push((keyword("console"), Value::String(console.clone())));
+            }
+            map_value(fields)
         })
         .collect();
     hara_wasm::hta::encode(&map_value(vec![
@@ -1155,6 +1166,36 @@ mod tests {
         assert_eq!(app.routes[0].handler, "sample/get-user");
         assert_eq!(app.routes[0].path, "/users/:id");
         assert!(openapi(&app).contains("/users/{id}"));
+    }
+
+    #[test]
+    fn app_console_is_fixed_in_the_manifest() {
+        let mut runtime = Runtime::new();
+        runtime.register_resource("hoplite.core", CORE_SOURCE);
+        let value = runtime
+            .eval_native_value(
+                "(ns sample.console (:require [hoplite.core :as h])) \
+                 (defn dispatch [request] request) \
+                 (defn root [_request] {:status 200 :body \"ok\"}) \
+                 (h/app {:name :sample \
+                         :console #'dispatch \
+                         :resources [[\"/\" {:get {:handler #'root}}]]})",
+            )
+            .unwrap();
+        let app = parse_app(value, 1, 8080, vec![], false).unwrap();
+        assert_eq!(app.console.as_deref(), Some("sample.console/dispatch"));
+
+        let encoded = manifest(&Config {
+            workers: 1,
+            apps: vec![app],
+        })
+        .unwrap();
+        let decoded = hara_wasm::hta::decode(&encoded).unwrap();
+        let apps = sequence_field(&decoded, "apps").unwrap();
+        assert_eq!(
+            text_field(&apps[0], "console").as_deref(),
+            Some("sample.console/dispatch")
+        );
     }
 
     #[test]
