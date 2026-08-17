@@ -1,0 +1,58 @@
+name: Apply application console build artifacts
+
+on:
+  push:
+    branches:
+      - feat/application-console-build-artifacts
+
+permissions:
+  contents: write
+
+env:
+  RUST_MIN_STACK: 8388608
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+          ref: feat/application-console-build-artifacts
+          fetch-depth: 0
+      - name: Resolve the reviewed Hara revision
+        id: hara
+        working-directory: hoplite
+        run: echo "ref=$(tr -d '[:space:]' < packaging/hara-revision)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ steps.hara.outputs.ref }}
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply the exact artifact contract
+        run: python hoplite/packaging/scripts/apply-application-console-build-artifacts.py
+      - name: Format Rust
+        run: cargo fmt --manifest-path hoplite/core/Cargo.toml
+      - name: Prove deterministic source-free console artifacts
+        run: |
+          cargo test --manifest-path hoplite/core/Cargo.toml -p hoplite \
+            application_console_artifacts_are_deterministic_and_source_free --locked
+          cargo test --manifest-path hoplite/core/Cargo.toml -p hoplite \
+            app_console_is_fixed_in_the_manifest --locked
+      - name: Test the complete Hoplite workspace
+        run: cargo test --manifest-path hoplite/core/Cargo.toml --workspace --locked
+      - name: Commit the reviewed artifact slice
+        working-directory: hoplite
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add core/src/app.rs core/src/main.rs core/src/diagnostics.rs
+          git diff --cached --check
+          git commit -m "Build deterministic application-console artifacts"
+          git push origin HEAD:feat/application-console-build-artifacts
