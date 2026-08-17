@@ -158,4 +158,51 @@ Each layer solves one new problem:
 Starting at the lowest sufficient layer reduces allocations and, more
 importantly, reduces the lifecycle states future maintainers must understand.
 
+## Complete example: one bounded session loop
+
+This small coordinator combines the previous stages without introducing Relay:
+
+```clojure
+(defn run-session [readings shutdown output]
+  (async/go
+   (fn []
+     (loop [sent 0]
+       (let [[value source]
+             (co/await
+              (async/alts [readings shutdown]
+                          {:priority false}))]
+         (cond
+           (= source shutdown)
+           (do (async/close output) sent)
+
+           (nil? value)
+           (do (async/close output) sent)
+
+           :else
+           (let [event (assoc value :severity (severity value))]
+             (if (co/await (async/put output event))
+               (recur (inc sent))
+               sent))))))))
+```
+
+The coroutine owns `sent`; other activities communicate through ports. Both
+shutdown and input EOF close the output, and a closed output ends the loop.
+
+## Test the session without Hoplite
+
+```clojure
+(Test/run
+ [{:name "session stops cleanly"
+   :test (fn []
+           (let [input (async/chan 1)
+                 stop (async/chan 1)
+                 output (async/chan 1)]
+             (async/offer stop :stop)
+             (run-session input stop output)))
+   :expected 0}])
+```
+
+Hoplite is needed at the HTTP or RTC boundary, not to test the state transition
+and channel behavior in the center.
+
 Next: [Application catalogue](../application-catalogue/).

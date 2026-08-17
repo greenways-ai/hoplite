@@ -77,4 +77,58 @@ nonblocking UDP socket, timer, and opaque handle remain in the Nginx worker that
 created them. Nchan can carry bounded signalling and fan-out, but it does not
 turn the RTC handle into cross-worker data.
 
+## Worked example: compose a test Duplex
+
+```clojure
+(def incoming (async/chan 4))
+(def sent (atom []))
+
+(def transport
+  (duplex/create
+   incoming
+   (fn [value]
+     (swap! sent conj value)
+     (promise/from true))
+   (fn [] (async/close incoming))))
+```
+
+The readable side is a channel; writes are captured in an atom; closing the
+Duplex closes the source. Relay tests can use this value without opening a
+socket or RTC session.
+
+## Worked example: direct messages versus Relay
+
+```clojure
+;; One RTC message is already one application value.
+(co/await (IStreamWrite/write transport {:kind :presence}))
+
+;; A byte transport needs line framing and request timeouts.
+(def service
+  (relay/relay transport
+               (frame/line)
+               {:timeout-ms 3000}))
+```
+
+Use the first form when the transport already preserves the application's
+message boundary. Relay is valuable only when it adds missing protocol behavior.
+
+## Worked example: correlated requests
+
+```clojure
+(def correlated
+  (relay/relay
+   transport
+   codec
+   {:mode :correlated
+    :timeout-ms 5000
+    :prepare-request
+    (fn [id request]
+      [id (assoc request :request-id id)])
+    :response-id
+    (fn [response] (:request-id response))}))
+```
+
+Several calls may now be in flight. Responses are delivered by `:request-id`,
+while frames without a matching pending request enter the bounded event channel.
+
 Next: [Progressive case studies](../case-studies/).

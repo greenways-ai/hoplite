@@ -74,4 +74,21 @@ A mechanism suggests where an advantage may come from; it is not a benchmark.
 The performance chapter connects every claimed benefit to a measurement that can
 confirm or reject it.
 
+## Example map
+
+The examples recur rather than resetting in every chapter:
+
+```text
+reading value
+  → classify with an ordinary Hara function
+  → transform an IStream of readings
+  → buffer bursts in a bounded channel
+  → select between data, timeout, and shutdown
+  → exchange framed messages through Relay
+  → expose the result through Hoplite HTTP or RTC
+```
+
+Each step includes the smallest implementation that solves the new problem and
+an explicit explanation of what would be unnecessary at the preceding step.
+
 Continue with [Values and boundaries](./values-and-boundaries/).
