@@ -85,4 +85,48 @@ accidental compatibility promise. Stable concepts—ownership, bounds, lifecycle
 and protocol separation—can still organize code while concrete alpha APIs
 evolve.
 
+## Worked example: transport-independent service code
+
+```clojure
+(defn fetch-status [connection request]
+  (relay/exchange connection request {:timeout-ms 1000}))
+```
+
+The function can receive a Relay backed by a socket in production and a composed
+in-memory Duplex in tests. It does not import either transport implementation.
+
+## Worked example: keep ownership beside cleanup
+
+```clojure
+(defn consume-owned [source handle]
+  (async/go
+   (fn []
+     (try
+       (loop []
+         (let [value (co/await (IStream/next source))]
+           (if value
+             (do (handle value) (recur))
+             :complete)))
+       (finally
+         (IClose/close source))))))
+```
+
+Acquisition and ownership determine whether this function should close the
+source. When it does own the source, the `finally` block makes that law visible
+beside the loop rather than in an unrelated callback.
+
+## Worked example: one transition function
+
+```clojure
+(defn transition [state event]
+  (case (:kind event)
+    :connected (assoc state :connected true)
+    :reading (update state :readings inc)
+    :closed (assoc state :connected false)
+    state))
+```
+
+A coroutine can serialize event arrival while this function remains a simple
+value transformation. Tests cover state policy separately from timing and I/O.
+
 Next: [Production reasoning](../production/).

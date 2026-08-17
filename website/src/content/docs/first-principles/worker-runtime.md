@@ -80,4 +80,33 @@ or cross-worker state behind an explicit service. Worker locality avoids locking
 inside ordinary application values; it also means that affinity and state
 placement must be designed rather than assumed.
 
+## Worked example: direct and suspended handlers
+
+These handlers return the same response shape, but only one can suspend:
+
+```clojure
+(defn current-status [_request]
+  {:status 200 :body "ready\n"})
+
+(defn status-after-check [_request]
+  (co/await (Host/call "nginx" "sleep" [5]))
+  {:status 200 :body "ready\n"})
+```
+
+`current-status` stays on the direct path. `status-after-check` begins
+synchronously and allocates retained asynchronous work only if the host Promise
+is pending.
+
+## Worked example: keep portable state separate
+
+```clojure
+(def session-summary
+  {:peer-id "peer-17"
+   :connected-at 1720000000})
+```
+
+This map may be serialized or stored. The live RTC handle used to produce it may
+not: it belongs to one worker and one native session lifetime. Separating the
+portable summary from live authority prevents accidental cross-worker use.
+
 Next: [Standard Hara application design](../standard-hara/).

@@ -84,4 +84,48 @@ Use an ordinary collection or iterator for finite in-memory data when waiting,
 backpressure, cancellation, and incremental cleanup are irrelevant. Streams
 earn their complexity at temporal or resource boundaries.
 
+## Worked example: decode, filter, and batch
+
+```clojure
+(def batches
+  (stream/partition-all
+   32
+   (stream/filter valid-reading?
+    (stream/map decode-reading byte-source))))
+
+(def first-batch
+  (co/await (IStream/next batches)))
+```
+
+One downstream pull may read several upstream chunks until 32 valid readings are
+available. Invalid readings are discarded by `filter`; no intermediate
+collection of all decoded readings is required.
+
+## Worked example: consume a finite source
+
+```clojure
+(def source (stream/from-iterator [1 2 3 4]))
+
+(def total
+  (co/await (stream/reduce + 0 source)))
+;; total => 10
+```
+
+The same terminal operation works when the source is backed by callbacks rather
+than an in-memory iterator. The difference is that each step may settle later.
+
+## Worked example: combine sources deliberately
+
+```clojure
+(def paired
+  (stream/zip device-identifiers live-readings))
+
+(def alternating
+  (stream/interleave high-priority normal-priority))
+```
+
+`zip` stops when either side ends and produces paired values. `interleave`
+alternates pulls; it is ordering policy, not concurrent selection. Use `alts`
+when readiness rather than a fixed order should choose the source.
+
 Next: [Channels and `stream.async`](../stream-async/).

@@ -85,4 +85,35 @@ bookkeeping. It is not a substitute for durable or cross-worker storage. State
 that must survive reload or be shared between workers belongs behind an explicit
 provider or external system.
 
+## Worked example: reuse one rule in batch and stream code
+
+```clojure
+(defn decorate [reading]
+  (assoc reading :classification (classify-reading reading)))
+
+(def batch-result
+  (map decorate stored-readings))
+
+(def live-result
+  (stream/map decorate live-readings))
+```
+
+The domain rule is unchanged. Only the container changes: an in-memory
+collection for present data, and an `IStream` transformation for values arriving
+over time.
+
+## Worked example: translate a structured failure once
+
+```clojure
+(defn error-response [error]
+  (let [data (ex-data error)]
+    (if (= :operations/invalid-reading (:error/type data))
+      {:status 400 :body "invalid reading\n"}
+      {:status 500 :body "internal error\n"})))
+```
+
+Domain code throws structured information; the HTTP boundary chooses the public
+status and message. A Relay or batch boundary can translate the same error data
+differently without changing the domain function.
+
 Next: [Streams from first principles](../streams/).

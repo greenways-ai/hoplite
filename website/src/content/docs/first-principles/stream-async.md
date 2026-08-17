@@ -99,4 +99,60 @@ separate actor runtime. The useful constraint is single ownership of state—not
 the name “actor.” External interaction occurs through messages and lifecycle
 operations, making transitions serial and testable.
 
+## Worked example: producer and consumer
+
+```clojure
+(defn round-trip []
+  (let [values (async/chan 2)]
+    (async/go
+     (fn []
+       (co/await (async/put values 10))
+       (co/await (async/put values 20))
+       (async/close values)))
+    (async/go
+     (fn []
+       [(co/await (async/take values))
+        (co/await (async/take values))
+        (co/await (async/take values))]))))
+;; returned Promise resolves to [10 20 nil]
+```
+
+The final `nil` is EOF after close. No sentinel value is placed in the channel.
+
+## Worked example: data or shutdown
+
+```clojure
+(defn next-action [inbox shutdown]
+  (async/go
+   (fn []
+     (let [[value source]
+           (co/await
+            (async/alts [inbox shutdown]
+                        {:priority false}))]
+       (cond
+         (= source shutdown) [:stop value]
+         (= source inbox) [:message value]
+         :else [:unknown value])))))
+```
+
+A timer can be represented by another compatible port. The session loop stays
+sequential even though several events may become ready independently.
+
+## Worked example: test asynchronous notation directly
+
+```clojure
+(Test/run
+ [{:name "channel delivery"
+   :test (fn []
+           (let [port (async/chan 1)]
+             (async/offer port 41)
+             (async/go
+              (fn []
+                (inc (co/await (async/take port)))))))
+   :expected 42}])
+```
+
+`Test/run` awaits the returned Promise. The test does not need `deref` or a
+separate async testing library.
+
 Next: [Duplex transports and Relay](../duplex-relay/).

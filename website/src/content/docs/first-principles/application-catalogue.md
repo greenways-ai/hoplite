@@ -89,4 +89,49 @@ bounded native objects that already have authoritative length and ownership.
 Choose between a logical stream and a provider source from the data's owner and
 lifecycle, not only from its content type.
 
+## Architecture sketch: realtime room
+
+```text
+Nchan signalling ──→ peer negotiation
+                           ↓
+                    worker-local RTC Duplex
+                           ↓
+                 correlated Relay + events
+                           ↓
+                   room session coroutine
+```
+
+The room coroutine selects peer messages, application events, and shutdown. A
+database owns durable room state; neither the RTC handle nor the in-memory event
+channel is persisted.
+
+## Architecture sketch: durable job runner
+
+```text
+durable queue → claim job → bounded local command channel
+                              ↓
+                        process Duplex
+                              ↓
+                     output stream/Relay
+                              ↓
+                   persist result or retry
+```
+
+The durable queue owns delivery and retry. `stream.async` coordinates one
+worker-local execution. If the worker disappears, the queue—not the channel—
+makes the job available again.
+
+## Architecture sketch: telemetry gateway
+
+```clojure
+(def decoded (stream/map decode-packet packets))
+(def valid (stream/filter valid-packet? decoded))
+(def batches (stream/partition-all 128 valid))
+(def storage-inbox (async/from-stream batches 4))
+```
+
+At most four completed batches are buffered at this application boundary. The
+storage consumer can report wait time and occupancy, making sustained ingestion
+overload observable.
+
 Next: [Performance by construction](../performance/).
