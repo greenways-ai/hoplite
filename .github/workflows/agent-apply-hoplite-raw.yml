@@ -1,0 +1,62 @@
+name: Apply hoplite.raw Nginx facade
+
+on:
+  push:
+    branches:
+      - agent/hoplite-raw-nginx
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+          fetch-depth: 0
+
+      - name: Apply deterministic source changes
+        run: python3 hoplite/.github/agent/apply_hoplite_raw.py
+
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: 2b3efd14451e96e9e79cd9645fb7e10d9e3782d6
+          path: hara
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Format Rust
+        run: cargo fmt --manifest-path hoplite/core/Cargo.toml
+
+      - name: Test focused hoplite.raw runtime boundaries
+        run: cargo test --manifest-path hoplite/core/Cargo.toml --locked -p hoplite-runtime hoplite_raw
+
+      - name: Test the complete Hoplite workspace
+        run: cargo test --manifest-path hoplite/core/Cargo.toml --workspace --locked
+
+      - name: Build the production image
+        run: docker build -f hoplite/packaging/docker/Dockerfile -t hoplite-raw .
+
+      - name: Exercise hoplite.raw through Nginx
+        run: bash hoplite/packaging/scripts/smoke-host-providers.sh hoplite-raw
+
+      - name: Commit the validated product change
+        working-directory: hoplite
+        run: |
+          rm -f .github/workflows/agent-apply-hoplite-raw.yml
+          rm -f .github/agent/apply_hoplite_raw.py
+          rmdir .github/agent 2>/dev/null || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Expose Nginx features through hoplite.raw"
+          git push origin HEAD:agent/hoplite-raw-nginx
