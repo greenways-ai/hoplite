@@ -22,15 +22,19 @@ jobs:
           from pathlib import Path
           path = Path('.github/workflows/ci.yml')
           text = path.read_text()
-          old = """            hoplite/core/nginx/tests/response_source.c \\
-            -o /tmp/hoplite-response-source
-
-  integration:"""
-          new = """            hoplite/core/nginx/tests/response_source.c \\
-            -o /tmp/hoplite-response-source
-          /tmp/hoplite-response-source
-
-  integration:"""
+          old = (
+              "            hoplite/core/nginx/tests/response_source.c \\\n"
+              "            -o /tmp/hoplite-response-source\n"
+              "\n"
+              "  integration:"
+          )
+          new = (
+              "            hoplite/core/nginx/tests/response_source.c \\\n"
+              "            -o /tmp/hoplite-response-source\n"
+              "          /tmp/hoplite-response-source\n"
+              "\n"
+              "  integration:"
+          )
           if text.count(old) != 1:
               raise SystemExit('expected one response-source insertion point')
           path.write_text(text.replace(old, new, 1))
