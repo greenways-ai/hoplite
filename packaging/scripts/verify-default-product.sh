@@ -35,6 +35,25 @@ if [[ "$actual_programs" != "$expected_programs" ]]; then
   exit 1
 fi
 
+cargo build \
+  --manifest-path "$MANIFEST" \
+  --locked \
+  --features application-console \
+  --bin hoplite-console-bundle \
+  --bin hoplite-console-evaluator \
+  --bin hoplite-console-supervisor \
+  --target-dir "$TARGET_DIR"
+
+for program in \
+  hoplite-console-bundle \
+  hoplite-console-evaluator \
+  hoplite-console-supervisor; do
+  test -x "$TARGET_DIR/debug/$program" || {
+    echo "explicit application-console feature did not build $program" >&2
+    exit 1
+  }
+done
+
 cargo tree \
   --manifest-path "$MANIFEST" \
   --locked \
@@ -69,5 +88,6 @@ done
 
 printf '%s\n' \
   "default product binaries: hoplite, hoplite-server" \
+  "application console binaries: explicit application-console feature" \
   "generic host cryptography: present" \
   "application-authentication and database products: absent"
