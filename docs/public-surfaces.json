@@ -12,6 +12,7 @@
   ],
   "native_headers": [
     {"name":"hoplite_data_plane.h","path":"core/abi/data-plane-ffi/include/hoplite_data_plane.h","status":"public","conformance":["core/abi/data-plane/tests/contracts.rs"],"summary":"Portable request-body and response-body callback descriptors."},
+    {"name":"hoplite_console_transport.h","path":"core/nginx/hoplite_console_transport.h","status":"internal","conformance":["core/nginx/tests/console_transport.c","packaging/scripts/smoke-embedding.sh"],"summary":"Private bounded HTA0 framing and immutable application-console call closure for the Nginx worker adapter."},
     {"name":"hoplite_host_provider.h","path":"core/nginx/hoplite_host_provider.h","status":"experimental","conformance":["core/nginx/tests/host_provider_api.c","packaging/scripts/smoke-host-providers.sh"],"summary":"Generic native host-service provider ABI."},
     {"name":"hoplite_host_registry.h","path":"core/nginx/hoplite_host_registry.h","status":"internal","summary":"Worker-local provider registry implementation."},
     {"name":"hoplite_hta.h","path":"core/nginx/hoplite_hta.h","status":"internal","summary":"Native HTA decoding helpers."},
