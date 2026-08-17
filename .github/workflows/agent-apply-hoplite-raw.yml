@@ -148,6 +148,70 @@ jobs:
           if count != 1:
               raise RuntimeError(f"adapter test replacement count={count}")
 
+          example_test = r'''    #[test]
+              fn example_application_bootstraps() {
+                  let mut runtime = HopliteRuntime::new();
+                  let source = format!(
+                      "{}\n{}",
+                      include_str!("../../lib/src/hoplite/raw.hal"),
+                      include_str!("../../examples/app.hal"),
+                  );
+                  runtime.bootstrap_modules(&source).unwrap();
+                  runtime.handler_prepare("hoplite.app/hello").unwrap();
+                  runtime
+                      .handler_prepare("hoplite.app/raw-request-context")
+                      .unwrap();
+              }
+
+          '''
+          source, count = re.subn(
+              r"    #\[test\]\n    fn example_application_bootstraps\(\) \{.*?\n    \}\n\n",
+              example_test,
+              source,
+              count=1,
+              flags=re.DOTALL,
+          )
+          if count != 1:
+              raise RuntimeError(f"example bootstrap test replacement count={count}")
+
+          prepared_test = r'''    #[test]
+              fn prepared_handler_program_is_reused_across_requests() {
+                  let mut runtime = HopliteRuntime::new();
+                  let source = format!(
+                      "{}\n{}",
+                      include_str!("../../lib/src/hoplite/raw.hal"),
+                      include_str!("../../examples/app.hal"),
+                  );
+                  runtime.bootstrap_modules(&source).unwrap();
+
+                  let handler = runtime.handler_prepare("hoplite.app/hello").unwrap();
+                  assert_eq!(runtime.handlers.len(), 1);
+                  for uri in ["/first", "/second"] {
+                      let request = Value::Map(
+                          [(Value::Keyword("uri".into()), Value::String(uri.into()))]
+                              .into_iter()
+                              .collect(),
+                      );
+                      runtime.work_call(handler, request).unwrap();
+                      let Value::Vector(event) = take_event(&mut runtime) else {
+                          panic!("event vector")
+                      };
+                      assert!(matches!(event.get(0), Some(Value::Number(0))));
+                      assert_eq!(runtime.handlers.len(), 1);
+                  }
+              }
+
+          '''
+          source, count = re.subn(
+              r"    #\[test\]\n    fn prepared_handler_program_is_reused_across_requests\(\) \{.*?\n    \}\n\n",
+              prepared_test,
+              source,
+              count=1,
+              flags=re.DOTALL,
+          )
+          if count != 1:
+              raise RuntimeError(f"prepared handler test replacement count={count}")
+
           path.write_text(source, encoding="utf-8")
           PY
 
@@ -162,20 +226,29 @@ jobs:
         with:
           components: rustfmt
 
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cargo-cache
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             hoplite/core/target
           key: hoplite-raw-${{ runner.os }}-${{ hashFiles('hoplite/core/Cargo.lock') }}-v1
-          save-always: true
 
       - name: Format Rust
         run: cargo fmt --manifest-path hoplite/core/Cargo.toml
 
       - name: Test focused hoplite.raw runtime boundaries
         run: cargo test --manifest-path hoplite/core/Cargo.toml --locked -p hoplite-runtime hoplite_raw
+
+      - name: Save Rust build cache
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            hoplite/core/target
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
 
       - name: Test the complete Hoplite workspace
         run: RUST_MIN_STACK=16777216 cargo test --manifest-path hoplite/core/Cargo.toml --workspace --locked
