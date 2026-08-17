@@ -169,6 +169,7 @@ jobs:
             ~/.cargo/git
             hoplite/core/target
           key: hoplite-raw-${{ runner.os }}-${{ hashFiles('hoplite/core/Cargo.lock') }}-v1
+          save-always: true
 
       - name: Format Rust
         run: cargo fmt --manifest-path hoplite/core/Cargo.toml
@@ -177,7 +178,7 @@ jobs:
         run: cargo test --manifest-path hoplite/core/Cargo.toml --locked -p hoplite-runtime hoplite_raw
 
       - name: Test the complete Hoplite workspace
-        run: cargo test --manifest-path hoplite/core/Cargo.toml --workspace --locked
+        run: RUST_MIN_STACK=16777216 cargo test --manifest-path hoplite/core/Cargo.toml --workspace --locked
 
       - name: Build the production image
         run: docker build -f hoplite/packaging/docker/Dockerfile -t hoplite-raw .
