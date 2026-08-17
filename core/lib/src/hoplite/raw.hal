@@ -16,11 +16,55 @@
 (defn remote-address [exchange]
   (:remote-address exchange))
 
+(defn scheme [exchange]
+  (:scheme exchange))
+
+(defn protocol [exchange]
+  (:server-protocol exchange))
+
+(defn host [exchange]
+  (:host exchange))
+
+(defn server-name [exchange]
+  (:server-name exchange))
+
+(defn server-address [exchange]
+  (:server-address exchange))
+
+(defn server-port [exchange]
+  (:server-port exchange))
+
+(defn remote-port [exchange]
+  (:remote-port exchange))
+
+(defn request-id [exchange]
+  (:request-id exchange))
+
+(defn connection-id [exchange]
+  (:connection-id exchange))
+
+(defn connection-requests [exchange]
+  (:connection-requests exchange))
+
+(defn request-time [exchange]
+  (:request-time exchange))
+
+(defn request-length [exchange]
+  (:request-length exchange))
+
+(defn content-length [exchange]
+  (:content-length exchange))
+
 (defn header [exchange name]
   (get (:headers exchange) name))
 
 (defn headers [exchange]
   (:headers exchange))
+
+(defn sleep
+  "Suspends the active Nginx request without blocking its worker."
+  [milliseconds]
+  (std.native.Host/call "nginx" "sleep" [milliseconds]))
 
 (defn respond!
   ([exchange status body]

@@ -23,7 +23,7 @@ grep -F 'pub const MAGIC: &[u8; 4] = b"HAB0";' \
   core/application-bundle/src/lib.rs >/dev/null
 grep -F 'pub const HARA_BUNDLE_MAGIC: &[u8; 4] = b"HBX0";' \
   core/application-bundle/src/lib.rs >/dev/null
-grep -F 'pub const RUNTIME_ABI_VERSION: u32 = 4;' \
+grep -F 'pub const RUNTIME_ABI_VERSION: u32 = 5;' \
   core/application-bundle/src/lib.rs >/dev/null
 
 test "$(tr -d '[:space:]' < packaging/hara-revision)" = \
@@ -35,6 +35,10 @@ grep -F 'docs/versioning.md' README.md >/dev/null
 grep -F 'hoplite.application-bundle/0-alpha' docs/application-bundle.md >/dev/null
 grep -F 'Hara bytecode bundle | `HBX0`' docs/versioning.md >/dev/null
 grep -F 'hoplite_bootstrap_application_v2' core/nginx/hoplite_runtime.h >/dev/null
+grep -F 'hoplite_handler_invoke_v4' core/nginx/hoplite_runtime.h >/dev/null
+grep -F 'hoplite_app_invoke_v4' core/nginx/hoplite_runtime.h >/dev/null
+grep -F 'hoplite_abi_version() < 5' \
+  core/nginx/ngx_http_hoplite_module.c >/dev/null
 grep -F 'hoplite.startup-diagnostic/0-alpha' docs/startup-diagnostics.md >/dev/null
 grep -F 'hoplite.runtime-measurement/0-alpha' docs/runtime-measurements.md >/dev/null
 

@@ -1,0 +1,49 @@
+(ns hoplite.raw-test
+  (:require [hoplite.raw :as raw]))
+
+(def exchange
+  {:method "GET"
+   :uri "/raw?mode=test"
+   :path "/raw"
+   :query-string "mode=test"
+   :remote-address "127.0.0.1"
+   :scheme "https"
+   :server-protocol "HTTP/2.0"
+   :host "example.test"
+   :server-name "example.test"
+   :server-address "127.0.0.1"
+   :server-port "443"
+   :remote-port "51000"
+   :request-id "request-1"
+   :connection-id "7"
+   :connection-requests "2"
+   :request-time "0.025"
+   :request-length "128"
+   :content-length "12"
+   :headers {"accept" "application/json"}})
+
+(def checks
+  [(= "GET" (raw/method exchange))
+   (= "/raw?mode=test" (raw/uri exchange))
+   (= "/raw" (raw/path exchange))
+   (= "mode=test" (raw/query-string exchange))
+   (= "127.0.0.1" (raw/remote-address exchange))
+   (= "https" (raw/scheme exchange))
+   (= "HTTP/2.0" (raw/protocol exchange))
+   (= "example.test" (raw/host exchange))
+   (= "example.test" (raw/server-name exchange))
+   (= "127.0.0.1" (raw/server-address exchange))
+   (= "443" (raw/server-port exchange))
+   (= "51000" (raw/remote-port exchange))
+   (= "request-1" (raw/request-id exchange))
+   (= "7" (raw/connection-id exchange))
+   (= "2" (raw/connection-requests exchange))
+   (= "0.025" (raw/request-time exchange))
+   (= "128" (raw/request-length exchange))
+   (= "12" (raw/content-length exchange))
+   (= "application/json" (raw/header exchange "accept"))
+   (= {"accept" "application/json"} (raw/headers exchange))])
+
+(if (every? identity checks)
+  true
+  (throw "hoplite.raw tests failed"))

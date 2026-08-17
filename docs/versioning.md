@@ -41,11 +41,13 @@ surface is in alpha. Each contract names and enforces its own compatibility law.
 
 ## Native ABI and symbol revisions
 
-Numeric runtime ABI values and suffixes such as `_v1`, `_v2`, and `_v3` identify
-native structure or function shapes. For example, Hoplite runtime ABI `4` remains
-the current embedding compatibility value. These identifiers are independent of
-portable document maturity and change only when their binary shape or calling
-contract changes.
+Numeric runtime ABI values and suffixes such as `_v1`, `_v2`, `_v3`, and `_v4`
+identify native structure or function shapes. Hoplite runtime ABI `5` is the
+current embedding compatibility value. It adds the V4 request descriptor with a
+borrowed, closed raw-field callback while retaining every V2 and V3 symbol.
+ABI-4 HAB0 fixtures remain recorded, but the current exact-ABI application
+decoder rejects them. These identifiers are independent of portable document
+maturity and change only when their binary shape or calling contract changes.
 
 ## Repository rule
 

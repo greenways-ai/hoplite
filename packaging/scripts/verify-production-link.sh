@@ -21,7 +21,7 @@ done
 
 for required in \
   hoplite_bootstrap_application_files_v2 \
-  hoplite_app_invoke_v3 \
+  hoplite_app_invoke_v4 \
   hoplite_work_poll; do
   grep -F "$required" "$symbols" >/dev/null || {
     echo "production Nginx link is missing runtime symbol: $required" >&2

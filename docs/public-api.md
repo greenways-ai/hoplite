@@ -93,12 +93,23 @@ streaming ownership model.
 ### `hoplite.raw` — public
 
 Accessors expose method, URI, path, query string, remote address, and headers
-from the borrowed exchange. `respond!`, `start!`, `write!`, and `finish!`
-operate on that exchange.
+from the borrowed exchange. Nginx-backed raw exchanges additionally expose
+scheme, server protocol, host and server identity, local and remote ports,
+request ID, connection identity and request count, request time, request length,
+and content length. These values are strings and are `nil` when Nginx reports
+that a field is unavailable.
+
+The inventory is closed. Applications cannot name arbitrary Nginx variables,
+inject directives, select locations or upstreams, or obtain native handles.
+`respond!`, `start!`, `write!`, and `finish!` operate on the same borrowed
+exchange. `sleep` is the typed request-scoped wrapper over Nginx's bounded timer,
+so application code does not name the generic host service or operation.
 
 The exchange is valid only for the active request invocation. Applications must
 not retain it after completion, cancellation, disconnect, or worker shutdown.
-The native host owns the exchange and backing memory.
+The native host owns the exchange and backing memory. Raw fields are available
+only to the `:raw` adapter; `:request` and `:request+hta` remain portable request
+views.
 
 ### `hoplite.response-source` — experimental
 
@@ -150,7 +161,7 @@ compatibility promise.
 
 The current application document is
 `hoplite.application-bundle/0-alpha`, identified by `HAB0`. It binds runtime ABI
-4, the SHA-256 digest of the exact route manifest, the complete Hara `HBX0`
+5, the SHA-256 digest of the exact route manifest, the complete Hara `HBX0`
 namespace bundle, declared lengths, and a complete payload checksum. HBX0
 contains ordered Hara `HBC0` modules.
 
@@ -198,6 +209,13 @@ portable `/0-alpha` document epoch.
 Prepared handler, app, work, call, response, and request-body identifiers are
 opaque runtime-local handles. Closing an object consumes authority to use that
 handle. Unknown, stale, cross-runtime, and already-closed handles are errors.
+
+`hoplite_request_v4_t` composes the V3 body boundary with an optional borrowed
+`hoplite_raw_request_v1_t`. Its callback accepts only the documented raw field
+identifiers and returns borrowed UTF-8 text, unavailable, or error. The
+`hoplite_app_invoke_v4` and `hoplite_handler_invoke_v4` symbols preserve all
+V2/V3 invocation symbols; the suffix identifies the request descriptor
+generation rather than granting arbitrary Nginx access.
 
 A `hoplite_buffer_t` returned by the runtime is released only with
 `hoplite_buffer_free`, using the exact pointer and length received. Rust, Hara,

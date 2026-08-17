@@ -39,20 +39,24 @@ bytecode.
 
 ## Golden and migration fixtures
 
-`core/application-bundle/tests/fixtures/hab0-golden.hex` is the committed exact
-byte contract for one small deterministic envelope. The test suite requires the
-current encoder to reproduce all 95 bytes and requires the decoder to recover
-the exact manifest-bound `HBX0` payload.
+`core/application-bundle/tests/fixtures/hab0-golden.hex` remains the exact
+runtime-ABI-4 compatibility record. The current runtime deliberately rejects it
+as incompatible rather than interpreting it with the V4 raw-request boundary.
 
-`hab1-migration-rejected.hex` preserves the same payload with only the final
-outer-marker byte incremented. The current decoder must reject that fixture. A
-future alpha epoch therefore cannot become an accidental alias: it must add its
-own format identity, decoder, golden bytes, migration note, and explicit
-acceptance policy while retaining the old fixture as compatibility evidence.
+`hab0-runtime-abi5.hex` is the committed current encoder contract for the same
+small deterministic manifest and `HBX0` payload. The test suite requires the
+encoder to reproduce all 95 bytes and the decoder to recover the exact
+manifest-bound bytecode.
 
-Golden fixtures are append-only compatibility records. Changing the current
-encoder requires a new epoch fixture rather than rewriting the bytes that
-represent an already published contract.
+Each HAB0 record has a matching lowercase `hab1-...-migration-rejected.hex`
+fixture whose only binary difference is the final outer-marker byte. The current
+decoder must reject both reserved-marker fixtures. A future alpha epoch
+therefore cannot become an accidental alias: it must add its own format
+identity, decoder, golden bytes, migration note, and explicit acceptance policy.
+
+Golden fixtures are append-only compatibility records. A native ABI generation
+adds a new fixture instead of rewriting bytes already committed for an older
+runtime ABI.
 
 ## Startup law
 
@@ -71,9 +75,10 @@ therefore accepted only on a fresh runtime.
 ## Compatibility during alpha
 
 The envelope records numeric Hoplite runtime ABI compatibility separately from
-its portable document identity. Runtime ABI `4` and exported symbols such as
-`hoplite_bootstrap_application_v2` describe native call shapes; they do not
-promote the application document out of alpha.
+its portable document identity. Runtime ABI `5` and exported symbols such as
+`hoplite_handler_invoke_v4` describe native call shapes; they do not promote the
+application document out of alpha. ABI-4 HAB0 bundles remain compatibility
+fixtures and are rejected by the current exact-ABI decoder.
 
 An incompatible change to the envelope, manifest-binding law, or required inner
 Hara format must change the alpha epoch or marker and include a migration note.
@@ -83,8 +88,10 @@ The lower-level `hoplite_bootstrap_bytecode`, `hoplite_apps_prepare`, and
 byte-oriented `hoplite_bootstrap_application_v1` symbols remain available for
 embedding compatibility. Generated Nginx production configuration uses the
 bounded file-based `hoplite_bootstrap_application_files_v1` entry point. Runtime
-ABI 4 adds `_v2` forms of both calls with ordered
-`hoplite.startup-diagnostic/0-alpha` callbacks.
+ABI 4 introduced `_v2` bootstrap forms with ordered
+`hoplite.startup-diagnostic/0-alpha` callbacks. Runtime ABI 5 retains those
+symbols and adds V4 request invocation with the borrowed, bounded raw-field
+descriptor.
 
 See [Versioning during alpha](versioning.md) for the distinction between package
 versions, portable format epochs, and native ABI generations.

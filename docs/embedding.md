@@ -12,8 +12,10 @@ The executable fixtures are:
   compiled against the public header and linked to the built static library.
 
 Both fixtures create a runtime, bootstrap a small Hara namespace, prepare one
-handler, invoke it through the request adapter, read and close the response,
-close the prepared handler, and free the runtime.
+handler, read and close the response, close the prepared handler, and free the
+runtime. The Rust fixture retains the portable V2 request path. The C fixture
+constructs a V4 borrowed raw-field descriptor and proves that a `:raw` handler
+receives the supplied scheme.
 
 ## Runtime ownership
 
@@ -24,20 +26,23 @@ owning object has been closed.
 
 Input slices are borrowed only for the duration of the call unless the API
 explicitly transfers ownership. A non-null V3 request-body descriptor transfers
-exclusive lifecycle ownership after top-level pointer preflight. Runtime buffers
-are released only with `hoplite_buffer_free`, using the exact pointer and length
-returned by Hoplite.
+exclusive lifecycle ownership after top-level pointer preflight. A V4 raw
+descriptor is borrowed instead: its callback and context remain valid through
+the active request, including suspension, and the runtime copies only the
+descriptor. Runtime buffers are released only with `hoplite_buffer_free`, using
+the exact pointer and length returned by Hoplite.
 
 ## Minimal lifecycle
 
 The smallest synchronous embedding flow is:
 
-1. require `hoplite_abi_version() >= 4`;
+1. require `hoplite_abi_version() >= 5` when constructing V4 raw requests;
 2. allocate one runtime with `hoplite_runtime_new`;
 3. bootstrap modules for development, or bootstrap one verified HAB0 application
    and exact manifest for production;
 4. prepare a qualified handler or use a prepared application route;
-5. invoke with a borrowed V2 request or transferred V3 body descriptor;
+5. invoke with a borrowed V2 request, transferred V3 body descriptor, or V4
+   request carrying the optional borrowed raw descriptor;
 6. read the completed response while its response handle remains live;
 7. close response and handler handles;
 8. free the runtime.
