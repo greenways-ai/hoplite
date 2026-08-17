@@ -84,4 +84,49 @@ Keep deterministic correctness gates in ordinary CI. Run real timing and memory
 collection on controlled machines or scheduled release jobs. Retain raw samples
 so a future regression can be investigated instead of merely announced.
 
+## Worked example: compare channel capacities
+
+Run the same producer and consumer with capacities `1`, `8`, `64`, and `1024`.
+For each run, retain a record such as:
+
+```clojure
+{:capacity 64
+ :values 100000
+ :value-bytes 256
+ :producer-wait-ns [...]
+ :latency-ns [...]
+ :peak-worker-rss-bytes 0
+ :failed-offers 0}
+```
+
+The zero shown here is a placeholder field, not a result. Populate it from the
+measurement tool. Compare the latency distribution and peak memory rather than
+selecting the capacity with the largest isolated throughput.
+
+## Worked example: estimate a buffer budget
+
+If a channel holds 64 values whose retained representation is at most 4 KiB,
+its payload budget is approximately:
+
+```text
+64 × 4096 bytes = 262144 bytes (256 KiB)
+```
+
+Queue nodes, Promises, referenced objects, codecs, and allocator behavior add
+overhead. Measure worker RSS to validate the complete system; use the estimate to
+catch obviously impossible configurations during design.
+
+## Worked example: distinguish waiting from CPU work
+
+```clojure
+;; Good suspension candidate: completion depends on external readiness.
+(co/await (Host/call "nginx" "sleep" [10]))
+
+;; Still CPU work: wrapping it in go does not create parallel execution.
+(async/go (fn [] (encode-large-value value)))
+```
+
+Use workers, native providers, batching, or an external process for CPU-heavy
+work. Use coroutines to release the event loop while waiting.
+
 Next: [Maintainability by construction](../maintainability/).

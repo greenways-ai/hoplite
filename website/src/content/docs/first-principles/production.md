@@ -98,4 +98,45 @@ under pressure, and yields during waits. It remains maintainable when ownership,
 effects, failure, and cleanup can be understood at the boundary where they
 occur.
 
+## Worked example: explicit session shutdown
+
+```clojure
+(defn supervise [connection commands shutdown]
+  (async/go
+   (fn []
+     (try
+       (loop []
+         (let [[value source]
+               (co/await (async/alts [commands shutdown]))]
+           (if (= source shutdown)
+             :stopped
+             (do
+               (co/await (IStreamWrite/write connection value))
+               (recur)))))
+       (catch Throwable error
+         (IAbort/abort connection error)
+         (throw error))
+       (finally
+         (IClose/close connection))))))
+```
+
+The supervisor owns the connection. Normal shutdown closes it; failure aborts it
+with the original cause and then runs idempotent close cleanup.
+
+## Worked example: document an operational bound
+
+```clojure
+{:component :peer-events
+ :capacity 256
+ :maximum-value-bytes 16384
+ :at-capacity :close-session
+ :timeout-ms 5000
+ :owner :worker-local-peer-session
+ :diagnostic :relay/event-overflow}
+```
+
+This is application documentation, not a Hoplite configuration object. Keeping
+such a record beside deployment policy makes review and capacity testing
+specific: the team knows which condition to create and which outcome to expect.
+
 Return to the [book overview](../).

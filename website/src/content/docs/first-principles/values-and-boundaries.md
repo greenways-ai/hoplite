@@ -78,4 +78,32 @@ Streams use EOF for normal exhaustion, `close` for orderly shutdown, and
 `abort` for failure. Pending readers and writers must settle rather than remain
 orphaned. These laws matter more than the transport used underneath them.
 
+## Worked example: make overload a result
+
+An optional audit event should not delay the request that produced it. Use an
+immediate offer and make the full-buffer decision visible:
+
+```clojure
+(defn record-audit [audit-events event]
+  (if (IStreamOffer/offer audit-events event)
+    {:accepted true}
+    {:accepted false :reason :audit-buffer-full}))
+```
+
+The caller can count the dropped event, aggregate it, or fail the request. The
+important property is that overload is a returned result rather than hidden
+retained work.
+
+## Worked example: ask only for the capability used
+
+```clojure
+(defn close-owned [value]
+  (if (satisfies? IClose value)
+    (IClose/close value)
+    value))
+```
+
+This helper does not require a channel or Duplex. Narrow capability checks let
+the same cleanup code work for different owners without concrete-type branches.
+
 Next: [Inside a Hoplite worker](../worker-runtime/).
