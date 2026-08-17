@@ -1,0 +1,43 @@
+---
+title: RTC streams and Relay
+description: Compose Hoplite RTC sessions with Hara stream protocols and Relay framing.
+---
+
+`hoplite.rtc/connect` returns a portable `std.stream.duplex` value. The value
+satisfies `IStreamDuplex`, `IStream`, `IStreamWrite`, `IClose`, `IAbort`, and
+`IClosed`; it is not a special native Duplex box.
+
+```clojure
+(ns example.rtc-transport
+  (:require [hoplite.rtc :as rtc]
+            [std.stream.async :as async]))
+
+(defn ^:async connect-peer [remote-offer publish-answer]
+  (let [handle (co/await (rtc/open {:label "sync"}))
+        local-answer (co/await (rtc/answer handle remote-offer))]
+    (co/await (publish-answer local-answer))
+    (rtc/connect handle)))
+
+(defn receive-one [connection]
+  (async/go
+   (fn []
+     (co/await (IStream/next connection)))))
+```
+
+Write directly with `IStreamWrite/write` when each RTC message is already one
+application value. Add `std.stream.relay` when the application needs framing,
+timeouts, serial exchange, correlated concurrent requests, or unsolicited
+event dispatch.
+
+```clojure
+(ns example.rtc-relay
+  (:require [std.stream.frame :as frame]
+            [std.stream.relay :as relay]))
+
+(defn framed [connection]
+  (relay/relay connection (frame/line) {:timeout-ms 5000}))
+```
+
+Closing or aborting the composed value closes the worker-local RTC session.
+The opaque handle and its transport must remain inside the worker that created
+them.

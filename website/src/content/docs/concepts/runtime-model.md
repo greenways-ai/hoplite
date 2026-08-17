@@ -106,9 +106,9 @@ replay policy, or expiry.
 
 `hoplite.rtc/open` creates a session in the current worker. SDP offer/answer
 exchange remains application signalling. After negotiation,
-`hoplite.rtc/connect` exposes the session as a native Duplex whose reads, writes,
-timeouts, UDP readiness, cancellation, and close are integrated with that
-worker's Nginx event loop.
+`hoplite.rtc/connect` exposes the session as a regular Hara value composed from
+the stream Duplex protocols. Its reads, writes, timeouts, UDP readiness,
+cancellation, and close are integrated with that worker's Nginx event loop.
 
 One inbound RTC message satisfies a pending read or occupies the bounded receive
 slot. Cancelling a pending read detaches it without implicitly closing the

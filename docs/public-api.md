@@ -128,8 +128,9 @@ startup.
 
 `hoplite.rtc` is experimental. It separates worker-local session creation and
 SDP offer/answer exchange from `connect`, which wraps an already-signalled
-session through `std.stream.duplex`. The facade preserves the native Duplex
-representation. Session handles are opaque worker authority and
+session through `std.stream.duplex`. The result is a regular Hara value that
+composes the native stream, write, close, abort, and lifecycle protocols; there
+is no separate native Duplex representation. Session handles are opaque worker authority and
 must not be persisted, transferred between workers, or confused with Tahto
 identity and grant records.
 
@@ -137,7 +138,7 @@ Each session owns a nonblocking UDP socket registered with the Nginx worker
 event loop and a worker timer driven by the RTC engine's next timeout. `open`
 accepts `:bind-address` as a numeric `"address:port"`; it defaults to
 `"127.0.0.1:0"`. Use a concrete reachable interface address for peer traffic.
-Inbound messages satisfy one pending Duplex read or occupy one bounded receive
+Inbound messages satisfy one pending stream read or occupy one bounded receive
 slot; request cancellation detaches that read without closing the session.
 
 `hoplite.internal` is implementation-only. Applications importing it receive no

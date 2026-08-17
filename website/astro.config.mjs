@@ -55,10 +55,28 @@ export default defineConfig({
           ],
         },
         {
+          label: "Hoplite from First Principles",
+          items: [
+            { label: "Book overview", slug: "first-principles" },
+            { label: "1. Values and boundaries", slug: "first-principles/values-and-boundaries" },
+            { label: "2. Inside a Hoplite worker", slug: "first-principles/worker-runtime" },
+            { label: "3. Standard Hara", slug: "first-principles/standard-hara" },
+            { label: "4. Streams", slug: "first-principles/streams" },
+            { label: "5. Channels and stream.async", slug: "first-principles/stream-async" },
+            { label: "6. Duplex and Relay", slug: "first-principles/duplex-relay" },
+            { label: "7. Progressive case studies", slug: "first-principles/case-studies" },
+            { label: "8. Application catalogue", slug: "first-principles/application-catalogue" },
+            { label: "9. Performance", slug: "first-principles/performance" },
+            { label: "10. Maintainability", slug: "first-principles/maintainability" },
+            { label: "11. Production reasoning", slug: "first-principles/production" },
+          ],
+        },
+        {
           label: "Guides",
           items: [
             { label: "Writing web services", slug: "guides/writing-web-services" },
             { label: "Realtime channels & WebRTC", slug: "guides/realtime-channels-and-webrtc" },
+            { label: "RTC streams & Relay", slug: "guides/rtc-stream-relay" },
             { label: "Async handlers", slug: "guides/async-handlers" },
             { label: "Development console", slug: "guides/development-console" },
             { label: "Multiple applications", slug: "guides/multiple-applications" },

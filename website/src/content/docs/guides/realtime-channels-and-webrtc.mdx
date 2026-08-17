@@ -14,7 +14,7 @@ Hoplite now exposes two deliberately separate realtime layers:
 | Layer | Purpose | Ownership |
 | --- | --- | --- |
 | `hoplite.nchan/channel` | Bounded WebSocket/SSE publish and subscribe through the Nchan module embedded in Hoplite's Nginx | Ephemeral Nginx channel state |
-| `hoplite.rtc` | SDP negotiation and direct WebRTC data-channel traffic exposed to HAL as a native `Duplex` | One opaque session in one Nginx worker |
+| `hoplite.rtc` | SDP negotiation and direct WebRTC data-channel traffic exposed through portable stream Duplex protocols | One opaque session in one Nginx worker |
 
 The Nchan layer is suitable for signalling and fan-out. It is not durable state,
 a queue, an identity system, or a substitute for application authorization. The
@@ -164,9 +164,9 @@ the generated answer through signalling, and then connects the same handle:
     (rtc/connect handle)))
 ```
 
-`rtc/connect` returns a native `Duplex`: reads pull from the RTC receive stream,
-writes call the native send operation, and closing the Duplex closes the
-session.
+`rtc/connect` returns a regular Hara value satisfying the Duplex stream
+protocols: reads pull from the RTC receive stream, writes call the native send
+operation, and closing the composed value closes the session.
 
 ## Authority and lifecycle rules
 

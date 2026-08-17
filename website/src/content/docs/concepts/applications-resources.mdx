@@ -73,7 +73,7 @@ OpenAPI output.
 A peer declaration references a channel by name and binds application policy to
 one worker-local WebRTC data-channel configuration. It does not create a global
 peer registry or move session handles across Nginx workers. SDP negotiation and
-the resulting native Duplex are exposed through `hoplite.rtc`.
+the resulting protocol-composed stream connection is exposed through `hoplite.rtc`.
 
 Channel names and paths must be unique, peer names must be unique, peer channel
 references must resolve, and channel paths may not overlap fixed proxies. Both

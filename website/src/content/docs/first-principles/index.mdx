@@ -1,0 +1,77 @@
+---
+title: Hoplite from First Principles
+description: Build maintainable, high-performance Hara systems by deriving Hoplite from values, ownership, streams, and bounded concurrency.
+---
+
+Hoplite is easiest to understand when it is not introduced as a collection of
+web-framework features. It begins with a smaller set of ideas:
+
+1. An application is immutable data.
+2. A request is owned by one Nginx worker for a bounded lifetime.
+3. Hara functions transform values; effects cross explicit capabilities.
+4. A stream is an asynchronous sequence with lifecycle and backpressure.
+5. Concurrency is useful only when its queues, failure paths, and owners are
+   visible.
+
+From those constraints we can derive ordinary HTTP services, streaming
+responses, realtime sessions, process and socket gateways, correlated RPC,
+telemetry pipelines, and worker-local agents without giving each domain a new
+execution model.
+
+## Who this book is for
+
+This section assumes that you can program, but not that you already know Hara,
+Hoplite, Nginx internals, coroutines, or channel-based concurrency. Each chapter
+starts with a problem, introduces the smallest necessary abstraction, and then
+shows what that abstraction costs in memory, scheduling, and maintenance.
+
+The examples use public Hara and Hoplite values. Experimental interfaces are
+identified where they appear. Potential applications are separated from
+features that are available in the current release.
+
+## The learning path
+
+| Part | Question | Result |
+| --- | --- | --- |
+| Values and boundaries | What must remain true? | Explicit ownership and bounded resources |
+| Worker runtime | Where does code execute? | Predictable locality and cancellation |
+| Standard Hara | How is application logic represented? | Small, testable transformations |
+| Streams | How do values move over time? | Pull-based flow and backpressure |
+| `stream.async` | How do independent activities coordinate? | Bounded channels and selection |
+| Duplex and Relay | How do transports become application protocols? | Portable bidirectional communication |
+| Applications | What can be built from these parts? | Reusable system patterns |
+| Engineering | Why does the design stay fast and maintainable? | Measurable mechanisms and local reasoning |
+
+## The running system
+
+Several chapters grow the same operations service:
+
+```text
+HTTP commands ──→ Hara handlers ──→ bounded event channel
+                                          │
+                          ┌───────────────┼───────────────┐
+                          ↓               ↓               ↓
+                    HTTP stream      process Relay     RTC Relay
+```
+
+It begins as a normal request/response service. It then gains asynchronous host
+operations, a transformed event stream, bounded producer/consumer concurrency,
+a supervised process, and a worker-local RTC connection. The progression makes
+the point of each abstraction visible before the abstraction becomes familiar.
+
+## How to read performance claims
+
+This book uses three kinds of statements:
+
+- **Contract:** behavior enforced by an API or test, such as a bounded channel
+  refusing an immediate `offer` when full.
+- **Mechanism:** a causal design property, such as avoiding a suspended-work
+  record when a handler completes synchronously.
+- **Measurement:** a number produced by a reproducible benchmark with revisions,
+  machine details, warmups, and raw samples.
+
+A mechanism suggests where an advantage may come from; it is not a benchmark.
+The performance chapter connects every claimed benefit to a measurement that can
+confirm or reject it.
+
+Continue with [Values and boundaries](./values-and-boundaries/).

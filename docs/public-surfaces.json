@@ -8,7 +8,7 @@
     {"name":"hoplite.internal","path":"core/lib/src/hoplite/internal.hal","status":"internal","summary":"Implementation helpers with no compatibility promise."},
     {"name":"hoplite.raw","path":"core/lib/src/hoplite/raw.hal","status":"public","conformance":["core/lib/test/hoplite/core_test.hal"],"summary":"Raw request, route-adapter and response-map construction."},
     {"name":"hoplite.response-source","path":"core/lib/src/hoplite/response_source.hal","status":"experimental","conformance":["core/lib/test/hoplite/response_source_test.hal","packaging/scripts/smoke-response-source.sh"],"summary":"Bounded ranged and streaming response bodies."},
-    {"name":"hoplite.rtc","path":"core/lib/src/hoplite/rtc.hal","status":"experimental","conformance":["core/lib/test/hoplite/rtc_test.hal","core/runtime/src/lib.rs"],"summary":"Worker-local WebRTC negotiation and Duplex construction."}
+    {"name":"hoplite.rtc","path":"core/lib/src/hoplite/rtc.hal","status":"experimental","conformance":["core/lib/test/hoplite/rtc_test.hal","core/runtime/src/lib.rs"],"summary":"Worker-local WebRTC negotiation and stream Duplex composition."}
   ],
   "native_headers": [
     {"name":"hoplite_data_plane.h","path":"core/abi/data-plane-ffi/include/hoplite_data_plane.h","status":"public","conformance":["core/abi/data-plane/tests/contracts.rs"],"summary":"Portable request-body and response-body callback descriptors."},
