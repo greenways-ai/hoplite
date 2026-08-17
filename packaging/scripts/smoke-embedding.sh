@@ -60,6 +60,13 @@ cc -std=c11 -Wall -Wextra -Werror \
   -o "$WORK/hoplite-c-embed"
 "$WORK/hoplite-c-embed"
 
+cc -std=c11 -Wall -Wextra -Werror \
+  -I "$ROOT/core/nginx" \
+  "$ROOT/core/nginx/hoplite_console_transport.c" \
+  "$ROOT/core/nginx/tests/console_transport.c" \
+  -o "$WORK/hoplite-console-transport"
+"$WORK/hoplite-console-transport"
+
 grep -Eo 'hoplite_[a-z0-9_]+\(' "$HEADER" \
   | tr -d '(' \
   | LC_ALL=C sort -u > "$WORK/header-symbols.txt"
@@ -82,4 +89,5 @@ diff -u "$INVENTORY" "$WORK/binary-symbols.txt"
 printf '%s\n' \
   "Rust embedding fixture: passed" \
   "C embedding fixture: passed" \
+  "console worker transport: passed" \
   "public native header and binary symbols: exact"
