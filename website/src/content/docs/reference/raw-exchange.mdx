@@ -1,0 +1,86 @@
+---
+title: Raw Nginx exchange
+description: Read bounded Nginx request fields, suspend, and construct a response without direct Host/call.
+---
+
+Use the `:raw` route adapter when a handler needs Nginx request context or the
+imperative response builder.
+
+```clojure
+(ns example.raw
+  (:require [hoplite.core :as h]
+            [hoplite.raw :as raw]))
+
+(defn inspect [exchange]
+  (raw/respond!
+    exchange
+    200
+    {"content-type" "text/plain"
+     "x-request-id" (or (raw/request-id exchange) "unavailable")}
+    (or (raw/scheme exchange) "unknown")))
+
+(def app
+  (h/app
+    {:resources
+     [{:path "/inspect"
+       :operations
+       {:get {:handler #'inspect
+              :adapter :raw}}}]}))
+```
+
+## Request accessors
+
+The portable request fields remain available: `method`, `uri`, `path`,
+`query-string`, `remote-address`, `header`, and `headers`.
+
+An Nginx-backed raw exchange also provides:
+
+| Accessor | Nginx value |
+| --- | --- |
+| `scheme` | `$scheme` |
+| `protocol` | `$server_protocol` |
+| `host` | `$host` |
+| `server-name` | `$server_name` |
+| `server-address` | `$server_addr` |
+| `server-port` | `$server_port` |
+| `remote-port` | `$remote_port` |
+| `request-id` | `$request_id` |
+| `connection-id` | `$connection` |
+| `connection-requests` | `$connection_requests` |
+| `request-time` | `$request_time` |
+| `request-length` | `$request_length` |
+| `content-length` | `$content_length` |
+
+The values are strings. An accessor returns `nil` when Nginx reports that the
+field is unavailable.
+
+## Request suspension
+
+`sleep` returns the bounded Nginx timer promise. Await it from an asynchronous
+raw handler; the worker remains available while the request is suspended.
+
+```clojure
+(defn ^:async delayed [exchange]
+  (Coroutine/await (raw/sleep 25))
+  (raw/respond! exchange 200 "ready"))
+```
+
+The delay must be between 0 and 3,600,000 milliseconds. Cancellation,
+disconnect, timeout, and worker shutdown cancel the request-scoped timer.
+
+## Response operations
+
+`respond!` returns one complete buffered response map. For incremental buffered
+construction, call `start!`, zero or more `write!` operations, then `finish!`.
+
+The exchange and every raw value are request-scoped. Do not retain the exchange
+after completion, suspension cancellation, disconnect, or worker shutdown.
+
+## Boundary
+
+The field inventory is closed in the native ABI. Applications cannot supply an
+arbitrary variable name, Nginx directive, location, upstream, filesystem path,
+socket, pointer, provider handle, host service name, or operation name.
+`hoplite.raw/sleep` is the only Nginx event-loop operation exposed by this
+namespace. Raw fields are projected only into `:raw` exchanges; the `:request`
+and `:request+hta` adapters do not receive them.

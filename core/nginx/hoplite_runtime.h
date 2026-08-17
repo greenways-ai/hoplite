@@ -62,6 +62,54 @@ typedef struct {
     uint32_t require_declared_length;
 } hoplite_request_v3_t;
 
+/*
+ * Runtime ABI 5 introduces V4, which composes V3 with an optional,
+ * borrowed raw-request descriptor. The callback accepts only the closed field
+ * identifiers below. It does not accept
+ * variable names, Nginx directives, locations, upstreams, paths or handles.
+ *
+ * Callback results are borrowed UTF-8 bytes valid for the callback duration:
+ * HOPLITE_RAW_FIELD_OK, HOPLITE_RAW_FIELD_UNAVAILABLE or
+ * HOPLITE_RAW_FIELD_ERROR.
+ *
+ * A non-null raw descriptor and its context remain valid through the active
+ * request invocation, including suspension. The runtime copies the descriptor,
+ * not the pointed-to Nginx request. Raw validation precedes V3 body ownership
+ * transfer, so a raw-validation failure leaves a body descriptor with the
+ * caller.
+ */
+#define HOPLITE_RAW_FIELD_OK 0
+#define HOPLITE_RAW_FIELD_UNAVAILABLE 1
+#define HOPLITE_RAW_FIELD_ERROR 2
+
+#define HOPLITE_RAW_FIELD_SCHEME 1u
+#define HOPLITE_RAW_FIELD_SERVER_PROTOCOL 2u
+#define HOPLITE_RAW_FIELD_HOST 3u
+#define HOPLITE_RAW_FIELD_SERVER_NAME 4u
+#define HOPLITE_RAW_FIELD_SERVER_ADDRESS 5u
+#define HOPLITE_RAW_FIELD_SERVER_PORT 6u
+#define HOPLITE_RAW_FIELD_REMOTE_PORT 7u
+#define HOPLITE_RAW_FIELD_REQUEST_ID 8u
+#define HOPLITE_RAW_FIELD_CONNECTION_ID 9u
+#define HOPLITE_RAW_FIELD_CONNECTION_REQUESTS 10u
+#define HOPLITE_RAW_FIELD_REQUEST_TIME 11u
+#define HOPLITE_RAW_FIELD_REQUEST_LENGTH 12u
+#define HOPLITE_RAW_FIELD_CONTENT_LENGTH 13u
+
+typedef int32_t (*hoplite_raw_field_fn)(void *context,
+                                        uint32_t field,
+                                        hoplite_slice_t *value);
+
+typedef struct {
+    void *context;
+    hoplite_raw_field_fn field;
+} hoplite_raw_request_v1_t;
+
+typedef struct {
+    hoplite_request_v3_t request;
+    const hoplite_raw_request_v1_t *raw;
+} hoplite_request_v4_t;
+
 typedef struct {
     uint32_t kind;
     uint64_t id;
@@ -75,6 +123,7 @@ typedef void (*hoplite_startup_diagnostic_fn)(void *context,
  * Returns the highest runtime ABI version supported by this library. ABI
  * additions preserve earlier versioned symbols, so a V2-only host accepts any
  * return value greater than or equal to 2 rather than requiring exact equality.
+ * A host constructing the V4 raw-request descriptor requires ABI 5 or newer.
  */
 uint32_t hoplite_abi_version(void);
 hoplite_runtime_t *hoplite_runtime_new(void);
@@ -178,6 +227,15 @@ int hoplite_handler_invoke_v3(hoplite_runtime_t *runtime,
                               uint64_t handler,
                               uint32_t adapter,
                               const hoplite_request_v3_t *request,
+                              hoplite_outcome_v2_t *outcome);
+int hoplite_app_invoke_v4(hoplite_runtime_t *runtime,
+                          uint64_t app,
+                          const hoplite_request_v4_t *request,
+                          hoplite_outcome_v2_t *outcome);
+int hoplite_handler_invoke_v4(hoplite_runtime_t *runtime,
+                              uint64_t handler,
+                              uint32_t adapter,
+                              const hoplite_request_v4_t *request,
                               hoplite_outcome_v2_t *outcome);
 
 /*

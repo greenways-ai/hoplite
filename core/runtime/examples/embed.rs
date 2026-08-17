@@ -16,7 +16,7 @@ fn text(value: &str) -> HopliteSlice {
 }
 
 fn main() {
-    assert!(hoplite_abi_version() >= 4);
+    assert!(hoplite_abi_version() >= 5);
 
     let runtime = hoplite_runtime_new();
     assert!(!runtime.is_null());

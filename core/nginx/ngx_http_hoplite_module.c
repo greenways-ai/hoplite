@@ -173,6 +173,77 @@ ngx_http_hoplite_header_count(ngx_http_request_t *request)
     return count;
 }
 
+static int32_t
+ngx_http_hoplite_raw_field(void *data, uint32_t field,
+                           hoplite_slice_t *output)
+{
+    ngx_http_request_t *request = data;
+    ngx_http_variable_value_t *value;
+    ngx_str_t name;
+
+    if (request == NULL || output == NULL) {
+        return HOPLITE_RAW_FIELD_ERROR;
+    }
+    output->data = NULL;
+    output->len = 0;
+
+    switch (field) {
+    case HOPLITE_RAW_FIELD_SCHEME:
+        ngx_str_set(&name, "scheme");
+        break;
+    case HOPLITE_RAW_FIELD_SERVER_PROTOCOL:
+        ngx_str_set(&name, "server_protocol");
+        break;
+    case HOPLITE_RAW_FIELD_HOST:
+        ngx_str_set(&name, "host");
+        break;
+    case HOPLITE_RAW_FIELD_SERVER_NAME:
+        ngx_str_set(&name, "server_name");
+        break;
+    case HOPLITE_RAW_FIELD_SERVER_ADDRESS:
+        ngx_str_set(&name, "server_addr");
+        break;
+    case HOPLITE_RAW_FIELD_SERVER_PORT:
+        ngx_str_set(&name, "server_port");
+        break;
+    case HOPLITE_RAW_FIELD_REMOTE_PORT:
+        ngx_str_set(&name, "remote_port");
+        break;
+    case HOPLITE_RAW_FIELD_REQUEST_ID:
+        ngx_str_set(&name, "request_id");
+        break;
+    case HOPLITE_RAW_FIELD_CONNECTION_ID:
+        ngx_str_set(&name, "connection");
+        break;
+    case HOPLITE_RAW_FIELD_CONNECTION_REQUESTS:
+        ngx_str_set(&name, "connection_requests");
+        break;
+    case HOPLITE_RAW_FIELD_REQUEST_TIME:
+        ngx_str_set(&name, "request_time");
+        break;
+    case HOPLITE_RAW_FIELD_REQUEST_LENGTH:
+        ngx_str_set(&name, "request_length");
+        break;
+    case HOPLITE_RAW_FIELD_CONTENT_LENGTH:
+        ngx_str_set(&name, "content_length");
+        break;
+    default:
+        return HOPLITE_RAW_FIELD_UNAVAILABLE;
+    }
+
+    value = ngx_http_get_variable(
+        request, &name, ngx_hash_key(name.data, name.len));
+    if (value == NULL) {
+        return HOPLITE_RAW_FIELD_ERROR;
+    }
+    if (value->not_found) {
+        return HOPLITE_RAW_FIELD_UNAVAILABLE;
+    }
+    output->data = value->data;
+    output->len = value->len;
+    return HOPLITE_RAW_FIELD_OK;
+}
+
 static hoplite_slice_t
 ngx_http_hoplite_slice(ngx_str_t value)
 {
@@ -2351,6 +2422,8 @@ ngx_http_hoplite_invoke(ngx_http_request_t *request,
 {
     hoplite_request_v2_t native_request;
     hoplite_request_v3_t native_request_v3;
+    hoplite_raw_request_v1_t raw_request;
+    hoplite_request_v4_t native_request_v4;
     hoplite_outcome_v2_t outcome;
     ngx_str_t binding;
     ngx_int_t rc;
@@ -2365,19 +2438,22 @@ ngx_http_hoplite_invoke(ngx_http_request_t *request,
     native_request.header_count = ngx_http_hoplite_header_count(request);
     native_request.header_at = ngx_http_hoplite_header_at;
 
+    native_request_v3.request = native_request;
+    native_request_v3.body = body;
+    native_request_v3.max_body_bytes =
+        body == NULL ? 0 : conf->request_body_max;
+    native_request_v3.max_chunk_bytes =
+        body == NULL ? 0 : conf->request_body_chunk;
+    native_request_v3.require_declared_length = body == NULL ? 0 : 1;
+
+    raw_request.context = request;
+    raw_request.field = ngx_http_hoplite_raw_field;
+    native_request_v4.request = native_request_v3;
+    native_request_v4.raw = &raw_request;
+
     if (conf->app != NGX_CONF_UNSET_UINT) {
-        if (body == NULL) {
-            rc = hoplite_app_invoke_v2(ngx_http_hoplite_runtime, conf->app,
-                                       &native_request, &outcome);
-        } else {
-            native_request_v3.request = native_request;
-            native_request_v3.body = body;
-            native_request_v3.max_body_bytes = conf->request_body_max;
-            native_request_v3.max_chunk_bytes = conf->request_body_chunk;
-            native_request_v3.require_declared_length = 1;
-            rc = hoplite_app_invoke_v3(ngx_http_hoplite_runtime, conf->app,
-                                       &native_request_v3, &outcome);
-        }
+        rc = hoplite_app_invoke_v4(ngx_http_hoplite_runtime, conf->app,
+                                   &native_request_v4, &outcome);
         if (rc != 0) {
             ngx_http_hoplite_request_failure(
                 request->connection->log, "routing");
@@ -2417,24 +2493,11 @@ ngx_http_hoplite_invoke(ngx_http_request_t *request,
         if (conf->prepared_handler == 0) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
-        if (body == NULL) {
-            rc = hoplite_handler_invoke_v2(ngx_http_hoplite_runtime,
-                                           conf->prepared_handler,
-                                           conf->adapter,
-                                           &native_request,
-                                           &outcome);
-        } else {
-            native_request_v3.request = native_request;
-            native_request_v3.body = body;
-            native_request_v3.max_body_bytes = conf->request_body_max;
-            native_request_v3.max_chunk_bytes = conf->request_body_chunk;
-            native_request_v3.require_declared_length = 1;
-            rc = hoplite_handler_invoke_v3(ngx_http_hoplite_runtime,
-                                           conf->prepared_handler,
-                                           conf->adapter,
-                                           &native_request_v3,
-                                           &outcome);
-        }
+        rc = hoplite_handler_invoke_v4(ngx_http_hoplite_runtime,
+                                       conf->prepared_handler,
+                                       conf->adapter,
+                                       &native_request_v4,
+                                       &outcome);
         if (rc != 0) {
             ngx_http_hoplite_request_failure(
                 request->connection->log, "routing");
@@ -2661,7 +2724,7 @@ ngx_http_hoplite_init_process(ngx_cycle_t *cycle)
         return NGX_ERROR;
     }
     ngx_http_hoplite_runtime = hoplite_runtime_new();
-    if (ngx_http_hoplite_runtime == NULL || hoplite_abi_version() < 4) {
+    if (ngx_http_hoplite_runtime == NULL || hoplite_abi_version() < 5) {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
                       "hoplite runtime could not be initialized");
         return NGX_ERROR;

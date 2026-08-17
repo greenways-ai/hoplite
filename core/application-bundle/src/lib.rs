@@ -11,7 +11,7 @@ pub const MAGIC: &[u8; 4] = b"HAB0";
 /// Hara-owned alpha bundle marker required inside the envelope.
 pub const HARA_BUNDLE_MAGIC: &[u8; 4] = b"HBX0";
 /// Numeric embedding ABI compatibility, independent of format maturity.
-pub const RUNTIME_ABI_VERSION: u32 = 4;
+pub const RUNTIME_ABI_VERSION: u32 = 5;
 pub const MAX_MANIFEST_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_BYTECODE_BYTES: usize = 64 * 1024 * 1024;
 
@@ -409,12 +409,13 @@ mod tests {
 
     #[test]
     fn rejects_runtime_abi_drift_even_with_a_valid_checksum() {
+        let previous = RUNTIME_ABI_VERSION - 1;
         let mut bundle = encode(b"manifest", &hbx0()).unwrap();
-        bundle[PREFIX_BYTES..PREFIX_BYTES + 4].copy_from_slice(&5u32.to_le_bytes());
+        bundle[PREFIX_BYTES..PREFIX_BYTES + 4].copy_from_slice(&previous.to_le_bytes());
         reseal(&mut bundle);
         assert_eq!(
             decode(&bundle, b"manifest"),
-            Err(Error::RuntimeAbiMismatch { actual: 5 })
+            Err(Error::RuntimeAbiMismatch { actual: previous })
         );
     }
 

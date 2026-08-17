@@ -205,6 +205,42 @@ pub struct HopliteRequestV3 {
     pub require_declared_length: u32,
 }
 
+const RAW_FIELD_OK: i32 = 0;
+const RAW_FIELD_UNAVAILABLE: i32 = 1;
+
+const RAW_FIELDS: [(&str, u32); 13] = [
+    ("scheme", 1),
+    ("server-protocol", 2),
+    ("host", 3),
+    ("server-name", 4),
+    ("server-address", 5),
+    ("server-port", 6),
+    ("remote-port", 7),
+    ("request-id", 8),
+    ("connection-id", 9),
+    ("connection-requests", 10),
+    ("request-time", 11),
+    ("request-length", 12),
+    ("content-length", 13),
+];
+
+pub type HopliteRawField =
+    unsafe extern "C" fn(context: *mut c_void, field: u32, value: *mut HopliteSlice) -> i32;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct HopliteRawRequestV1 {
+    pub context: *mut c_void,
+    pub field: Option<HopliteRawField>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct HopliteRequestV4 {
+    pub request: HopliteRequestV3,
+    pub raw: *const HopliteRawRequestV1,
+}
+
 #[repr(C)]
 pub struct HopliteOutcomeV2 {
     /// 0 = error, 1 = complete, 2 = suspended.
@@ -216,6 +252,7 @@ pub struct HopliteOutcomeV2 {
 struct RequestRecord {
     request: HopliteRequestV2,
     body: Option<ResourceHandle>,
+    raw: Option<HopliteRawRequestV1>,
     identity: Option<Value>,
 }
 
@@ -350,9 +387,41 @@ fn request_body_value(record: RequestRecord) -> Result<Option<Value>, String> {
         .transpose()
 }
 
+fn raw_field_id(name: &str) -> Option<u32> {
+    RAW_FIELDS
+        .iter()
+        .find_map(|(candidate, field)| (*candidate == name).then_some(*field))
+}
+
+fn request_raw_field(record: &RequestRecord, name: &str) -> Result<Option<Value>, String> {
+    let Some(field) = raw_field_id(name) else {
+        return Ok(None);
+    };
+    let Some(raw) = record.raw else {
+        return Ok(None);
+    };
+    let Some(read) = raw.field else {
+        return Err("hoplite/raw-request-invalid: missing raw field callback".into());
+    };
+    if raw.context.is_null() {
+        return Err("hoplite/raw-request-invalid: null raw request context".into());
+    }
+
+    let mut output = HopliteSlice {
+        data: ptr::null(),
+        len: 0,
+    };
+    match unsafe { read(raw.context, field, &mut output) } {
+        RAW_FIELD_OK => slice_string(output).map(Value::String).map(Some),
+        RAW_FIELD_UNAVAILABLE => Ok(None),
+        _ => Err(format!("hoplite/raw-field-invalid: cannot read :{name}")),
+    }
+}
+
 fn request_entries(
     requests: &Rc<RefCell<HashMap<RequestId, RequestRecord>>>,
     request: RequestId,
+    include_raw: bool,
 ) -> Result<Vec<(Value, Value)>, String> {
     let record = request_record(requests, request)?;
     let headers = request_headers(record.clone())?
@@ -385,8 +454,15 @@ fn request_entries(
     if let Some(body) = request_body_value(record.clone())? {
         entries.push((Value::Keyword("body-handle".into()), body));
     }
-    if let Some(identity) = record.identity {
+    if let Some(identity) = record.identity.clone() {
         entries.push((Value::Keyword("identity".into()), identity));
+    }
+    if include_raw {
+        for &(name, _) in &RAW_FIELDS {
+            if let Some(value) = request_raw_field(&record, name)? {
+                entries.push((Value::Keyword(name.into()), value));
+            }
+        }
     }
     Ok(entries)
 }
@@ -426,7 +502,7 @@ fn request_lookup(
         Value::String(name) => name,
         _ => return Ok(None),
     };
-    Ok(match name {
+    let value = match name {
         "method" => Some(Value::String(slice_string(record.request.method)?)),
         "uri" => Some(Value::String(slice_string(record.request.uri)?)),
         "path" => Some(Value::String(slice_string(record.request.path)?)),
@@ -434,9 +510,16 @@ fn request_lookup(
         "remote-address" => Some(Value::String(slice_string(record.request.remote_address)?)),
         "headers" => Some(request_value(requests, receiver.handle, "headers")?),
         "body-handle" => request_body_value(record.clone())?,
-        "identity" => record.identity,
+        "identity" => record.identity.clone(),
         _ => None,
-    })
+    };
+    if value.is_some() {
+        return Ok(value);
+    }
+    if receiver.type_name == "exchange" {
+        return request_raw_field(&record, name);
+    }
+    Ok(None)
 }
 
 fn extension_entries(
@@ -449,7 +532,11 @@ fn extension_entries(
             .map(|(key, value)| (Value::String(key), Value::String(value)))
             .collect());
     }
-    request_entries(requests, receiver.handle)
+    request_entries(
+        requests,
+        receiver.handle,
+        receiver.type_name == "exchange",
+    )
 }
 
 fn response_headers(value: Option<&Value>) -> Result<Vec<(String, String)>, String> {
@@ -909,6 +996,33 @@ impl HopliteRuntime {
         }
     }
 
+    fn register_request_v4(
+        &mut self,
+        request: HopliteRequestV4,
+    ) -> Result<
+        (
+            HopliteRequestV2,
+            Option<ResourceHandle>,
+            Option<HopliteRawRequestV1>,
+        ),
+        String,
+    > {
+        let raw = if request.raw.is_null() {
+            None
+        } else {
+            let raw = unsafe { *request.raw };
+            if raw.context.is_null() {
+                return Err("hoplite/raw-request-invalid: null raw request context".into());
+            }
+            if raw.field.is_none() {
+                return Err("hoplite/raw-request-invalid: missing raw field callback".into());
+            }
+            Some(raw)
+        };
+        let (request, body) = self.register_request_v3(request.request)?;
+        Ok((request, body, raw))
+    }
+
     fn work_owns_request_body(&self, work: WorkId, handle: ResourceHandle) -> bool {
         let Some(request) = self.works.get(&work).and_then(|owner| owner.request) else {
             return false;
@@ -925,6 +1039,15 @@ impl HopliteRuntime {
         request: HopliteRequestV2,
         body: Option<ResourceHandle>,
     ) -> RequestId {
+        self.allocate_request_with_raw(request, body, None)
+    }
+
+    fn allocate_request_with_raw(
+        &mut self,
+        request: HopliteRequestV2,
+        body: Option<ResourceHandle>,
+        raw: Option<HopliteRawRequestV1>,
+    ) -> RequestId {
         let id = self.next_request;
         self.next_request = self.next_request.saturating_add(1);
         self.requests.borrow_mut().insert(
@@ -932,6 +1055,7 @@ impl HopliteRuntime {
             RequestRecord {
                 request,
                 body,
+                raw,
                 identity: None,
             },
         );
@@ -1027,8 +1151,18 @@ impl HopliteRuntime {
         request: HopliteRequestV2,
         body: Option<ResourceHandle>,
     ) -> Result<InvokeState, String> {
+        self.app_invoke_with_raw(app, request, body, None)
+    }
+
+    fn app_invoke_with_raw(
+        &mut self,
+        app: AppId,
+        request: HopliteRequestV2,
+        body: Option<ResourceHandle>,
+        raw: Option<HopliteRawRequestV1>,
+    ) -> Result<InvokeState, String> {
         let has_body = body.is_some();
-        let request_id = self.allocate_request(request, body);
+        let request_id = self.allocate_request_with_raw(request, body, raw);
         let result = (|| {
             let method = slice_string(request.method)?.to_ascii_uppercase();
             let path = slice_string(request.path)?;
@@ -1065,7 +1199,7 @@ impl HopliteRuntime {
                 ),
                 RouteAdapter::RequestHta => {
                     let value = Value::Map(
-                        request_entries(&self.requests, request_id)?
+                        request_entries(&self.requests, request_id, false)?
                             .into_iter()
                             .collect(),
                     );
@@ -1094,8 +1228,19 @@ impl HopliteRuntime {
         request: HopliteRequestV2,
         body: Option<ResourceHandle>,
     ) -> Result<InvokeState, String> {
+        self.handler_invoke_with_raw(handler, adapter, request, body, None)
+    }
+
+    fn handler_invoke_with_raw(
+        &mut self,
+        handler: HandlerId,
+        adapter: RouteAdapter,
+        request: HopliteRequestV2,
+        body: Option<ResourceHandle>,
+        raw: Option<HopliteRawRequestV1>,
+    ) -> Result<InvokeState, String> {
         let has_body = body.is_some();
-        let request_id = self.allocate_request(request, body);
+        let request_id = self.allocate_request_with_raw(request, body, raw);
         let result = match adapter {
             RouteAdapter::Raw => request_value(&self.requests, request_id, "exchange")
                 .and_then(|binding| self.invoke_direct(handler, binding, request_id)),
@@ -1107,7 +1252,7 @@ impl HopliteRuntime {
             ),
             RouteAdapter::RequestHta => {
                 let value = Value::Map(
-                    request_entries(&self.requests, request_id)?
+                    request_entries(&self.requests, request_id, false)?
                         .into_iter()
                         .collect(),
                 );
@@ -2413,6 +2558,86 @@ pub unsafe extern "C" fn hoplite_handler_invoke_v3(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn hoplite_app_invoke_v4(
+    runtime: *mut HopliteRuntime,
+    app: u64,
+    request: *const HopliteRequestV4,
+    outcome: *mut HopliteOutcomeV2,
+) -> i32 {
+    if request.is_null() || outcome.is_null() {
+        return 1;
+    }
+    (*outcome).kind = 0;
+    (*outcome).id = 0;
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        let (request, body, raw) = runtime.register_request_v4(*request).map_err(|_| ())?;
+        match runtime
+            .app_invoke_with_raw(app, request, body, raw)
+            .map_err(|_| ())?
+        {
+            InvokeState::Complete(response) => {
+                (*outcome).kind = 1;
+                (*outcome).id = response;
+            }
+            InvokeState::Suspended(work) => {
+                (*outcome).kind = 2;
+                (*outcome).id = work;
+            }
+        }
+        Ok::<i32, ()>(0)
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hoplite_handler_invoke_v4(
+    runtime: *mut HopliteRuntime,
+    handler: u64,
+    adapter: u32,
+    request: *const HopliteRequestV4,
+    outcome: *mut HopliteOutcomeV2,
+) -> i32 {
+    if request.is_null() || outcome.is_null() {
+        return 1;
+    }
+    (*outcome).kind = 0;
+    (*outcome).id = 0;
+    catch_unwind(AssertUnwindSafe(|| {
+        let runtime = runtime_mut(runtime)?;
+        let (request, body, raw) = runtime.register_request_v4(*request).map_err(|_| ())?;
+        let adapter = match RouteAdapter::from_abi(adapter) {
+            Ok(adapter) => adapter,
+            Err(_) => {
+                if let Some(body) = body {
+                    let _ = runtime.resources.borrow_mut().remove(body);
+                }
+                return Err(());
+            }
+        };
+        match runtime
+            .handler_invoke_with_raw(handler, adapter, request, body, raw)
+            .map_err(|_| ())?
+        {
+            InvokeState::Complete(response) => {
+                (*outcome).kind = 1;
+                (*outcome).id = response;
+            }
+            InvokeState::Suspended(work) => {
+                (*outcome).kind = 2;
+                (*outcome).id = work;
+            }
+        }
+        Ok::<i32, ()>(0)
+    }))
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(1)
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn hoplite_request_body_read_v3(
     runtime: *mut HopliteRuntime,
     work: u64,
@@ -3122,6 +3347,46 @@ mod tests {
         }
     }
 
+    struct TestRawRequest {
+        fields: Vec<(u32, &'static str)>,
+    }
+
+    unsafe extern "C" fn test_raw_field(
+        context: *mut c_void,
+        field: u32,
+        output: *mut HopliteSlice,
+    ) -> i32 {
+        if context.is_null() || output.is_null() {
+            return 2;
+        }
+        let request = &*(context as *const TestRawRequest);
+        let Some((_, value)) = request
+            .fields
+            .iter()
+            .find(|(candidate, _)| *candidate == field)
+        else {
+            return RAW_FIELD_UNAVAILABLE;
+        };
+        *output = test_slice(value);
+        RAW_FIELD_OK
+    }
+
+    fn test_request_v4(
+        request: HopliteRequestV2,
+        raw: &HopliteRawRequestV1,
+    ) -> HopliteRequestV4 {
+        HopliteRequestV4 {
+            request: HopliteRequestV3 {
+                request,
+                body: ptr::null(),
+                max_body_bytes: 0,
+                max_chunk_bytes: 0,
+                require_declared_length: 0,
+            },
+            raw,
+        }
+    }
+
     struct TestBody {
         bytes: Vec<u8>,
         cursor: usize,
@@ -3721,6 +3986,89 @@ mod tests {
         assert!(matches!(&response.body, NativeResponseBody::Buffered(body) if body == b"/raw"));
         assert_eq!(response.headers, vec![("x-mode".into(), "raw".into())]);
         assert_eq!(runtime.works.len(), works_before);
+    }
+
+    #[test]
+    fn request_v4_projects_bounded_raw_fields_into_raw_exchanges() {
+        let mut runtime = HopliteRuntime::new();
+        runtime.work_start(
+            "(ns direct.raw-fields) (defn show [exchange] (hoplite.raw.native/respond exchange 200 {} (:scheme exchange))) nil",
+            None,
+        );
+        let _ = take_event(&mut runtime);
+        runtime
+            .apps_prepare(manifest_v2("direct.raw-fields/show", "raw"))
+            .unwrap();
+
+        let mut request_context = TestRequest { headers: vec![] };
+        let mut raw_context = TestRawRequest {
+            fields: vec![
+                (raw_field_id("scheme").unwrap(), "https"),
+                (raw_field_id("server-port").unwrap(), "443"),
+            ],
+        };
+        let raw = HopliteRawRequestV1 {
+            context: (&mut raw_context as *mut TestRawRequest).cast(),
+            field: Some(test_raw_field),
+        };
+        let request = test_request_v4(
+            test_request(&mut request_context, "/raw-fields"),
+            &raw,
+        );
+        let mut outcome = HopliteOutcomeV2 { kind: 9, id: 9 };
+        assert_eq!(
+            unsafe { hoplite_app_invoke_v4(&mut runtime, 1, &request, &mut outcome) },
+            0
+        );
+        assert_eq!(outcome.kind, 1);
+        assert_ne!(outcome.id, 0);
+        assert!(
+            matches!(
+                &runtime.responses[&outcome.id].body,
+                NativeResponseBody::Buffered(body) if body == b"https"
+            ),
+            "raw response did not contain the bounded scheme field"
+        );
+        assert!(runtime.requests.borrow().is_empty());
+    }
+
+    #[test]
+    fn request_v4_keeps_raw_fields_out_of_request_adapter_values() {
+        let mut runtime = HopliteRuntime::new();
+        runtime.work_start(
+            "(ns direct.request-fields) (defn show [request] {:status 200 :body (if (:scheme request) \"leaked\" \"portable\")}) nil",
+            None,
+        );
+        let _ = take_event(&mut runtime);
+        runtime
+            .apps_prepare(manifest_v2("direct.request-fields/show", "request"))
+            .unwrap();
+
+        let mut request_context = TestRequest { headers: vec![] };
+        let mut raw_context = TestRawRequest {
+            fields: vec![(raw_field_id("scheme").unwrap(), "https")],
+        };
+        let raw = HopliteRawRequestV1 {
+            context: (&mut raw_context as *mut TestRawRequest).cast(),
+            field: Some(test_raw_field),
+        };
+        let request = test_request_v4(
+            test_request(&mut request_context, "/request-fields"),
+            &raw,
+        );
+        let mut outcome = HopliteOutcomeV2 { kind: 9, id: 9 };
+        assert_eq!(
+            unsafe { hoplite_app_invoke_v4(&mut runtime, 1, &request, &mut outcome) },
+            0
+        );
+        assert_eq!(outcome.kind, 1);
+        assert!(
+            matches!(
+                &runtime.responses[&outcome.id].body,
+                NativeResponseBody::Buffered(body) if body == b"portable"
+            ),
+            "portable request adapter received raw Nginx state"
+        );
     }
 
     #[test]

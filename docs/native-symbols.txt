@@ -3,6 +3,7 @@ hoplite_app_call
 hoplite_app_console_call
 hoplite_app_invoke_v2
 hoplite_app_invoke_v3
+hoplite_app_invoke_v4
 hoplite_apps_prepare
 hoplite_bootstrap_application_files_v1
 hoplite_bootstrap_application_files_v2
@@ -16,6 +17,7 @@ hoplite_call_resolve
 hoplite_handler_close
 hoplite_handler_invoke_v2
 hoplite_handler_invoke_v3
+hoplite_handler_invoke_v4
 hoplite_handler_prepare
 hoplite_request_body_finish_v3
 hoplite_request_body_read_v3

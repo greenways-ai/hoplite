@@ -3,19 +3,53 @@ title: Host capabilities
 description: How Hoplite exposes Nginx and development services to Hara code.
 ---
 
-Hara code calls native services through `std.native.Host/call`. The project declares the capabilities it expects:
+Hoplite separates synchronous request state from asynchronous host services.
+
+## Direct Nginx request surface
+
+A route using the `:raw` adapter receives a borrowed exchange. `hoplite.raw`
+reads a bounded set of Nginx-backed fields directly, including the scheme,
+protocol, host, server and connection identity, ports, request ID, request
+timing and byte counts.
+
+```clojure
+(ns example.request
+  (:require [hoplite.raw :as raw]))
+
+(defn show [exchange]
+  (raw/respond! exchange
+                200
+                {"content-type" "text/plain"}
+                (raw/request-id exchange)))
+```
+
+This path does not use `Host/call`, and it does not accept arbitrary Nginx
+variable names or directives. See [Raw Nginx exchange](/reference/raw-exchange/).
+
+## Nginx host
+
+Asynchronous event-loop operations remain explicit capabilities. A project
+using them declares:
 
 ```clojure
 :project/capabilities #{:host/nginx}
 ```
 
-## Nginx host
-
-The Nginx host provides request-time operations. Asynchronous handlers can await supported host calls without blocking the worker:
+`hoplite.raw/sleep` is the typed request-scoped timer wrapper. It suspends the
+handler without blocking the Nginx worker and accepts 0 through 3,600,000
+milliseconds:
 
 ```clojure
-(std.native.Host/call "nginx" "sleep" [25])
+(ns example.delay
+  (:require [hoplite.raw :as raw]))
+
+(defn ^:async delayed [exchange]
+  (Coroutine/await (raw/sleep 25))
+  (raw/respond! exchange 200 "ready"))
 ```
+
+The wrapper uses Hoplite's bounded Nginx service internally; application code
+does not select a generic service name or operation.
 
 ## Development host
 

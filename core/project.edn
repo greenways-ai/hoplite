@@ -5,7 +5,7 @@
  :project/source-paths ["lib/src"]
  :project/test-paths ["lib/test"]
  :project/extension-paths []
- :project/capabilities #{:host/random :host/hash :host/signature :host/clock :host/secret}
+ :project/capabilities #{:host/random :host/hash :host/signature :host/clock :host/secret :host/nginx}
  :project/dependencies {}
  :hoplite/exports
  {:hoplite/core {:export/namespace hoplite.core}
