@@ -5,6 +5,7 @@
 //! named-command broker channel; application source and runtime handles never
 //! cross that boundary.
 
+pub mod application_broker;
 pub mod dispatcher;
 pub mod evaluator;
 mod os;
