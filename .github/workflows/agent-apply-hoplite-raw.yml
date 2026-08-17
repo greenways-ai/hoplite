@@ -19,6 +19,9 @@ jobs:
           path: hoplite
           fetch-depth: 0
 
+      - name: Repair staged test fixture
+        run: sed -i 's/{\\"x-mode\\" \\"raw\\"}/{{\\"x-mode\\" \\"raw\\"}}/' hoplite/.github/agent/apply_hoplite_raw.py
+
       - name: Apply deterministic source changes
         run: python3 hoplite/.github/agent/apply_hoplite_raw.py
 
