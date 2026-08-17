@@ -46,7 +46,7 @@
              (recur))))))))
 
 (defn connect
-  "Wraps an already-signalled RTC session through the public stream Duplex facade."
+  "Composes an already-signalled RTC session as a portable stream Duplex."
   [handle]
   (duplex/create
    (receive-stream handle)

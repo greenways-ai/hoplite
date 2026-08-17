@@ -1,6 +1,6 @@
 ---
 title: hoplite.rtc
-description: Experimental worker-local WebRTC session negotiation and native Duplex construction.
+description: Experimental worker-local WebRTC negotiation and portable stream Duplex composition.
 ---
 
 <span class="doc-badge doc-badge--caution">Experimental</span> <span class="doc-badge doc-badge--note">Current main</span>
@@ -10,7 +10,8 @@ against the installed Hoplite version when using a tagged binary release.
 
 `hoplite.rtc` is the HAL wrapper around the worker-installed `hoplite.rtc` host
 provider. It creates WebRTC sessions, performs SDP offer/answer exchange, and
-turns an already-signalled session into a native `Duplex`.
+turns an already-signalled session into a protocol-composed stream Duplex.
+It does not allocate or return a native `Duplex` box.
 
 ```clojure
 (ns example.rtc
@@ -111,7 +112,7 @@ with the send and close operations.
 (connect handle)
 ```
 
-Wraps an already-signalled session as a native `Duplex`:
+Composes an already-signalled session as a regular Hara stream Duplex:
 
 ```clojure
 (def transport (rtc/connect handle))
@@ -119,10 +120,10 @@ Wraps an already-signalled session as a native `Duplex`:
 
 - reads are supplied by `receive-stream`;
 - writes invoke the provider's `send` operation;
-- closing the Duplex invokes the provider's `close` operation.
+- closing the composed value invokes the provider's `close` operation.
 
 `connect` does not perform SDP exchange and does not wait for a remote peer. Call
-`offer` plus `accept-answer`, or `answer`, before exposing the Duplex to
+`offer` plus `accept-answer`, or `answer`, before exposing the connection to
 application code.
 
 ## `host-call`
@@ -143,9 +144,9 @@ a worker timer driven by the RTC engine's next timeout. The provider pumps UDP,
 timeouts, sends, receives, and close events without moving runtime values across
 workers.
 
-One inbound message satisfies one pending Duplex read or occupies the bounded
+One inbound message satisfies one pending stream read or occupies the bounded
 receive slot. Request cancellation detaches a pending read without closing the
-session. Explicit Duplex close, provider failure, worker shutdown, and session
+session. Explicit close, provider failure, worker shutdown, and session
 cleanup release the worker-owned resources.
 
 ## Failure behavior

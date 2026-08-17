@@ -11,4 +11,14 @@
             (fn? rtc/accept-answer)
             (fn? rtc/connect)
             (fn? rtc/receive-stream)])
+   :expected [true true true true true true]}
+  {:name "RTC connections use the portable stream Duplex protocols"
+   :test (fn []
+           (let [connection (rtc/connect :worker-local-handle)]
+             [(satisfies? IStreamDuplex connection)
+              (satisfies? IStream connection)
+              (satisfies? IStreamWrite connection)
+              (satisfies? IClose connection)
+              (satisfies? IAbort connection)
+              (satisfies? IClosed connection)]))
    :expected [true true true true true true]}])
