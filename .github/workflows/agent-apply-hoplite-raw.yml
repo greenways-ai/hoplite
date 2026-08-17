@@ -19,11 +19,135 @@ jobs:
           path: hoplite
           fetch-depth: 0
 
-      - name: Repair staged test fixture
-        run: sed -i 's/{\\"x-mode\\" \\"raw\\"}/{{\\"x-mode\\" \\"raw\\"}}/' hoplite/.github/agent/apply_hoplite_raw.py
-
       - name: Apply deterministic source changes
-        run: python3 hoplite/.github/agent/apply_hoplite_raw.py
+        run: |
+          sed -i 's/{\\"x-mode\\" \\"raw\\"}/{{\\"x-mode\\" \\"raw\\"}}/' hoplite/.github/agent/apply_hoplite_raw.py
+          python3 hoplite/.github/agent/apply_hoplite_raw.py
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("hoplite/core/runtime/src/lib.rs")
+          source = path.read_text(encoding="utf-8")
+
+          host_test = r'''    #[test]
+              fn hoplite_raw_names_nginx_host_operations() {
+                  let mut runtime = HopliteRuntime::new();
+                  let source = format!(
+                      "{}\n(ns raw.operations \\
+                         (:require [hoplite.raw :as raw] \\
+                                   [std.foundation.coroutine :as coroutine])) \\
+                       (defn ^:async inspect [_] \\
+                         (let [scheme (coroutine/await (raw/scheme))] \\
+                           (coroutine/await (raw/log! :info scheme)) \\
+                           scheme))",
+                      include_str!("../../lib/src/hoplite/raw.hal"),
+                  );
+                  runtime.bootstrap_modules(&source).unwrap();
+                  let handler = runtime.handler_prepare("raw.operations/inspect").unwrap();
+                  runtime.work_call(handler, Value::Nil).unwrap();
+
+                  let Value::Vector(variable_call) = take_event(&mut runtime) else {
+                      panic!("raw variable host event")
+                  };
+                  assert!(
+                      matches!(variable_call.get(0), Some(Value::Number(2))),
+                      "raw variable event={variable_call:?}"
+                  );
+                  assert!(matches!(variable_call.get(5), Some(Value::String(service)) if service == "nginx"));
+                  assert!(matches!(variable_call.get(6), Some(Value::String(method)) if method == "raw/variable"));
+                  let variable_call_id = match variable_call.get(1) {
+                      Some(Value::Number(value)) => *value as u64,
+                      _ => panic!("raw variable call id"),
+                  };
+                  let variable_arguments = match variable_call.get(7) {
+                      Some(Value::Vector(arguments)) => arguments,
+                      _ => panic!("raw variable arguments"),
+                  };
+                  assert!(matches!(variable_arguments.peek_first(), Some(Value::Keyword(name)) if name.as_str() == "scheme"));
+
+                  runtime
+                      .call_deliver(variable_call_id, true, Value::String("https".into()))
+                      .unwrap();
+                  let Value::Vector(log_call) = take_event(&mut runtime) else {
+                      panic!("raw log host event")
+                  };
+                  assert!(matches!(log_call.get(0), Some(Value::Number(2))));
+                  assert!(matches!(log_call.get(5), Some(Value::String(service)) if service == "nginx"));
+                  assert!(matches!(log_call.get(6), Some(Value::String(method)) if method == "raw/log"));
+                  let log_call_id = match log_call.get(1) {
+                      Some(Value::Number(value)) => *value as u64,
+                      _ => panic!("raw log call id"),
+                  };
+                  let log_arguments = match log_call.get(7) {
+                      Some(Value::Vector(arguments)) => arguments,
+                      _ => panic!("raw log arguments"),
+                  };
+                  assert!(matches!(log_arguments.get(0), Some(Value::Keyword(level)) if level.as_str() == "info"));
+                  assert!(matches!(log_arguments.get(1), Some(Value::String(message)) if message == "https"));
+
+                  runtime.call_deliver(log_call_id, true, Value::Nil).unwrap();
+                  let Value::Vector(done) = take_event(&mut runtime) else {
+                      panic!("raw operation completion event")
+                  };
+                  assert!(matches!(done.get(0), Some(Value::Number(0))));
+                  assert!(matches!(done.get(2), Some(Value::String(value)) if value == "https"));
+              }
+
+          '''
+          source, count = re.subn(
+              r"    #\[test\]\n    fn hoplite_raw_names_nginx_host_operations\(\) \{.*?\n    \}\n\n",
+              host_test,
+              source,
+              count=1,
+              flags=re.DOTALL,
+          )
+          if count != 1:
+              raise RuntimeError(f"host test replacement count={count}")
+
+          adapter_test = r'''    #[test]
+              fn hoplite_raw_adapter_uses_the_response_api() {
+                  let mut runtime = HopliteRuntime::new();
+                  let source = format!(
+                      "{}\n(ns direct.raw (:require [hoplite.raw :as raw])) \\
+                       (defn show [exchange] \\
+                         (raw/respond! exchange 201 \\
+                           {{\"x-mode\" \"raw\"}} \\
+                           (raw/path exchange)))",
+                      include_str!("../../lib/src/hoplite/raw.hal"),
+                  );
+                  runtime.bootstrap_modules(&source).unwrap();
+                  let works_before = runtime.works.len();
+                  runtime
+                      .apps_prepare(manifest_v2("direct.raw/show", "raw"))
+                      .unwrap();
+                  let mut context = TestRequest { headers: vec![] };
+                  let outcome = runtime
+                      .app_invoke(1, test_request(&mut context, "/raw"))
+                      .unwrap();
+                  let InvokeState::Complete(response) = outcome else {
+                      panic!("raw route suspended")
+                  };
+                  let response = runtime.responses.get(&response).unwrap();
+                  assert_eq!(response.status, 201);
+                  assert!(matches!(&response.body, NativeResponseBody::Buffered(body) if body == b"/raw"));
+                  assert_eq!(response.headers, vec![("x-mode".into(), "raw".into())]);
+                  assert_eq!(runtime.works.len(), works_before);
+              }
+
+          '''
+          source, count = re.subn(
+              r"    #\[test\]\n    fn hoplite_raw_adapter_uses_the_response_api\(\) \{.*?\n    \}\n\n",
+              adapter_test,
+              source,
+              count=1,
+              flags=re.DOTALL,
+          )
+          if count != 1:
+              raise RuntimeError(f"adapter test replacement count={count}")
+
+          path.write_text(source, encoding="utf-8")
+          PY
 
       - uses: actions/checkout@v5
         with:
