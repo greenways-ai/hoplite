@@ -37,9 +37,9 @@ pub fn run_application_broker<H: PreparedHalBoundary>(
     config.validate()?;
     let listener = bind_private_socket(&config.socket_path)?;
     loop {
-        let (mut stream, _) = listener
-            .accept()
-            .map_err(|error| format!("cannot accept application console broker connection: {error}"))?;
+        let (mut stream, _) = listener.accept().map_err(|error| {
+            format!("cannot accept application console broker connection: {error}")
+        })?;
         if let Err(error) = os::authenticate_peer(&stream) {
             let _ = write_hta_frame(
                 &mut stream,
@@ -48,11 +48,8 @@ pub fn run_application_broker<H: PreparedHalBoundary>(
             );
             continue;
         }
-        if let Err(error) = serve_authenticated(
-            &mut stream,
-            dispatcher,
-            config.limits.result_bytes,
-        ) {
+        if let Err(error) = serve_authenticated(&mut stream, dispatcher, config.limits.result_bytes)
+        {
             let code = error_code(&error).to_owned();
             let _ = write_hta_frame(
                 &mut stream,
@@ -84,8 +81,9 @@ fn serve_authenticated<H: PreparedHalBoundary>(
     dispatcher: &mut ApplicationConsoleDispatcher<H>,
     maximum_bytes: usize,
 ) -> Result<(), String> {
-    let request = read_hta_frame(stream, maximum_bytes)?
-        .ok_or_else(|| "hoplite.console/request-invalid: broker closed without a call".to_string())?;
+    let request = read_hta_frame(stream, maximum_bytes)?.ok_or_else(|| {
+        "hoplite.console/request-invalid: broker closed without a call".to_string()
+    })?;
     let response = match validate_call_request(&request) {
         Ok(()) => dispatcher.handle_broker_request(request),
         Err(error) => {
@@ -127,7 +125,9 @@ fn validate_call_request(request: &Value) -> Result<(), String> {
         || map_get(request, "command").is_none()
         || map_get(request, "input").is_none()
     {
-        return Err("hoplite.console/request-invalid: application broker call is incomplete".into());
+        return Err(
+            "hoplite.console/request-invalid: application broker call is incomplete".into(),
+        );
     }
     Ok(())
 }
@@ -140,10 +140,14 @@ fn bind_private_socket(path: &Path) -> Result<UnixListener, String> {
                 path.display()
             ));
         }
-        fs::remove_file(path)
-            .map_err(|error| format!("cannot remove stale application console broker socket: {error}"))?;
+        fs::remove_file(path).map_err(|error| {
+            format!("cannot remove stale application console broker socket: {error}")
+        })?;
     }
-    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
         fs::create_dir_all(parent).map_err(|error| {
             format!(
                 "cannot create application console broker directory {}: {error}",
@@ -157,8 +161,9 @@ fn bind_private_socket(path: &Path) -> Result<UnixListener, String> {
             path.display()
         )
     })?;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-        .map_err(|error| format!("cannot set application console broker socket mode 0600: {error}"))?;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(|error| {
+        format!("cannot set application console broker socket mode 0600: {error}")
+    })?;
     let mode = fs::metadata(path)
         .map_err(|error| format!("cannot inspect application console broker socket: {error}"))?
         .permissions()
@@ -179,9 +184,7 @@ fn error_code(error: &str) -> &str {
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
-    use crate::console::protocol::{
-        map_value, success, CommandSet, GRANT_PROTOCOL,
-    };
+    use crate::console::protocol::{map_value, success, CommandSet, GRANT_PROTOCOL};
     use std::cell::RefCell;
     use std::os::unix::fs::PermissionsExt;
     use std::rc::Rc;
@@ -258,15 +261,9 @@ mod tests {
         let mut dispatcher = dispatcher(calls.clone());
         let (mut client, server) = UnixStream::pair().unwrap();
         write_hta_frame(&mut client, &call_request(None), 1024 * 1024).unwrap();
-        serve_application_broker_connection(
-            server,
-            &mut dispatcher,
-            ConsoleLimits::default(),
-        )
-        .unwrap();
-        let response = read_hta_frame(&mut client, 1024 * 1024)
-            .unwrap()
+        serve_application_broker_connection(server, &mut dispatcher, ConsoleLimits::default())
             .unwrap();
+        let response = read_hta_frame(&mut client, 1024 * 1024).unwrap().unwrap();
         assert_eq!(map_get(&response, "ok"), Some(Value::Bool(true)));
         let calls = calls.borrow();
         assert_eq!(calls.len(), 1);
@@ -295,15 +292,9 @@ mod tests {
             1024 * 1024,
         )
         .unwrap();
-        serve_application_broker_connection(
-            server,
-            &mut dispatcher,
-            ConsoleLimits::default(),
-        )
-        .unwrap();
-        let response = read_hta_frame(&mut client, 1024 * 1024)
-            .unwrap()
+        serve_application_broker_connection(server, &mut dispatcher, ConsoleLimits::default())
             .unwrap();
+        let response = read_hta_frame(&mut client, 1024 * 1024).unwrap().unwrap();
         assert_eq!(map_get(&response, "ok"), Some(Value::Bool(false)));
         assert_eq!(
             map_get(&map_get(&response, "error").unwrap(), "code"),
