@@ -28,6 +28,7 @@ native-jit = ["tracing-jit", "hara-wasm/native-jit"]
 cli-host = []
 embedded-nginx = []
 internal-evidence = []
+application-console = []
 
 [[bin]]
 name = "hoplite"
@@ -40,14 +41,17 @@ path = "src/bin/hoplite-server.rs"
 [[bin]]
 name = "hoplite-console-bundle"
 path = "src/bin/hoplite-console-bundle.rs"
+required-features = ["application-console"]
 
 [[bin]]
 name = "hoplite-console-evaluator"
 path = "src/bin/hoplite-console-evaluator.rs"
+required-features = ["application-console"]
 
 [[bin]]
 name = "hoplite-console-supervisor"
 path = "src/bin/hoplite-console-supervisor.rs"
+required-features = ["application-console"]
 
 [[bin]]
 name = "hoplite-bytecode-loading"
