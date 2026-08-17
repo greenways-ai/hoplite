@@ -23,6 +23,8 @@ jobs:
         run: |
           sed -i 's/{\\"x-mode\\" \\"raw\\"}/{{\\"x-mode\\" \\"raw\\"}}/' hoplite/.github/agent/apply_hoplite_raw.py
           python3 hoplite/.github/agent/apply_hoplite_raw.py
+          sed -i 's/(defn identity \[exchange\]/(defn request-identity [exchange]/' hoplite/core/lib/src/hoplite/raw.hal
+          sed -i 's/the optional authenticated identity/the optional authenticated identity through `request-identity`/' hoplite/docs/public-api.md
           python3 - <<'PY'
           from pathlib import Path
           import re
@@ -159,6 +161,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            hoplite/core/target
+          key: hoplite-raw-${{ runner.os }}-${{ hashFiles('hoplite/core/Cargo.lock') }}-v1
 
       - name: Format Rust
         run: cargo fmt --manifest-path hoplite/core/Cargo.toml
