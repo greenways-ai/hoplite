@@ -1,0 +1,104 @@
+name: Apply persistent console collection families
+
+on:
+  push:
+    branches:
+      - fix/console-persistent-collection-families
+
+permissions:
+  contents: write
+
+env:
+  RUST_MIN_STACK: 8388608
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+          ref: fix/console-persistent-collection-families
+          fetch-depth: 0
+      - name: Resolve the reviewed Hara revision
+        id: hara
+        working-directory: hoplite
+        run: echo "ref=$(tr -d '[:space:]' < packaging/hara-revision)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ steps.hara.outputs.ref }}
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Accept all immutable Hara set families
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('hoplite/core/src/console/protocol.rs')
+          text = path.read_text()
+          old = '''        Value::Set(values) => Some(values.iter().cloned().collect()),
+        _ => None,
+'''
+          new = '''        Value::Set(values) => Some(values.iter().cloned().collect()),
+        Value::OrderedSet(values) => Some(values.iter().cloned().collect()),
+        Value::SortedSet(values) => Some(values.iter().cloned().collect()),
+        _ => None,
+'''
+          if text.count(old) != 1:
+              raise SystemExit('expected one value_sequence set arm')
+          text = text.replace(old, new, 1)
+
+          marker = '''    #[test]
+    fn defaults_match_the_public_console_contract() {'''
+          test = '''    #[test]
+    fn hal_persistent_sets_are_valid_descriptor_and_grant_collections() {
+        let mut runtime = hara_wasm::Runtime::new();
+        let descriptors = runtime
+            .eval_native_value(
+                "[{:command \\\"status\\\" \\
+                   :effect :read \\
+                   :input {:type :map :required #{} :optional #{}}}]",
+            )
+            .unwrap();
+        let commands = CommandSet::parse(descriptors).unwrap();
+        let grant = runtime
+            .eval_native_value(
+                "{:protocol \\\"hoplite.console-grant/0-alpha\\\" \\
+                  :console \\\"console.test\\\" \\
+                  :commands #{\\\"status\\\"} \\
+                  :write false}",
+            )
+            .unwrap();
+        let grant = ConsoleGrant::parse(&grant).unwrap();
+        commands.validate_grant(&grant).unwrap();
+        assert!(commands
+            .validate_call(&grant, "status", &map_value(vec![]), 1024)
+            .is_ok());
+    }
+
+'''
+          if text.count(marker) != 1:
+              raise SystemExit('expected one protocol test insertion point')
+          path.write_text(text.replace(marker, test + marker, 1))
+          PY
+      - name: Format Rust
+        run: cargo fmt --manifest-path hoplite/core/Cargo.toml
+      - name: Prove HAL-authored sets cross the console boundary
+        run: cargo test --manifest-path hoplite/core/Cargo.toml -p hoplite hal_persistent_sets_are_valid_descriptor_and_grant_collections --locked
+      - name: Test the complete Hoplite workspace
+        run: cargo test --manifest-path hoplite/core/Cargo.toml --workspace --locked
+      - name: Commit the compatibility correction
+        working-directory: hoplite
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add core/src/console/protocol.rs
+          git diff --cached --check
+          git commit -m "Accept persistent set families in console contracts"
+          git push origin HEAD:fix/console-persistent-collection-families
