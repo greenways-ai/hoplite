@@ -60,6 +60,46 @@ jobs:
           if rtc.count(old_ns) != 1:
               raise SystemExit("cannot locate the hoplite.rtc namespace declaration")
           rtc = rtc.replace(old_ns, new_ns, 1)
+
+          old_receive = '''(defn receive-stream
+            "Creates the pull side of an RTC transport. A nil host result closes it."
+            [handle]
+            (stream
+             (fn []
+               (loop []
+                 (let [item
+                       (co/await
+                        (host-call "receive" [handle]))]
+                   (if (nil? item)
+                     :done
+                     (do
+                       (co/yield item)
+                       (recur))))))))
+          '''
+          new_receive = '''(defn receive-stream
+            "Creates the pull side of an RTC transport. A nil host result closes it."
+            [handle]
+            (Stream/generate
+             (fn [session]
+               (loop []
+                 (let [item
+                       (Coroutine/await
+                        (host-call "receive" [session]))]
+                   (if (nil? item)
+                     :done
+                     (do
+                       (Coroutine/yield item)
+                       (recur))))))
+             handle))
+          '''
+          if rtc.count(old_receive) != 1:
+              raise SystemExit("cannot locate the RTC receive-stream definition")
+          rtc = rtc.replace(old_receive, new_receive, 1)
+
+          await_count = rtc.count("(co/await")
+          if await_count != 4:
+              raise SystemExit(f"expected four remaining RTC awaits, found {await_count}")
+          rtc = rtc.replace("(co/await", "(Coroutine/await")
           if rtc.count("(duplex/create") != 1:
               raise SystemExit("cannot locate the portable duplex constructor")
           rtc = rtc.replace("(duplex/create", "(Duplex/create", 1)
@@ -88,6 +128,13 @@ jobs:
             echo "hoplite.rtc still depends on an unbundled Hara source namespace" >&2
             exit 1
           fi
+          if grep -Eq '\((stream|co/await|co/yield|duplex/create)([[:space:]]|$)' core/lib/src/hoplite/rtc.hal; then
+            echo "hoplite.rtc still depends on convenience bindings outside the production bundle" >&2
+            exit 1
+          fi
+          grep -Fq '(Stream/generate' core/lib/src/hoplite/rtc.hal
+          grep -Fq '(Coroutine/await' core/lib/src/hoplite/rtc.hal
+          grep -Fq '(Coroutine/yield' core/lib/src/hoplite/rtc.hal
           grep -Fq '(Duplex/create' core/lib/src/hoplite/rtc.hal
           test "$(tr -d '[:space:]' < packaging/hara-revision)" = "$HARA_REF"
           cargo fmt --manifest-path core/Cargo.toml
@@ -106,7 +153,7 @@ jobs:
             --bin hoplite \
             --locked \
             compiles_builtin_hoplite_modules_against_reviewed_hara_runtime \
-            -- --exact --nocapture
+            -- --nocapture
 
       - name: Test the complete Hoplite core workspace
         working-directory: hoplite
