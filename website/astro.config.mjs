@@ -66,6 +66,7 @@ export default defineConfig({
             { label: "6. Duplex and Relay", slug: "first-principles/duplex-relay" },
             { label: "7. Progressive case studies", slug: "first-principles/case-studies" },
             { label: "8. Application catalogue", slug: "first-principles/application-catalogue" },
+            { label: "Agent-style systems", slug: "first-principles/agent-style-systems" },
             { label: "9. Performance", slug: "first-principles/performance" },
             { label: "10. Maintainability", slug: "first-principles/maintainability" },
             { label: "11. Production reasoning", slug: "first-principles/production" },
