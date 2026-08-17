@@ -152,7 +152,8 @@ jobs:
               fn example_application_bootstraps() {
                   let mut runtime = HopliteRuntime::new();
                   let source = format!(
-                      "{}\n{}",
+                      "{}\n{}\n{}",
+                      include_str!("../../lib/src/hoplite/core.hal"),
                       include_str!("../../lib/src/hoplite/raw.hal"),
                       include_str!("../../examples/app.hal"),
                   );
@@ -178,7 +179,8 @@ jobs:
               fn prepared_handler_program_is_reused_across_requests() {
                   let mut runtime = HopliteRuntime::new();
                   let source = format!(
-                      "{}\n{}",
+                      "{}\n{}\n{}",
+                      include_str!("../../lib/src/hoplite/core.hal"),
                       include_str!("../../lib/src/hoplite/raw.hal"),
                       include_str!("../../examples/app.hal"),
                   );
