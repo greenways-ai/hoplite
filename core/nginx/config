@@ -6,6 +6,8 @@ ngx_module_type=HTTP
 ngx_module_name=ngx_http_hoplite_module
 ngx_module_srcs="$ngx_addon_dir/ngx_http_hoplite_module.c \
        $ngx_addon_dir/hoplite_hta.c \
+       $ngx_addon_dir/hoplite_console_transport.c \
+       $ngx_addon_dir/hoplite_console_worker.c \
        $ngx_addon_dir/hoplite_host_provider.c \
        $ngx_addon_dir/hoplite_response_source.c"
 ngx_module_incs="$ngx_addon_dir"
