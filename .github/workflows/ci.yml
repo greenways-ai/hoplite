@@ -150,6 +150,7 @@ jobs:
             hoplite/core/nginx/hoplite_response_source.c \
             hoplite/core/nginx/tests/response_source.c \
             -o /tmp/hoplite-response-source
+          /tmp/hoplite-response-source
 
   integration:
     name: integration
