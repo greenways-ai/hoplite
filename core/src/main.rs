@@ -1165,6 +1165,13 @@ mod tests {
     }
 
     #[test]
+    fn compiles_builtin_hoplite_modules_against_reviewed_hara_runtime() {
+        let modules = application_modules(&[]).unwrap();
+        let hbx0 = compile_application_modules(&modules).unwrap();
+        assert_eq!(&hbx0[..4], b"HBX0");
+    }
+
+    #[test]
     fn orders_application_modules_before_their_dependents() {
         let dependency = module("(ns example.dependency) (defn answer [] 42)");
         let application = module(
