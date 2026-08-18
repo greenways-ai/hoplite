@@ -5,6 +5,9 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
+/* Exact Hara wire prefix shared by the Nginx decoder and native providers. */
+#define HOPLITE_HTA_MAGIC_BYTES 'H', 'T', 'A', '0'
+
 typedef enum {
     HOPLITE_HTA_NIL,
     HOPLITE_HTA_BOOL,

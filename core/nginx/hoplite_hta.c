@@ -12,7 +12,7 @@
 #define OH_ARRAY 17
 #define OH_OBJECT 18
 
-static const u_char hoplite_magic[] = {'H', 'T', 'A', '1'};
+static const u_char hoplite_magic[] = {HOPLITE_HTA_MAGIC_BYTES};
 
 typedef struct {
     ngx_pool_t *pool;
