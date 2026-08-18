@@ -73,6 +73,40 @@ fn startup_class(error: &str) -> &str {
         .unwrap_or("startup-failed")
 }
 
+const MAX_STARTUP_DIAGNOSTIC_DETAIL_BYTES: usize = 1024;
+
+fn startup_detail(error: &str) -> String {
+    if error.len() <= MAX_STARTUP_DIAGNOSTIC_DETAIL_BYTES {
+        return error.to_owned();
+    }
+    let mut end = MAX_STARTUP_DIAGNOSTIC_DETAIL_BYTES;
+    while !error.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &error[..end])
+}
+
+fn startup_diagnostic_document(stage: StartupStage, error: Option<&str>) -> String {
+    let document = if let Some(error) = error {
+        serde_json::json!({
+            "format": "hoplite.startup-diagnostic/0-alpha",
+            "sequence": stage.sequence(),
+            "stage": stage.name(),
+            "status": "failed",
+            "class": startup_class(error),
+            "detail": startup_detail(error),
+        })
+    } else {
+        serde_json::json!({
+            "format": "hoplite.startup-diagnostic/0-alpha",
+            "sequence": stage.sequence(),
+            "stage": stage.name(),
+            "status": "ok",
+        })
+    };
+    serde_json::to_string(&document).expect("startup diagnostic JSON")
+}
+
 fn emit_startup_diagnostic(
     callback: Option<HopliteStartupDiagnostic>,
     context: *mut c_void,
@@ -82,21 +116,35 @@ fn emit_startup_diagnostic(
     let Some(callback) = callback else {
         return;
     };
-    let diagnostic = if let Some(error) = error {
-        format!(
-            "{{\"format\":\"hoplite.startup-diagnostic/0-alpha\",\"sequence\":{},\"stage\":\"{}\",\"status\":\"failed\",\"class\":\"{}\"}}",
-            stage.sequence(),
-            stage.name(),
-            startup_class(error),
-        )
-    } else {
-        format!(
-            "{{\"format\":\"hoplite.startup-diagnostic/0-alpha\",\"sequence\":{},\"stage\":\"{}\",\"status\":\"ok\"}}",
-            stage.sequence(),
-            stage.name(),
-        )
-    };
+    let diagnostic = startup_diagnostic_document(stage, error);
     unsafe { callback(context, diagnostic.as_ptr(), diagnostic.len()) };
+}
+
+#[cfg(test)]
+mod startup_diagnostic_tests {
+    use super::*;
+
+    #[test]
+    fn failure_detail_is_json_safe_and_bounded() {
+        let error = format!("module \"hoplite.socket\": {}", "é".repeat(800));
+        let document = startup_diagnostic_document(StartupStage::Modules, Some(&error));
+        let value: serde_json::Value = serde_json::from_str(&document).unwrap();
+        assert_eq!(value["stage"], "modules");
+        assert_eq!(value["status"], "failed");
+        assert_eq!(value["class"], "startup-failed");
+        let detail = value["detail"].as_str().unwrap();
+        assert!(detail.len() <= MAX_STARTUP_DIAGNOSTIC_DETAIL_BYTES + "…".len());
+        assert!(detail.ends_with('…'));
+    }
+
+    #[test]
+    fn successful_diagnostic_has_no_failure_detail() {
+        let document = startup_diagnostic_document(StartupStage::Routes, None);
+        let value: serde_json::Value = serde_json::from_str(&document).unwrap();
+        assert_eq!(value["status"], "ok");
+        assert!(value.get("detail").is_none());
+        assert!(value.get("class").is_none());
+    }
 }
 
 type WorkId = u64;
