@@ -4,12 +4,17 @@ on:
   push:
     branches:
       - agent/cosocket-baseline-conformance
+  pull_request:
 
 permissions:
   contents: write
 
 jobs:
   repair:
+    if: >-
+      github.event_name == 'push' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.head.ref == 'agent/cosocket-baseline-conformance')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -50,7 +55,7 @@ jobs:
       - name: Commit the repaired registry
         if: steps.repair.outputs.changed == 'true'
         env:
-          BRANCH: ${{ github.ref_name }}
+          BRANCH: agent/cosocket-baseline-conformance
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
