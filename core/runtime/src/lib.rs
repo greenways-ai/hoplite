@@ -3289,9 +3289,14 @@ mod tests {
             )
             .is_err());
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].contains(
-            "\"sequence\":2,\"stage\":\"bundle\",\"status\":\"failed\",\"class\":\"application-bundle-checksum-mismatch\""
-        ));
+        let diagnostic: serde_json::Value = serde_json::from_str(&diagnostics[0]).unwrap();
+        assert_eq!(diagnostic["sequence"], 2);
+        assert_eq!(diagnostic["stage"], "bundle");
+        assert_eq!(diagnostic["status"], "failed");
+        assert_eq!(
+            diagnostic["class"],
+            "application-bundle-checksum-mismatch"
+        );
     }
 
     #[test]
