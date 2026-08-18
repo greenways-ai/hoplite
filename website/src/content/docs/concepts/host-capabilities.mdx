@@ -51,6 +51,21 @@ milliseconds:
 The wrapper uses Hoplite's bounded Nginx service internally; application code
 does not select a generic service name or operation.
 
+## Cosockets
+
+`hoplite.socket` exposes OpenResty-compatible TCP and UDP cosocket names through
+typed Hara functions. The production implementation is integrated with the
+Nginx event loop; a suspended connect, send, or receive does not block the
+worker. Socket handles are request-scoped, owner-checked, cancellation-aware,
+and closed exactly once.
+
+The first production slice supports numeric-address TCP connect, bounded send,
+fixed/line/all receive, close, and independent timeouts. DNS, keepalive pools,
+TLS, Unix sockets, delimiter iterators, concurrent directional operations, and
+UDP advance under [issue #163](https://github.com/greenways-ai/hoplite/issues/163).
+Application code does not name the native `hoplite.socket` service or its
+operation strings.
+
 ## Development host
 
 <span class="doc-badge doc-badge--note">Development</span>

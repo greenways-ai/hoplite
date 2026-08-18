@@ -1,0 +1,152 @@
+---
+title: hoplite.socket
+description: OpenResty-compatible request-scoped TCP and UDP cosockets on the Nginx event loop.
+---
+
+<span class="doc-badge doc-badge--caution">Experimental</span>
+
+`hoplite.socket` is Hoplite's OpenResty-compatible cosocket surface. Network
+operations suspend the Hara coroutine while Nginx continues serving other
+connections. Application code uses typed namespace functions rather than public
+service and operation strings.
+
+The first production slice provides request-scoped TCP sockets with numeric
+IPv4 and IPv6 destinations. DNS, keepalive pools, TLS, delimiter iterators,
+concurrent read/write, Unix-domain sockets, and UDP remain tracked by the
+[cosocket programme](https://github.com/greenways-ai/hoplite/issues/163); they
+are not silently emulated with blocking I/O.
+
+## Basic TCP client
+
+```clojure
+(ns example.redis-line
+  (:require [hoplite.socket :as socket]))
+
+(defn ^:async request-line [address port request]
+  (let [client
+        (std.foundation.coroutine/await
+         (socket/tcp))
+        configured
+        (std.foundation.coroutine/await
+         (socket/settimeouts client 1000 1000 1000))
+        connected
+        (std.foundation.coroutine/await
+         (socket/connect client address port))]
+    (if
+     (get connected 1)
+     connected
+     (let [sent
+           (std.foundation.coroutine/await
+            (socket/send client request))
+           received
+           (if (get sent 1)
+             [nil (get sent 1) nil]
+             (std.foundation.coroutine/await
+              (socket/receive client "*l")))]
+       (std.foundation.coroutine/await
+        (socket/close client))
+       received))))
+```
+
+The descriptor returned by `tcp` is opaque request authority. Its numeric
+handle is validated against the exact request, work, worker, socket kind, and
+native generation. Do not persist it, place it in a shared zone, or transfer it
+to another request.
+
+## Result convention
+
+The API preserves OpenResty's ordinary error-return style:
+
+| Operation | Success | Network failure |
+| --- | --- | --- |
+| `connect`, `close`, timeout setters | `[1 nil]` | `[nil error]` |
+| `send` | `[bytes-sent nil]` | `[nil error]` |
+| `receive` | `[data nil nil]` | `[nil error partial]` |
+| `getreusedtimes` | `[count nil]` | `[nil error]` |
+
+Invalid descriptors, malformed arguments, foreign handles, and unsupported
+operations reject the host Promise as programming or authority errors. Refused
+connections, timeouts, closure, and other network outcomes resolve as ordinary
+result vectors so translated OpenResty control flow remains natural.
+
+## `tcp`
+
+```clojure
+(std.foundation.coroutine/await
+ (socket/tcp))
+```
+
+Creates one request-scoped TCP descriptor. Request completion, disconnect,
+cancellation, timeout teardown, worker shutdown, or explicit `close` closes the
+native connection exactly once.
+
+## `connect`
+
+```clojure
+(std.foundation.coroutine/await
+ (socket/connect client "127.0.0.1" 6379))
+```
+
+The first slice accepts numeric IPv4 and IPv6 addresses and an empty options
+map. A hostname returns `"numeric address required"` rather than performing a
+blocking resolver call. Nginx-resolver integration, `pool`, `pool_size`, and
+`backlog` options are subsequent slices of the same public contract.
+
+## `send`
+
+```clojure
+(std.foundation.coroutine/await
+ (socket/send client "PING\r\n"))
+```
+
+Accepts strings or bytes up to 1 MiB per call. Partial kernel writes are resumed
+from the Nginx write event. A send timeout or connection error closes the
+connection because the protocol position is no longer safely reusable.
+
+## `receive`
+
+```clojure
+(socket/receive client 16)    ;; exactly 16 bytes
+(socket/receive client "*l")  ;; one line, without LF or a preceding CR
+(socket/receive client "*a")  ;; all bytes until the peer closes
+```
+
+Every receive is bounded to 1 MiB in this alpha slice. A timeout or premature
+close returns the bytes already consumed as the third result value.
+
+## Timeouts
+
+```clojure
+(socket/settimeout client 2000)
+(socket/settimeouts client 500 2000 3000)
+```
+
+Timeouts are milliseconds from `0` through `3,600,000`. Zero disables the
+corresponding timer. `settimeout` assigns one value to connect, send, and read;
+`settimeouts` sets them independently.
+
+## OpenResty translation
+
+| OpenResty Lua | Hoplite Hara |
+| --- | --- |
+| `ngx.socket.tcp()` | `(await (socket/tcp))` |
+| `sock:connect(host, port)` | `(await (socket/connect sock host port))` |
+| `sock:send(value)` | `(await (socket/send sock value))` |
+| `sock:receive("*l")` | `(await (socket/receive sock "*l"))` |
+| `sock:settimeout(ms)` | `(await (socket/settimeout sock ms))` |
+| `sock:settimeouts(c, s, r)` | `(await (socket/settimeouts sock c s r))` |
+| `sock:getreusedtimes()` | `(await (socket/getreusedtimes sock))` |
+| `sock:close()` | `(await (socket/close sock))` |
+
+`await` above abbreviates `std.foundation.coroutine/await`.
+
+## Current phase and concurrency boundary
+
+This first slice runs from suspended HTTP content handlers. Hoplite currently
+serializes native host operations within one request, so it does not yet claim
+OpenResty's simultaneous one-reader/one-writer behaviour. The typed Nginx phase
+and cancellation work in
+[issue #164](https://github.com/greenways-ai/hoplite/issues/164) supplies the
+phase-legality registry and concurrent directional operations.
+
+No production path uses a blocking socket compatibility implementation.

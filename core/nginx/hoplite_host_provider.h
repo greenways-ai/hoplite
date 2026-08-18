@@ -62,6 +62,7 @@ typedef int32_t (*hoplite_host_provider_response_close_v1_pt)(
     uint64_t work,
     uint64_t source_handle);
 typedef size_t (*hoplite_host_provider_release_work_v1_pt)(uint64_t work);
+typedef void (*hoplite_host_request_cleanup_v1_pt)(void *data);
 
 typedef struct {
     uint32_t abi_version;
@@ -86,6 +87,19 @@ int32_t hoplite_host_provider_register_v1(
 /* Native dispatch lookup; request values cannot mutate the registry. */
 const hoplite_host_provider_v1_t *hoplite_host_provider_find_v1(
     hoplite_host_service_t service);
+
+/*
+ * Register one exactly-once cleanup under the active request and work scope.
+ * The host verifies request_context and work before retaining the callback.
+ * Providers use this for idle resources whose lifetime outlasts an individual
+ * asynchronous provider call. The cleanup receives only provider-owned data;
+ * it does not grant access to the Nginx request or native application runtime.
+ */
+int32_t hoplite_host_request_cleanup_add_v1(
+    void *request_context,
+    uint64_t work,
+    void *data,
+    hoplite_host_request_cleanup_v1_pt cleanup);
 
 /*
  * Read or finish one opaque request-body handle through the exact request and

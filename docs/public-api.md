@@ -111,6 +111,23 @@ The native host owns the exchange and backing memory. Raw fields are available
 only to the `:raw` adapter; `:request` and `:request+hta` remain portable request
 views.
 
+### `hoplite.socket` — experimental
+
+`hoplite.socket/0-alpha` is the request-scoped OpenResty-compatible cosocket
+surface. Namespace functions own the native service and operation identities;
+ordinary application code receives opaque typed descriptors and familiar
+`[value error]` or `[data error partial]` results.
+
+The first production slice supplies nonblocking numeric-address TCP connect,
+bounded send, fixed/line/all receive, explicit close, separate connect/send/read
+timeouts, and exactly-once request cleanup. Nginx owns every file descriptor and
+readiness event. A socket handle is validated against its request, work, worker,
+kind, and native generation and cannot be persisted or transferred.
+
+DNS, keepalive pools, TLS, Unix sockets, delimiter iterators, simultaneous one
+reader and one writer, and UDP remain experimental stages of the same namespace.
+No incomplete feature is implemented by blocking an Nginx worker.
+
 ### `hoplite.response-source` — experimental
 
 `hoplite.response-source/0-alpha` is a closed descriptor containing exactly
@@ -243,8 +260,10 @@ storage, callback pointers, and service bytes outlive the worker. Request data
 cannot mutate the registry.
 
 Provider calls carry request context, work, call, operation, standalone HTA
-arguments, and completion callbacks. Cancellation and `release_work` release
-retained state without leaking request-body or response-source ownership.
+arguments, and completion callbacks. Providers may register opaque exactly-once
+cleanup under the verified request/work scope for idle resources such as
+cosockets. Cancellation and `release_work` release retained state without
+leaking request-body or response-source ownership.
 
 ### Internal native headers
 

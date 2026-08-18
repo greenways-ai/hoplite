@@ -6,6 +6,7 @@
 #include "hoplite_response_source.h"
 #include "hoplite_host_provider.h"
 #include "hoplite_runtime.h"
+#include "cosocket/hoplite_cosocket.h"
 
 typedef struct {
     ngx_str_t bootstrap;
@@ -1356,6 +1357,30 @@ ngx_http_hoplite_native_request_body_allowed(
         && ctx->native_provider != NULL
         && (ctx->native_provider->capabilities
             & HOPLITE_HOST_PROVIDER_REQUEST_BODY) != 0;
+}
+
+int32_t
+hoplite_host_request_cleanup_add_v1(
+    void *request_context,
+    uint64_t work,
+    void *data,
+    hoplite_host_request_cleanup_v1_pt cleanup)
+{
+    ngx_http_hoplite_ctx_t *ctx = request_context;
+    ngx_http_cleanup_t *entry;
+
+    if (ctx == NULL || ctx->done || ctx->request == NULL
+        || ctx->work != work || work == 0 || cleanup == NULL)
+    {
+        return HOPLITE_HOST_RESOURCE_ERROR;
+    }
+    entry = ngx_http_cleanup_add(ctx->request, 0);
+    if (entry == NULL) {
+        return HOPLITE_HOST_RESOURCE_ERROR;
+    }
+    entry->handler = cleanup;
+    entry->data = data;
+    return HOPLITE_HOST_RESOURCE_OK;
 }
 
 int32_t
@@ -2717,7 +2742,8 @@ ngx_http_hoplite_init_process(ngx_cycle_t *cycle)
     if (ngx_http_hoplite_provider_register(
             &ngx_http_hoplite_nginx_provider) != NGX_OK
         || ngx_http_hoplite_provider_register(
-            &ngx_http_hoplite_rtc_provider) != NGX_OK)
+            &ngx_http_hoplite_rtc_provider) != NGX_OK
+        || hoplite_cosocket_register(cycle) != NGX_OK)
     {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
                       "hoplite native host providers could not be registered");
@@ -2762,6 +2788,7 @@ static void
 ngx_http_hoplite_exit_process(ngx_cycle_t *cycle)
 {
     (void) cycle;
+    hoplite_cosocket_worker_exit();
     ngx_http_hoplite_rtc_clear();
     if (ngx_http_hoplite_runtime != NULL) {
         hoplite_runtime_free(ngx_http_hoplite_runtime);

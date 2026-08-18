@@ -1,0 +1,32 @@
+(ns hoplite.socket-test
+  (:require [hoplite.socket :as socket]))
+
+(def tcp-socket
+  {:hoplite/type :socket
+   :protocol "hoplite.socket/0-alpha"
+   :kind :tcp
+   :handle 17})
+
+(def checks
+  [(socket/socket? tcp-socket)
+   (socket/tcp? tcp-socket)
+   (= :tcp (socket/socket-kind tcp-socket))
+   (= tcp-socket (socket/require-socket tcp-socket))
+   (not (socket/socket? nil))
+   (not (socket/socket? {}))
+   (not
+    (socket/socket?
+     {:hoplite/type :socket
+      :protocol "hoplite.socket/0-alpha"
+      :kind :udp
+      :handle 17}))
+   (not
+    (socket/socket?
+     {:hoplite/type :socket
+      :protocol "hoplite.socket/0-alpha"
+      :kind :tcp
+      :handle 0}))])
+
+(if (every? identity checks)
+  true
+  (throw "hoplite.socket descriptor tests failed"))

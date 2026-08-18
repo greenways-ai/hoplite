@@ -1,0 +1,50 @@
+name: Nginx programmability
+
+env:
+  HARA_REF: 2b3efd14451e96e9e79cd9645fb7e10d9e3782d6
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hoplite-nginx-programmability-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tcp-cosocket:
+    name: TCP cosocket
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+      - name: Verify the reviewed Hara revision
+        working-directory: hoplite
+        run: test "$(tr -d '[:space:]' < packaging/hara-revision)" = "$HARA_REF"
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ env.HARA_REF }}
+          path: hara
+          submodules: recursive
+      - name: Validate the fixture harness
+        run: bash -n hoplite/packaging/scripts/smoke-cosocket-tcp.sh
+      - name: Build the source-free TCP cosocket application
+        run: |
+          docker build \
+            -f hoplite/packaging/docker/Dockerfile \
+            --build-arg HOPLITE_APP=packaging/fixtures/cosocket-tcp \
+            -t hoplite-cosocket-tcp \
+            .
+      - name: Verify the production artifact contains no Hara source
+        run: bash hoplite/packaging/scripts/assert-production-image.sh hoplite-cosocket-tcp
+      - name: Prove connect, send, receive, close, and repeated cleanup
+        run: bash hoplite/packaging/scripts/smoke-cosocket-tcp.sh hoplite-cosocket-tcp

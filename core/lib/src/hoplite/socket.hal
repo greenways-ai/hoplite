@@ -1,0 +1,127 @@
+(ns hoplite.socket
+  (:config {}))
+
+(def protocol
+  "hoplite.socket/0-alpha")
+
+(defn socket?
+  "Returns true for one request-scoped Hoplite socket descriptor."
+  [value]
+  (and
+   (map? value)
+   (= 4 (count value))
+   (= :socket (get value :hoplite/type))
+   (= protocol (get value :protocol))
+   (= :tcp (get value :kind))
+   (integer? (get value :handle))
+   (> (get value :handle) 0)))
+
+(defn tcp?
+  [value]
+  (and (socket? value)
+       (= :tcp (get value :kind))))
+
+(defn- invalid-socket
+  [value]
+  (throw
+   (ex-info
+    "invalid hoplite.socket/0-alpha descriptor"
+    {:phase :socket/invalid-descriptor
+     :value value})))
+
+(defn require-socket
+  "Returns a validated socket descriptor or throws a structured error."
+  [value]
+  (if (socket? value)
+    value
+    (invalid-socket value)))
+
+(defn socket-kind
+  [socket]
+  (get (require-socket socket) :kind))
+
+(defn- socket-handle
+  [socket]
+  (get (require-socket socket) :handle))
+
+(defn- socket-value
+  [kind handle]
+  (require-socket
+   {:hoplite/type :socket
+    :protocol protocol
+    :kind kind
+    :handle handle}))
+
+(defn- host-call
+  [operation arguments]
+  (std.native.Host/call "hoplite.socket" operation arguments))
+
+(defn ^:async tcp
+  "Creates one request-scoped TCP cosocket.
+
+  The returned descriptor is opaque authority only inside its owning request
+  and worker. The numeric handle cannot be transferred or persisted."
+  []
+  (socket-value
+   :tcp
+   (std.foundation.coroutine/await
+    (host-call "tcp" []))))
+
+(defn ^:async connect
+  "Connects a TCP cosocket to a numeric IPv4 or IPv6 address in this first
+  production slice. Returns [1 nil] or [nil error], matching OpenResty's
+  ordinary cosocket result convention."
+  ([socket host port]
+   (connect socket host port {}))
+  ([socket host port options]
+   (std.foundation.coroutine/await
+    (host-call
+     "connect"
+     [(socket-handle socket) host port options]))))
+
+(defn ^:async send
+  "Sends one string or byte value. Returns [bytes-sent nil] or [nil error]."
+  [socket value]
+  (std.foundation.coroutine/await
+   (host-call "send" [(socket-handle socket) value])))
+
+(defn ^:async receive
+  "Receives a fixed positive byte count, one line with *l, or all remaining
+  bytes with *a. Returns [data nil nil] or [nil error partial]."
+  ([socket]
+   (receive socket "*l"))
+  ([socket pattern]
+   (std.foundation.coroutine/await
+    (host-call "receive" [(socket-handle socket) pattern]))))
+
+(defn ^:async close
+  "Closes the native connection. Request cleanup also closes it exactly once."
+  [socket]
+  (std.foundation.coroutine/await
+   (host-call "close" [(socket-handle socket)])))
+
+(defn ^:async settimeout
+  "Sets connect, send and read timeouts to the same millisecond value."
+  [socket milliseconds]
+  (std.foundation.coroutine/await
+   (host-call
+    "settimeout"
+    [(socket-handle socket) milliseconds])))
+
+(defn ^:async settimeouts
+  "Sets connect, send and read timeouts independently, in milliseconds."
+  [socket connect-milliseconds send-milliseconds read-milliseconds]
+  (std.foundation.coroutine/await
+   (host-call
+    "settimeouts"
+    [(socket-handle socket)
+     connect-milliseconds
+     send-milliseconds
+     read-milliseconds])))
+
+(defn ^:async getreusedtimes
+  "Returns [count nil]. Pooling is introduced by the next cosocket slice, so a
+  newly connected socket currently reports zero."
+  [socket]
+  (std.foundation.coroutine/await
+   (host-call "getreusedtimes" [(socket-handle socket)])))
