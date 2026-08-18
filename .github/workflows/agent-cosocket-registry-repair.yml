@@ -9,6 +9,9 @@ on:
 permissions:
   contents: write
 
+env:
+  HARA_REF: 2b3efd14451e96e9e79cd9645fb7e10d9e3782d6
+
 jobs:
   repair:
     if: >-
@@ -21,10 +24,23 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: agent/cosocket-baseline-conformance
+          path: hoplite
           fetch-depth: 0
+
+      - name: Verify the reviewed Hara revision
+        working-directory: hoplite
+        run: test "$(tr -d '[:space:]' < packaging/hara-revision)" = "$HARA_REF"
+
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ env.HARA_REF }}
+          path: hara
+          submodules: recursive
 
       - name: Apply the product-code repair
         id: repair
+        working-directory: hoplite
         run: |
           set -euo pipefail
           if grep -Fq 'pub const SOCKET_SOURCE' core/src/app.rs; then
@@ -40,6 +56,7 @@ jobs:
 
       - name: Test production resource completeness
         if: steps.repair.outputs.changed == 'true'
+        working-directory: hoplite
         run: |
           cargo test --manifest-path core/Cargo.toml --lib \
             app::tests::production_resources_cover_the_non_development_hal_library \
@@ -47,6 +64,7 @@ jobs:
 
       - name: Test the socket HAL contract through the production registry
         if: steps.repair.outputs.changed == 'true'
+        working-directory: hoplite
         run: |
           cargo test --manifest-path core/Cargo.toml --lib \
             app::tests::socket_hal_contract_evaluates_from_the_production_registry \
@@ -54,6 +72,7 @@ jobs:
 
       - name: Commit the repaired registry
         if: steps.repair.outputs.changed == 'true'
+        working-directory: hoplite
         env:
           BRANCH: agent/cosocket-baseline-conformance
         run: |
