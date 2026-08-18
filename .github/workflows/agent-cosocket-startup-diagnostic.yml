@@ -1,17 +1,16 @@
 name: Patch cosocket startup diagnostics
 
 on:
-  push:
-    branches:
-      - agent/cosocket-bytecode-startup
-    paths:
-      - .github/workflows/agent-cosocket-startup-diagnostic.yml
+  pull_request:
 
 permissions:
   contents: write
 
 jobs:
   patch:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'agent/cosocket-bytecode-startup'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -144,7 +143,7 @@ jobs:
 
       - name: Commit the runtime change
         env:
-          BRANCH: ${{ github.ref_name }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
