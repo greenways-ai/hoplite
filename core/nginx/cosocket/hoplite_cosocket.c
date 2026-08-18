@@ -68,7 +68,7 @@ typedef struct {
     size_t cursor;
 } hoplite_cosocket_writer_t;
 
-static const u_char hoplite_cosocket_hta_magic[] = {'H', 'T', 'A', '1'};
+static const u_char hoplite_cosocket_hta_magic[] = {HOPLITE_HTA_MAGIC_BYTES};
 static hoplite_cosocket_t *hoplite_cosockets;
 static uint64_t hoplite_cosocket_next_id;
 static ngx_log_t *hoplite_cosocket_log;
