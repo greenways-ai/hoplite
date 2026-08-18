@@ -19,19 +19,11 @@ jobs:
           ref: agent/openresty-cosocket-tcp
           fetch-depth: 0
 
-      - name: Decode and run the reviewed patcher
+      - name: Run the reviewed product patcher
         run: |
           set -euo pipefail
-          ruby -ryaml -e '
-            workflow = YAML.load_file(ARGV.fetch(0))
-            step = workflow.fetch("jobs").fetch("wire").fetch("steps").find do |entry|
-              entry["name"] == "Integrate the native provider and public surface"
-            end
-            abort "integration patcher step not found" unless step
-            print step.fetch("run")
-          ' .github/workflows/agent-wire-cosocket.yml > /tmp/wire-cosocket.sh
-          test -s /tmp/wire-cosocket.sh
-          bash /tmp/wire-cosocket.sh
+          python3 .github/agent/wire_cosocket.py
+          chmod +x packaging/scripts/smoke-cosocket-tcp.sh
 
       - name: Validate the patched product tree
         run: |
@@ -55,6 +47,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm \
+            .github/agent/wire_cosocket.py \
             .github/workflows/agent-wire-cosocket.yml \
             .github/workflows/agent-wire-cosocket-pr.yml
           git add \
