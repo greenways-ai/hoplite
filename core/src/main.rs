@@ -808,9 +808,11 @@ fn application_modules(files: &[PathBuf]) -> Result<Vec<ApplicationModule>, Stri
         app::CORE_SOURCE,
         app::HOST_SOURCE,
         app::INTERNAL_SOURCE,
+        app::NCHAN_SOURCE,
         app::RAW_SOURCE,
         app::RESPONSE_SOURCE,
         app::RTC_SOURCE,
+        app::SOCKET_SOURCE,
     ];
     for source in builtins {
         let module = application_module(source)?;
@@ -1169,6 +1171,29 @@ mod tests {
         let modules = application_modules(&[]).unwrap();
         let hbx0 = compile_application_modules(&modules).unwrap();
         assert_eq!(&hbx0[..4], b"HBX0");
+    }
+
+    #[test]
+    fn registered_resource_dependency_survives_source_free_bundle_loading() {
+        let mut modules = application_modules(&[]).unwrap();
+        modules.push(module(
+            "(ns example.resource-application \
+             (:require [hoplite.socket :as socket])) \
+             (defn dependency-loaded? [] \
+               (= socket/protocol \"hoplite.socket/0-alpha\"))",
+        ));
+
+        let hbx0 = compile_application_modules(&modules).unwrap();
+        assert_eq!(&hbx0[..4], b"HBX0");
+
+        let mut runtime = Runtime::new();
+        vm::eval_bytecode_bundle(&mut runtime, &hbx0).unwrap();
+        assert_eq!(
+            runtime
+                .eval_native_value("(example.resource-application/dependency-loaded?)")
+                .unwrap(),
+            hara_wasm::core::Value::Bool(true)
+        );
     }
 
     #[test]
