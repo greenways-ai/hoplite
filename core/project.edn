@@ -5,12 +5,13 @@
  :project/source-paths ["lib/src"]
  :project/test-paths ["lib/test"]
  :project/extension-paths []
- :project/capabilities #{:host/random :host/hash :host/signature :host/clock :host/secret :host/nginx}
+ :project/capabilities #{:host/random :host/hash :host/signature :host/clock :host/secret :host/nginx :host/cosocket}
  :project/dependencies {}
  :hoplite/exports
  {:hoplite/core {:export/namespace hoplite.core}
   :hoplite/nchan {:export/namespace hoplite.nchan}
   :hoplite/rtc {:export/namespace hoplite.rtc}
+  :hoplite/socket {:export/namespace hoplite.socket}
   :hoplite/host {:export/namespace hoplite.host}
   :hoplite/raw {:export/namespace hoplite.raw}
   :hoplite/response-source {:export/namespace hoplite.response-source}
