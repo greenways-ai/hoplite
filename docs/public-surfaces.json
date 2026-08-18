@@ -1,55 +1,428 @@
 {
   "format": "hoplite.public-surfaces/0-alpha",
   "hal_namespaces": [
-    {"name":"hoplite.core","path":"core/lib/src/hoplite/core.hal","status":"public","conformance":["core/lib/test/hoplite/core_test.hal"],"summary":"Application, resource, router and route composition."},
-    {"name":"hoplite.nchan","path":"core/lib/src/hoplite/nchan.hal","status":"experimental","conformance":["core/lib/test/hoplite/nchan_test.hal","core/src/package_catalog.rs","core/src/package_export.rs","core/src/module_import.rs"],"summary":"Packaged bounded Nchan channel declarations imported into application bytecode."},
-    {"name":"hoplite.dev","path":"core/lib/src/hoplite/dev.hal","status":"experimental","conformance":["core/lib/test/hoplite/core_test.hal"],"summary":"Development-console helpers excluded from production."},
-    {"name":"hoplite.host","path":"core/lib/src/hoplite/host.hal","status":"experimental","conformance":["packaging/scripts/smoke-host-providers.sh"],"summary":"Generic host-service calls."},
-    {"name":"hoplite.internal","path":"core/lib/src/hoplite/internal.hal","status":"internal","summary":"Implementation helpers with no compatibility promise."},
-    {"name":"hoplite.raw","path":"core/lib/src/hoplite/raw.hal","status":"public","conformance":["core/lib/test/hoplite/raw_test.hal","core/runtime/src/lib.rs","core/nginx/ngx_http_hoplite_module.c","website/src/content/docs/reference/raw-exchange.mdx"],"summary":"Borrowed raw exchanges with bounded Nginx request fields and imperative response construction."},
-    {"name":"hoplite.response-source","path":"core/lib/src/hoplite/response_source.hal","status":"experimental","conformance":["core/lib/test/hoplite/response_source_test.hal","packaging/scripts/smoke-response-source.sh"],"summary":"Bounded ranged and streaming response bodies."},
-    {"name":"hoplite.rtc","path":"core/lib/src/hoplite/rtc.hal","status":"experimental","conformance":["core/lib/test/hoplite/rtc_test.hal","core/runtime/src/lib.rs"],"summary":"Worker-local WebRTC negotiation and stream Duplex composition."}
+    {
+      "name": "hoplite.core",
+      "path": "core/lib/src/hoplite/core.hal",
+      "status": "public",
+      "conformance": [
+        "core/lib/test/hoplite/core_test.hal"
+      ],
+      "summary": "Application, resource, router and route composition."
+    },
+    {
+      "name": "hoplite.nchan",
+      "path": "core/lib/src/hoplite/nchan.hal",
+      "status": "experimental",
+      "conformance": [
+        "core/lib/test/hoplite/nchan_test.hal",
+        "core/src/package_catalog.rs",
+        "core/src/package_export.rs",
+        "core/src/module_import.rs"
+      ],
+      "summary": "Packaged bounded Nchan channel declarations imported into application bytecode."
+    },
+    {
+      "name": "hoplite.dev",
+      "path": "core/lib/src/hoplite/dev.hal",
+      "status": "experimental",
+      "conformance": [
+        "core/lib/test/hoplite/core_test.hal"
+      ],
+      "summary": "Development-console helpers excluded from production."
+    },
+    {
+      "name": "hoplite.host",
+      "path": "core/lib/src/hoplite/host.hal",
+      "status": "experimental",
+      "conformance": [
+        "packaging/scripts/smoke-host-providers.sh"
+      ],
+      "summary": "Generic host-service calls."
+    },
+    {
+      "name": "hoplite.internal",
+      "path": "core/lib/src/hoplite/internal.hal",
+      "status": "internal",
+      "summary": "Implementation helpers with no compatibility promise."
+    },
+    {
+      "name": "hoplite.raw",
+      "path": "core/lib/src/hoplite/raw.hal",
+      "status": "public",
+      "conformance": [
+        "core/lib/test/hoplite/raw_test.hal",
+        "core/runtime/src/lib.rs",
+        "core/nginx/ngx_http_hoplite_module.c",
+        "website/src/content/docs/reference/raw-exchange.mdx"
+      ],
+      "summary": "Borrowed raw exchanges with bounded Nginx request fields and imperative response construction."
+    },
+    {
+      "name": "hoplite.response-source",
+      "path": "core/lib/src/hoplite/response_source.hal",
+      "status": "experimental",
+      "conformance": [
+        "core/lib/test/hoplite/response_source_test.hal",
+        "packaging/scripts/smoke-response-source.sh"
+      ],
+      "summary": "Bounded ranged and streaming response bodies."
+    },
+    {
+      "name": "hoplite.rtc",
+      "path": "core/lib/src/hoplite/rtc.hal",
+      "status": "experimental",
+      "conformance": [
+        "core/lib/test/hoplite/rtc_test.hal",
+        "core/runtime/src/lib.rs"
+      ],
+      "summary": "Worker-local WebRTC negotiation and stream Duplex composition."
+    },
+    {
+      "name": "hoplite.socket",
+      "path": "core/lib/src/hoplite/socket.hal",
+      "status": "experimental",
+      "conformance": [
+        "core/lib/test/hoplite/socket_test.hal",
+        "core/nginx/cosocket/hoplite_cosocket.c",
+        "packaging/scripts/smoke-cosocket-tcp.sh"
+      ],
+      "summary": "OpenResty-compatible request-scoped TCP and UDP cosockets on the Nginx event loop."
+    }
   ],
   "native_headers": [
-    {"name":"hoplite_data_plane.h","path":"core/abi/data-plane-ffi/include/hoplite_data_plane.h","status":"public","conformance":["core/abi/data-plane/tests/contracts.rs"],"summary":"Portable request-body and response-body callback descriptors."},
-    {"name":"hoplite_console_transport.h","path":"core/nginx/hoplite_console_transport.h","status":"internal","conformance":["core/nginx/tests/console_transport.c","packaging/scripts/smoke-embedding.sh"],"summary":"Private bounded HTA0 framing and immutable application-console call closure for the Nginx worker adapter."},
-    {"name":"hoplite_console_worker.h","path":"core/nginx/hoplite_console_worker.h","status":"internal","conformance":["core/nginx/tests/console_worker.c","packaging/scripts/smoke-embedding.sh"],"summary":"Private single-call application-console work lifecycle, cancellation, timeout and bounded response ownership for the Nginx worker adapter."},
-    {"name":"hoplite_host_provider.h","path":"core/nginx/hoplite_host_provider.h","status":"experimental","conformance":["core/nginx/tests/host_provider_api.c","packaging/scripts/smoke-host-providers.sh"],"summary":"Generic native host-service provider ABI."},
-    {"name":"hoplite_host_registry.h","path":"core/nginx/hoplite_host_registry.h","status":"internal","summary":"Worker-local provider registry implementation."},
-    {"name":"hoplite_hta.h","path":"core/nginx/hoplite_hta.h","status":"internal","summary":"Native HTA decoding helpers."},
-    {"name":"hoplite_response_source.h","path":"core/nginx/hoplite_response_source.h","status":"experimental","conformance":["core/nginx/tests/response_source.c","packaging/scripts/smoke-response-source.sh"],"summary":"Bounded native streaming and exactly-once close contract."},
-    {"name":"hoplite_runtime.h","path":"core/nginx/hoplite_runtime.h","status":"public","symbol_inventory":"docs/native-symbols.txt","conformance":["core/runtime/examples/embed.rs","core/runtime/examples/embed.c","packaging/scripts/smoke-embedding.sh","core/runtime/src/lib.rs","core/nginx/ngx_http_hoplite_module.c"],"summary":"Runtime lifecycle, startup diagnostics, handlers, work and versioned request embedding ABI, including bounded raw fields."}
+    {
+      "name": "hoplite_data_plane.h",
+      "path": "core/abi/data-plane-ffi/include/hoplite_data_plane.h",
+      "status": "public",
+      "conformance": [
+        "core/abi/data-plane/tests/contracts.rs"
+      ],
+      "summary": "Portable request-body and response-body callback descriptors."
+    },
+    {
+      "name": "hoplite_console_transport.h",
+      "path": "core/nginx/hoplite_console_transport.h",
+      "status": "internal",
+      "conformance": [
+        "core/nginx/tests/console_transport.c",
+        "packaging/scripts/smoke-embedding.sh"
+      ],
+      "summary": "Private bounded HTA0 framing and immutable application-console call closure for the Nginx worker adapter."
+    },
+    {
+      "name": "hoplite_console_worker.h",
+      "path": "core/nginx/hoplite_console_worker.h",
+      "status": "internal",
+      "conformance": [
+        "core/nginx/tests/console_worker.c",
+        "packaging/scripts/smoke-embedding.sh"
+      ],
+      "summary": "Private single-call application-console work lifecycle, cancellation, timeout and bounded response ownership for the Nginx worker adapter."
+    },
+    {
+      "name": "hoplite_host_provider.h",
+      "path": "core/nginx/hoplite_host_provider.h",
+      "status": "experimental",
+      "conformance": [
+        "core/nginx/tests/host_provider_api.c",
+        "packaging/scripts/smoke-host-providers.sh"
+      ],
+      "summary": "Generic native host-service provider ABI."
+    },
+    {
+      "name": "hoplite_host_registry.h",
+      "path": "core/nginx/hoplite_host_registry.h",
+      "status": "internal",
+      "summary": "Worker-local provider registry implementation."
+    },
+    {
+      "name": "hoplite_hta.h",
+      "path": "core/nginx/hoplite_hta.h",
+      "status": "internal",
+      "summary": "Native HTA decoding helpers."
+    },
+    {
+      "name": "hoplite_response_source.h",
+      "path": "core/nginx/hoplite_response_source.h",
+      "status": "experimental",
+      "conformance": [
+        "core/nginx/tests/response_source.c",
+        "packaging/scripts/smoke-response-source.sh"
+      ],
+      "summary": "Bounded native streaming and exactly-once close contract."
+    },
+    {
+      "name": "hoplite_runtime.h",
+      "path": "core/nginx/hoplite_runtime.h",
+      "status": "public",
+      "symbol_inventory": "docs/native-symbols.txt",
+      "conformance": [
+        "core/runtime/examples/embed.rs",
+        "core/runtime/examples/embed.c",
+        "packaging/scripts/smoke-embedding.sh",
+        "core/runtime/src/lib.rs",
+        "core/nginx/ngx_http_hoplite_module.c"
+      ],
+      "summary": "Runtime lifecycle, startup diagnostics, handlers, work and versioned request embedding ABI, including bounded raw fields."
+    }
   ],
   "cli_programs": [
-    {"name":"hoplite","path":"core/src/main.rs","status":"public","availability":"default","conformance":["core/src/diagnostics.rs","core/src/doctor.rs"],"summary":"Development and control CLI."},
-    {"name":"hoplite-server","path":"core/src/bin/hoplite-server.rs","status":"public","availability":"default","conformance":["packaging/scripts/smoke-worker-reload.sh"],"summary":"Source-free production serving CLI."},
-    {"name":"hoplite-bytecode-loading","path":"core/src/bin/hoplite-bytecode-loading.rs","status":"internal","availability":"internal-evidence","summary":"Scheduled bytecode measurement program."},
-    {"name":"hoplite-console-bundle","path":"core/src/bin/hoplite-console-bundle.rs","status":"experimental","availability":"opt-in application-console tooling","conformance":["core/src/console/protocol.rs"],"summary":"Creates one immutable HCB0 client namespace bundle without overwriting an existing artifact."},
-    {"name":"hoplite-console-evaluator","path":"core/src/bin/hoplite-console-evaluator.rs","status":"internal","availability":"spawned only by the application-console supervisor","summary":"Zero-authority evaluator child process; not a user-facing command."},
-    {"name":"hoplite-console-supervisor","path":"core/src/bin/hoplite-console-supervisor.rs","status":"experimental","availability":"opt-in application-console tooling","conformance":["core/src/console/supervisor.rs","core/src/console/os.rs"],"summary":"Authenticated per-connection supervisor for isolated evaluators and named application commands."}
+    {
+      "name": "hoplite",
+      "path": "core/src/main.rs",
+      "status": "public",
+      "availability": "default",
+      "conformance": [
+        "core/src/diagnostics.rs",
+        "core/src/doctor.rs"
+      ],
+      "summary": "Development and control CLI."
+    },
+    {
+      "name": "hoplite-server",
+      "path": "core/src/bin/hoplite-server.rs",
+      "status": "public",
+      "availability": "default",
+      "conformance": [
+        "packaging/scripts/smoke-worker-reload.sh"
+      ],
+      "summary": "Source-free production serving CLI."
+    },
+    {
+      "name": "hoplite-bytecode-loading",
+      "path": "core/src/bin/hoplite-bytecode-loading.rs",
+      "status": "internal",
+      "availability": "internal-evidence",
+      "summary": "Scheduled bytecode measurement program."
+    },
+    {
+      "name": "hoplite-console-bundle",
+      "path": "core/src/bin/hoplite-console-bundle.rs",
+      "status": "experimental",
+      "availability": "opt-in application-console tooling",
+      "conformance": [
+        "core/src/console/protocol.rs"
+      ],
+      "summary": "Creates one immutable HCB0 client namespace bundle without overwriting an existing artifact."
+    },
+    {
+      "name": "hoplite-console-evaluator",
+      "path": "core/src/bin/hoplite-console-evaluator.rs",
+      "status": "internal",
+      "availability": "spawned only by the application-console supervisor",
+      "summary": "Zero-authority evaluator child process; not a user-facing command."
+    },
+    {
+      "name": "hoplite-console-supervisor",
+      "path": "core/src/bin/hoplite-console-supervisor.rs",
+      "status": "experimental",
+      "availability": "opt-in application-console tooling",
+      "conformance": [
+        "core/src/console/supervisor.rs",
+        "core/src/console/os.rs"
+      ],
+      "summary": "Authenticated per-connection supervisor for isolated evaluators and named application commands."
+    }
   ],
   "cli_commands": [
-    {"program":"hoplite","name":"doctor","status":"public","availability":"default","conformance":["core/src/doctor.rs"],"summary":"Diagnose the redacted local serving environment."},
-    {"program":"hoplite","name":"eval","status":"public","availability":"default","conformance":["core/src/main.rs"],"summary":"Evaluate one Hara expression in development."},
-    {"program":"hoplite","name":"inspect","status":"public","availability":"default","conformance":["core/src/diagnostics.rs"],"summary":"Inspect generated source-free artifacts."},
-    {"program":"hoplite","name":"package","status":"experimental","availability":"default","conformance":["core/src/package.rs"],"summary":"Inspect, build, install and verify Hara package artifacts."},
-    {"program":"hoplite","name":"repl","status":"public","availability":"default","conformance":["core/src/repl.rs"],"summary":"Start the development REPL."},
-    {"program":"hoplite","name":"run","status":"public","availability":"default","conformance":["core/src/main.rs"],"summary":"Evaluate one Hara source file in development."},
-    {"program":"hoplite","name":"serve","status":"public","availability":"default","conformance":["packaging/scripts/smoke-multi-module.sh"],"summary":"Build and operate an application server."},
-    {"program":"hoplite","name":"verify","status":"public","availability":"default","conformance":["core/src/diagnostics.rs"],"summary":"Verify HAB0 and its exact manifest without source execution."},
-    {"program":"hoplite","name":"version","status":"public","availability":"default","conformance":["core/src/main.rs"],"summary":"Report Hoplite, Hara and Nginx versions."},
-    {"program":"hoplite-server","name":"serve","status":"public","availability":"default","conformance":["packaging/scripts/smoke-worker-reload.sh"],"summary":"Execute generated production configuration."},
-    {"program":"hoplite-server","name":"version","status":"public","availability":"default","conformance":["packaging/scripts/smoke-worker-reload.sh"],"summary":"Report production server and Nginx versions."}
+    {
+      "program": "hoplite",
+      "name": "doctor",
+      "status": "public",
+      "availability": "default",
+      "conformance": [
+        "core/src/doctor.rs"
+      ],
+      "summary": "Diagnose the redacted local serving environment."
+    },
+    {
+      "program": "hoplite",
+      "name": "eval",
+      "status": "public",
+      "availability": "default",
+      "conformance": [
+        "core/src/main.rs"
+      ],
+      "summary": "Evaluate one Hara expression in development."
+    },
+    {
+      "program": "hoplite",
+      "name": "inspect",
+      "status": "public",
+      "availability": "default",
+      "conformance": [
+        "core/src/diagnostics.rs"
+      ],
+      "summary": "Inspect generated source-free artifacts."
+    },
+    {
+      "program": "hoplite",
+      "name": "package",
+      "status": "experimental",
+      "availability": "default",
+      "conformance": [
+        "core/src/package.rs"
+      ],
+      "summary": "Inspect, build, install and verify Hara package artifacts."
+    },
+    {
+      "program": "hoplite",
+      "name": "repl",
+      "status": "public",
+      "availability": "default",
+      "conformance": [
+        "core/src/repl.rs"
+      ],
+      "summary": "Start the development REPL."
+    },
+    {
+      "program": "hoplite",
+      "name": "run",
+      "status": "public",
+      "availability": "default",
+      "conformance": [
+        "core/src/main.rs"
+      ],
+      "summary": "Evaluate one Hara source file in development."
+    },
+    {
+      "program": "hoplite",
+      "name": "serve",
+      "status": "public",
+      "availability": "default",
+      "conformance": [
+        "packaging/scripts/smoke-multi-module.sh"
+      ],
+      "summary": "Build and operate an application server."
+    },
+    {
+      "program": "hoplite",
+      "name": "verify",
+      "status": "public",
+      "availability": "default",
+      "conformance": [
+        "core/src/diagnostics.rs"
+      ],
+      "summary": "Verify HAB0 and its exact manifest without source execution."
+    },
+    {
+      "program": "hoplite",
+      "name": "version",
+      "status": "public",
+      "availability": "default",
+      "conformance": [
+        "core/src/main.rs"
+      ],
+      "summary": "Report Hoplite, Hara and Nginx versions."
+    },
+    {
+      "program": "hoplite-server",
+      "name": "serve",
+      "status": "public",
+      "availability": "default",
+      "conformance": [
+        "packaging/scripts/smoke-worker-reload.sh"
+      ],
+      "summary": "Execute generated production configuration."
+    },
+    {
+      "program": "hoplite-server",
+      "name": "version",
+      "status": "public",
+      "availability": "default",
+      "conformance": [
+        "packaging/scripts/smoke-worker-reload.sh"
+      ],
+      "summary": "Report production server and Nginx versions."
+    }
   ],
   "portable_documents": [
-    {"name":"hoplite.application-bundle/0-alpha","path":"docs/application-bundle.md","status":"public","conformance":["core/application-bundle/src/lib.rs"],"summary":"HAB0 envelope and exact-manifest binding."},
-    {"name":"hoplite.doctor/0-alpha","path":"docs/diagnostics.md","status":"public","conformance":["core/src/doctor.rs"],"summary":"Redacted local runtime health report."},
-    {"name":"hoplite.inspect/0-alpha","path":"docs/diagnostics.md","status":"public","conformance":["core/src/diagnostics.rs"],"summary":"Redacted generated-application report."},
-    {"name":"hoplite.startup-diagnostic/0-alpha","path":"docs/startup-diagnostics.md","status":"public","conformance":["core/runtime/src/lib.rs","packaging/scripts/smoke-worker-reload.sh"],"summary":"Ordered path-free worker startup stage report."},
-    {"name":"hoplite.request-failure/0-alpha","path":"docs/request-failures.md","status":"public","conformance":["core/nginx/ngx_http_hoplite_module.c","packaging/scripts/smoke-request-body-v3.sh","packaging/scripts/smoke-response-source.sh"],"summary":"Stable redacted request failure classes."},
-    {"name":"hoplite.request-body/3","path":"docs/data-plane/request-body-v3.md","status":"public","conformance":["core/abi/data-plane/tests/contracts.rs","packaging/scripts/smoke-request-body-v3.sh"],"summary":"Opaque bounded request-body authority."},
-    {"name":"hoplite.response-source/0-alpha","path":"core/nginx/response-source-streaming.md","status":"experimental","conformance":["core/nginx/tests/response_source.c","packaging/scripts/smoke-response-source.sh"],"summary":"Ranged and streaming response-source ownership."},
-    {"name":"hoplite.runtime-measurement/0-alpha","path":"docs/runtime-measurements.md","status":"public","conformance":["packaging/scripts/validate-runtime-measurement.mjs"],"summary":"Reproducible startup, footprint, memory and latency samples."},
-    {"name":"hoplite.runtime-comparison/0-alpha","path":"docs/runtime-measurements.md","status":"public","conformance":["packaging/scripts/validate-runtime-measurement.mjs"],"summary":"Validated numeric deltas with explicit environment compatibility."}
+    {
+      "name": "hoplite.application-bundle/0-alpha",
+      "path": "docs/application-bundle.md",
+      "status": "public",
+      "conformance": [
+        "core/application-bundle/src/lib.rs"
+      ],
+      "summary": "HAB0 envelope and exact-manifest binding."
+    },
+    {
+      "name": "hoplite.doctor/0-alpha",
+      "path": "docs/diagnostics.md",
+      "status": "public",
+      "conformance": [
+        "core/src/doctor.rs"
+      ],
+      "summary": "Redacted local runtime health report."
+    },
+    {
+      "name": "hoplite.inspect/0-alpha",
+      "path": "docs/diagnostics.md",
+      "status": "public",
+      "conformance": [
+        "core/src/diagnostics.rs"
+      ],
+      "summary": "Redacted generated-application report."
+    },
+    {
+      "name": "hoplite.startup-diagnostic/0-alpha",
+      "path": "docs/startup-diagnostics.md",
+      "status": "public",
+      "conformance": [
+        "core/runtime/src/lib.rs",
+        "packaging/scripts/smoke-worker-reload.sh"
+      ],
+      "summary": "Ordered path-free worker startup stage report."
+    },
+    {
+      "name": "hoplite.request-failure/0-alpha",
+      "path": "docs/request-failures.md",
+      "status": "public",
+      "conformance": [
+        "core/nginx/ngx_http_hoplite_module.c",
+        "packaging/scripts/smoke-request-body-v3.sh",
+        "packaging/scripts/smoke-response-source.sh"
+      ],
+      "summary": "Stable redacted request failure classes."
+    },
+    {
+      "name": "hoplite.request-body/3",
+      "path": "docs/data-plane/request-body-v3.md",
+      "status": "public",
+      "conformance": [
+        "core/abi/data-plane/tests/contracts.rs",
+        "packaging/scripts/smoke-request-body-v3.sh"
+      ],
+      "summary": "Opaque bounded request-body authority."
+    },
+    {
+      "name": "hoplite.response-source/0-alpha",
+      "path": "core/nginx/response-source-streaming.md",
+      "status": "experimental",
+      "conformance": [
+        "core/nginx/tests/response_source.c",
+        "packaging/scripts/smoke-response-source.sh"
+      ],
+      "summary": "Ranged and streaming response-source ownership."
+    },
+    {
+      "name": "hoplite.runtime-measurement/0-alpha",
+      "path": "docs/runtime-measurements.md",
+      "status": "public",
+      "conformance": [
+        "packaging/scripts/validate-runtime-measurement.mjs"
+      ],
+      "summary": "Reproducible startup, footprint, memory and latency samples."
+    },
+    {
+      "name": "hoplite.runtime-comparison/0-alpha",
+      "path": "docs/runtime-measurements.md",
+      "status": "public",
+      "conformance": [
+        "packaging/scripts/validate-runtime-measurement.mjs"
+      ],
+      "summary": "Validated numeric deltas with explicit environment compatibility."
+    }
   ]
 }
