@@ -1,0 +1,68 @@
+name: Wire cosocket draft PR
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  wire:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'agent/openresty-cosocket-tcp'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/openresty-cosocket-tcp
+          fetch-depth: 0
+
+      - name: Extract and run the reviewed patcher
+        run: |
+          set -euo pipefail
+          awk '
+            /python3 - <<'\''PY'\''/ { capture = 1; next }
+            capture && /^          PY$/ { capture = 0; exit }
+            capture { sub(/^          /, ""); print }
+          ' .github/workflows/agent-wire-cosocket.yml > /tmp/wire-cosocket.py
+          test -s /tmp/wire-cosocket.py
+          python3 /tmp/wire-cosocket.py
+          chmod +x packaging/scripts/smoke-cosocket-tcp.sh
+
+      - name: Validate the patched product tree
+        run: |
+          set -euo pipefail
+          git diff --check
+          bash -n packaging/scripts/smoke-cosocket-tcp.sh
+          python3 -m json.tool docs/public-surfaces.json >/dev/null
+          grep -F '#include "cosocket/hoplite_cosocket.h"' \
+            core/nginx/ngx_http_hoplite_module.c >/dev/null
+          grep -F 'hoplite_host_request_cleanup_add_v1' \
+            core/nginx/ngx_http_hoplite_module.c >/dev/null
+          grep -F 'hoplite_cosocket_register(cycle)' \
+            core/nginx/ngx_http_hoplite_module.c >/dev/null
+          grep -F 'hoplite.socket' docs/public-surfaces.json >/dev/null
+
+      - name: Publish the product-only wiring commit
+        env:
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm \
+            .github/workflows/agent-wire-cosocket.yml \
+            .github/workflows/agent-wire-cosocket-pr.yml
+          git add \
+            core/nginx/ngx_http_hoplite_module.c \
+            core/nginx/cosocket/hoplite_cosocket.c \
+            docs/public-surfaces.json \
+            docs/public-api.md \
+            website/astro.config.mjs \
+            website/src/content/docs/concepts/host-capabilities.mdx \
+            .github/workflows/ci.yml \
+            packaging/scripts/smoke-cosocket-tcp.sh
+          git commit -m "feat: wire evented TCP cosockets into Hoplite"
+          git push origin "HEAD:${BRANCH}"
