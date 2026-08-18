@@ -19,15 +19,14 @@ jobs:
           ref: agent/openresty-cosocket-tcp
           fetch-depth: 0
 
-      - name: Run the reviewed product patcher
+      - name: Patch and validate the product tree
+        id: patch
         run: |
           set -euo pipefail
           python3 .github/agent/wire_cosocket.py
           chmod +x packaging/scripts/smoke-cosocket-tcp.sh
+          git restore .github/workflows/ci.yml
 
-      - name: Validate the patched product tree
-        run: |
-          set -euo pipefail
           git diff --check
           bash -n packaging/scripts/smoke-cosocket-tcp.sh
           python3 -m json.tool docs/public-surfaces.json >/dev/null
@@ -39,17 +38,20 @@ jobs:
             core/nginx/ngx_http_hoplite_module.c >/dev/null
           grep -F 'hoplite.socket' docs/public-surfaces.json >/dev/null
 
-      - name: Publish the product-only wiring commit
+          if git diff --quiet; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish the product wiring commit
+        if: steps.patch.outputs.changed == 'true'
         env:
           BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm \
-            .github/agent/wire_cosocket.py \
-            .github/workflows/agent-wire-cosocket.yml \
-            .github/workflows/agent-wire-cosocket-pr.yml
           git add \
             core/nginx/ngx_http_hoplite_module.c \
             core/nginx/cosocket/hoplite_cosocket.c \
@@ -57,7 +59,6 @@ jobs:
             docs/public-api.md \
             website/astro.config.mjs \
             website/src/content/docs/concepts/host-capabilities.mdx \
-            .github/workflows/ci.yml \
             packaging/scripts/smoke-cosocket-tcp.sh
           git commit -m "feat: wire evented TCP cosockets into Hoplite"
           git push origin "HEAD:${BRANCH}"
