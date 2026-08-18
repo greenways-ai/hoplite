@@ -1,0 +1,60 @@
+name: Apply cosocket registry repair
+
+on:
+  push:
+    branches:
+      - agent/cosocket-baseline-conformance
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/cosocket-baseline-conformance
+          fetch-depth: 0
+
+      - name: Apply the product-code repair
+        id: repair
+        run: |
+          set -euo pipefail
+          if grep -Fq 'pub const SOCKET_SOURCE' core/src/app.rs; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 .github/agent/patch_cosocket_registry.py
+          cargo fmt --manifest-path core/Cargo.toml
+          git diff --check
+          changed="$(git status --short)"
+          test "$changed" = ' M core/src/app.rs'
+          echo 'changed=true' >> "$GITHUB_OUTPUT"
+
+      - name: Test production resource completeness
+        if: steps.repair.outputs.changed == 'true'
+        run: |
+          cargo test --manifest-path core/Cargo.toml --lib \
+            app::tests::production_resources_cover_the_non_development_hal_library \
+            -- --exact --nocapture
+
+      - name: Test the socket HAL contract through the production registry
+        if: steps.repair.outputs.changed == 'true'
+        run: |
+          cargo test --manifest-path core/Cargo.toml --lib \
+            app::tests::socket_hal_contract_evaluates_from_the_production_registry \
+            -- --exact --nocapture
+
+      - name: Commit the repaired registry
+        if: steps.repair.outputs.changed == 'true'
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add core/src/app.rs
+          git commit -m 'fix: register the complete Hoplite application library'
+          git push origin "HEAD:${BRANCH}"
