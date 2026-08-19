@@ -117,7 +117,8 @@ hoplite_cosocket_resolver_configure(ngx_cycle_t *cycle)
     {
         return;
     }
-    http = cycle->conf_ctx[ngx_http_module.index];
+    http = (ngx_http_conf_ctx_t *)
+        cycle->conf_ctx[ngx_http_module.index];
     if (http == NULL || http->loc_conf == NULL) {
         return;
     }
@@ -355,12 +356,27 @@ hoplite_cosocket_connect_peer(hoplite_cosocket_t *socket,
                               ngx_str_t *name,
                               ngx_msec_t timeout)
 {
+    ngx_str_t *retained_name;
     ngx_int_t rc;
+
+    if (name == NULL || name->data == NULL || name->len == 0) {
+        return HOPLITE_HOST_PROVIDER_ERROR;
+    }
+    retained_name = ngx_palloc(socket->pool, sizeof(*retained_name));
+    if (retained_name == NULL) {
+        return HOPLITE_HOST_PROVIDER_ERROR;
+    }
+    retained_name->data = ngx_pnalloc(socket->pool, name->len);
+    if (retained_name->data == NULL) {
+        return HOPLITE_HOST_PROVIDER_ERROR;
+    }
+    ngx_memcpy(retained_name->data, name->data, name->len);
+    retained_name->len = name->len;
 
     ngx_memzero(&socket->peer, sizeof(socket->peer));
     socket->peer.sockaddr = sockaddr;
     socket->peer.socklen = socklen;
-    socket->peer.name = name;
+    socket->peer.name = retained_name;
     socket->peer.get = ngx_event_get_peer;
     socket->peer.data = socket;
     socket->peer.log = socket->log;
