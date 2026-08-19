@@ -41,14 +41,22 @@ const APPLICATION_SOURCE: &str = r#"
          (reader 4))
         shutdown
         (std.foundation.coroutine/await
-         (socket/shutdown client "send"))]
+         (socket/shutdown client "send"))
+        unix-client
+        (std.foundation.coroutine/await
+         (socket/tcp))
+        unix-connected
+        (std.foundation.coroutine/await
+         (socket/connect unix-client "unix:/tmp/hoplite.sock"))]
     {:client client
      :configured configured
      :connected connected
      :optioned optioned
      :received received
      :delimited delimited
-     :shutdown shutdown}))
+     :shutdown shutdown
+     :unix-client unix-client
+     :unix-connected unix-connected}))
 "#;
 
 struct RuntimeGuard(*mut HopliteRuntime);
@@ -273,6 +281,18 @@ fn source_free_socket_coroutine_continues_after_synchronous_completions() {
     resolve(
         runtime.0,
         shutdown_call,
+        Value::Vector(vec![Value::Number(1), Value::Nil].into()),
+    );
+
+    let unix_tcp = next_event(runtime.0);
+    let unix_tcp_call = host_call(&unix_tcp, "hoplite.socket", "tcp");
+    resolve(runtime.0, unix_tcp_call, Value::Number(2));
+
+    let unix_connect = next_event(runtime.0);
+    let unix_connect_call = host_call(&unix_connect, "hoplite.socket", "connect");
+    resolve(
+        runtime.0,
+        unix_connect_call,
         Value::Vector(vec![Value::Number(1), Value::Nil].into()),
     );
 

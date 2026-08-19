@@ -52,6 +52,42 @@
                          "x-hoplite-cosocket" "tcp-event-loop"}
                :body (get received 0)})))))))))
 
+(defn ^:async unix-echo
+  [_request]
+  (let [client
+        (std.foundation.coroutine/await
+         (socket/tcp))
+        configured
+        (std.foundation.coroutine/await
+         (socket/settimeouts client 1000 1000 1000))
+        connected
+        (std.foundation.coroutine/await
+         (socket/connect client "unix:/cosocket/echo.sock"))]
+    (if
+     (get connected 1)
+     (do
+       (std.foundation.coroutine/await (socket/close client))
+       (failure-response "unix-connect" connected))
+     (let [sent
+           (std.foundation.coroutine/await
+            (socket/send client "unix\n"))]
+       (if
+        (get sent 1)
+        (do
+          (std.foundation.coroutine/await (socket/close client))
+          (failure-response "unix-send" sent))
+        (let [received
+              (std.foundation.coroutine/await
+               (socket/receive client "*l"))]
+          (std.foundation.coroutine/await (socket/close client))
+          (if
+           (get received 1)
+           (failure-response "unix-receive" received)
+           {:status 200
+            :headers {"content-type" "application/octet-stream"
+                      "x-hoplite-cosocket" "tcp-unix-domain"}
+            :body (get received 0)})))))))
+
 (defn ^:async receive-any
   [request]
   (let [host (get (get request :headers) "x-cosocket-host")
@@ -285,6 +321,10 @@
       {:get {:name "cosocket-tcp-echo"
              :summary "Connects, writes and reads through an evented TCP cosocket"
              :handler #'echo}}]
+     ["/cosocket/unix"
+      {:get {:name "cosocket-unix-domain-echo"
+             :summary "Connects through a Unix-domain stream cosocket"
+             :handler #'unix-echo}}]
      ["/cosocket/receiveany"
       {:get {:name "cosocket-tcp-receiveany"
              :summary "Returns available bytes without waiting for the maximum"

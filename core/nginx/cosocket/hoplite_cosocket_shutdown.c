@@ -4,14 +4,15 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 
 /*
- * Keep the established TCP implementation in one translation unit while this
- * compatibility slice extends provider dispatch with send-direction shutdown
- * and the bounded OpenResty/LuaSocket setoption surface. The included core
- * keeps worker lifecycle and request-owned state; only its provider entry
- * points are renamed so this wrapper can add operations without duplicating
- * the event-loop implementation.
+ * Keep the established TCP implementation in one translation unit while these
+ * compatibility slices extend provider dispatch with send-direction shutdown,
+ * the bounded OpenResty/LuaSocket setoption surface, and Unix-domain stream
+ * connections. The included core keeps worker lifecycle and request-owned
+ * state; only its provider entry points are renamed so this wrapper can add
+ * operations without duplicating the event-loop implementation.
  */
 #define hoplite_cosocket_provider hoplite_cosocket_core_provider
 #define hoplite_cosocket_invoke hoplite_cosocket_core_invoke
@@ -240,6 +241,121 @@ hoplite_cosocket_setoption(const hoplite_host_call_v1_t *call,
     return hoplite_cosocket_complete_ordinary_call(call, 1, 1, NULL);
 }
 
+static ngx_int_t
+hoplite_cosocket_connect_unix(const hoplite_host_call_v1_t *call,
+                              const hoplite_hta_value_t *arguments)
+{
+    hoplite_cosocket_t *socket;
+    ngx_url_t url;
+    ngx_str_t target;
+    ngx_int_t rc;
+    size_t index, path_len;
+
+    rc = hoplite_cosocket_argument_handle(call, arguments, 2, &socket);
+    if (rc == NGX_ERROR) {
+        return hoplite_cosocket_reject(
+            call, "hoplite.socket/connect expects [socket unix-target]");
+    }
+    if (rc == NGX_DECLINED) {
+        return hoplite_cosocket_reject(
+            call, "unknown or foreign Hoplite cosocket");
+    }
+    if (socket->closed) {
+        return hoplite_cosocket_complete_ordinary_call(
+            call, 0, 0, "closed");
+    }
+    if (socket->connected || socket->connection != NULL) {
+        return hoplite_cosocket_complete_ordinary_call(
+            call, 0, 0, "already connected");
+    }
+    if (hoplite_hta_text(arguments->as.vector.items[1], &target) != NGX_OK
+        || target.len < sizeof("unix:/") - 1
+        || ngx_strncmp(target.data,
+                       "unix:/",
+                       sizeof("unix:/") - 1) != 0)
+    {
+        return hoplite_cosocket_reject(
+            call, "Unix-domain target must be unix:/absolute/path");
+    }
+
+    path_len = target.len - (sizeof("unix:") - 1);
+    if (path_len >= sizeof(((struct sockaddr_un *) 0)->sun_path)) {
+        return hoplite_cosocket_reject(
+            call, "Unix-domain socket path is too long");
+    }
+    for (index = 0; index < target.len; index++) {
+        if (target.data[index] == '\0') {
+            return hoplite_cosocket_reject(
+                call, "Unix-domain target cannot contain a NUL byte");
+        }
+    }
+
+    ngx_memzero(&url, sizeof(url));
+    url.url.data = ngx_pnalloc(socket->pool, target.len + 1);
+    if (url.url.data == NULL) {
+        return HOPLITE_HOST_PROVIDER_ERROR;
+    }
+    ngx_memcpy(url.url.data, target.data, target.len);
+    url.url.data[target.len] = '\0';
+    url.url.len = target.len;
+    url.no_resolve = 1;
+    if (ngx_parse_url(socket->pool, &url) != NGX_OK
+        || url.naddrs != 1
+        || url.addrs == NULL
+        || url.addrs[0].sockaddr == NULL
+        || url.addrs[0].sockaddr->sa_family != AF_UNIX)
+    {
+        return hoplite_cosocket_reject(
+            call, "invalid Unix-domain socket target");
+    }
+
+    ngx_memzero(&socket->peer, sizeof(socket->peer));
+    socket->peer.sockaddr = url.addrs[0].sockaddr;
+    socket->peer.socklen = url.addrs[0].socklen;
+    socket->peer.name = &url.addrs[0].name;
+    socket->peer.get = ngx_event_get_peer;
+    socket->peer.data = socket;
+    socket->peer.log = socket->log;
+    socket->peer.log_error = NGX_ERROR_ERR;
+    socket->peer.type = SOCK_STREAM;
+    socket->peer.tries = 1;
+    socket->pending = HOPLITE_COSOCKET_PENDING_CONNECT;
+    socket->pending_call = call->call;
+    socket->completer = call->completer;
+
+    rc = ngx_event_connect_peer(&socket->peer);
+    if (rc == NGX_ERROR || rc == NGX_DECLINED || rc == NGX_BUSY
+        || socket->peer.connection == NULL)
+    {
+        socket->connection = socket->peer.connection;
+        hoplite_cosocket_reset_connection(socket);
+        return hoplite_cosocket_complete_ordinary(
+            socket, 0, 0, "connect failed");
+    }
+    socket->connection = socket->peer.connection;
+    socket->connection->data = socket;
+    socket->connection->read->handler = hoplite_cosocket_read_handler;
+    socket->connection->write->handler = hoplite_cosocket_write_handler;
+    socket->connection->read->log = socket->log;
+    socket->connection->write->log = socket->log;
+    if (socket->connection->pool == NULL) {
+        socket->connection->pool = socket->pool;
+    }
+
+    if (rc == NGX_AGAIN) {
+        if (socket->connect_timeout != 0) {
+            ngx_add_timer(socket->connection->write,
+                          socket->connect_timeout);
+        }
+        return HOPLITE_HOST_PROVIDER_PENDING;
+    }
+    socket->connected = 1;
+    if (hoplite_cosocket_complete_ordinary(socket, 1, 1, NULL) != NGX_OK) {
+        return HOPLITE_HOST_PROVIDER_ERROR;
+    }
+    return HOPLITE_HOST_PROVIDER_OK;
+}
+
 static int32_t
 hoplite_cosocket_invoke(const hoplite_host_call_v1_t *call)
 {
@@ -259,7 +375,8 @@ hoplite_cosocket_invoke(const hoplite_host_call_v1_t *call)
     }
     if (!hoplite_cosocket_operation(call, "shutdown")
         && !hoplite_cosocket_operation(call, "send")
-        && !hoplite_cosocket_operation(call, "setoption"))
+        && !hoplite_cosocket_operation(call, "setoption")
+        && !hoplite_cosocket_operation(call, "connect"))
     {
         return hoplite_cosocket_core_invoke(call);
     }
@@ -274,6 +391,15 @@ hoplite_cosocket_invoke(const hoplite_host_call_v1_t *call)
             call, "hoplite.socket arguments must be one HTA vector");
     }
 
+    if (hoplite_cosocket_operation(call, "connect")) {
+        if (arguments->as.vector.count == 2) {
+            rc = hoplite_cosocket_connect_unix(call, arguments);
+            ngx_destroy_pool(pool);
+            return (int32_t) rc;
+        }
+        ngx_destroy_pool(pool);
+        return hoplite_cosocket_core_invoke(call);
+    }
     if (hoplite_cosocket_operation(call, "shutdown")) {
         rc = hoplite_cosocket_shutdown(call, arguments);
         ngx_destroy_pool(pool);

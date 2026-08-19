@@ -10,11 +10,11 @@ operations suspend the Hara coroutine while Nginx continues serving other
 connections. Application code uses typed namespace functions rather than public
 service and operation strings.
 
-The current production TCP slice provides numeric IPv4 and IPv6 destinations,
-fixed, line, and all-data receive modes, `receiveany`, stateful `receiveuntil`
-delimiter readers, send-direction half-close, and a bounded `setoption` surface.
-DNS, keepalive pools, TLS, concurrent read/write, Unix-domain sockets, and UDP
-remain tracked by the
+The current production stream slice provides numeric IPv4 and IPv6
+destinations, explicit Unix-domain targets, fixed, line, and all-data receive
+modes, `receiveany`, stateful `receiveuntil` delimiter readers, send-direction
+half-close, and a bounded `setoption` surface. DNS, keepalive pools, TLS,
+concurrent read/write, and UDP remain tracked by the
 [cosocket programme](https://github.com/greenways-ai/hoplite/issues/163);
 they are not silently emulated with blocking I/O.
 
@@ -86,15 +86,35 @@ native connection exactly once.
 
 ## `connect`
 
+Numeric IPv4 and IPv6 destinations use the host-and-port form:
+
 ```clojure
 (std.foundation.coroutine/await
  (socket/connect client "127.0.0.1" 6379))
 ```
 
-The first slice accepts numeric IPv4 and IPv6 addresses and an empty options
-map. A hostname returns `"numeric address required"` rather than performing a
-blocking resolver call. Nginx-resolver integration, `pool`, `pool_size`, and
-`backlog` options are subsequent slices of the same public contract.
+This form accepts numeric addresses and an empty options map. A hostname returns
+`"numeric address required"` rather than performing a blocking resolver call.
+Nginx-resolver integration, `pool`, `pool_size`, and `backlog` options are
+subsequent slices of the same public contract.
+
+Unix-domain stream sockets use the explicit two-argument target form:
+
+```clojure
+(std.foundation.coroutine/await
+ (socket/connect client "unix:/run/example/service.sock"))
+```
+
+Only absolute targets beginning with `unix:/` enter the Unix-domain branch. The
+path is parsed by Nginx, bounded by the platform `sockaddr_un` path capacity,
+and copied into request-owned native state before the call can suspend. Empty,
+relative, embedded-NUL, and overlong targets are programming errors. Missing or
+refused sockets resolve through the ordinary `[nil error]` network result.
+
+After connection, Unix-domain sockets use the same nonblocking `send`,
+`receive`, `receiveany`, `receiveuntil`, timeout, shutdown, close, cancellation,
+disconnect, and worker-exit lifecycle as numeric TCP connections. No blocking
+filesystem or socket compatibility path is introduced.
 
 ## `send`
 
@@ -114,7 +134,7 @@ connection because the protocol position is no longer safely reusable.
  (socket/shutdown client "send"))
 ```
 
-The current slice supports only the `"send"` direction. It sends the TCP FIN
+The current slice supports only the `"send"` direction. It sends the stream FIN
 after already queued bytes while leaving the receive direction open, allowing a
 peer that waits for end-of-request EOF to send its response on the same
 connection. Further `send` calls resolve as `[nil "closed"]`; receive operations
@@ -198,12 +218,13 @@ corresponding timer. `settimeout` assigns one value to connect, send, and read;
 (socket/setoption client "rcvbuf" 32768)
 ```
 
-`setoption` is available only after `connect` has established a TCP connection.
-The current compatibility set is deliberately closed to the five OpenResty
-options above. `keepalive`, `reuseaddr`, and `tcp-nodelay` accept a boolean or
-`0`/`1`; `sndbuf` and `rcvbuf` accept integers from `0` through the native
-`INT_MAX`. Unsupported names and invalid values are programming errors rather
-than an arbitrary native `setsockopt` escape hatch.
+`setoption` is available only after `connect` has established a stream
+connection. The current compatibility set is deliberately closed to the five
+OpenResty options above. `keepalive`, `reuseaddr`, and `tcp-nodelay` accept a
+boolean or `0`/`1`; `sndbuf` and `rcvbuf` accept integers from `0` through the
+native `INT_MAX`. Unsupported names, invalid values, and options unsupported by
+the connected transport are errors rather than an arbitrary native
+`setsockopt` escape hatch.
 
 The option is applied directly to the request-owned native socket. A kernel
 `setsockopt` failure resolves as `[nil error]`; success resolves as `[1 nil]`.
@@ -217,6 +238,7 @@ reusing an incompatible pooled connection.
 | --- | --- |
 | `ngx.socket.tcp()` | `(await (socket/tcp))` |
 | `sock:connect(host, port)` | `(await (socket/connect sock host port))` |
+| `sock:connect("unix:/path")` | `(await (socket/connect sock "unix:/path"))` |
 | `sock:send(value)` | `(await (socket/send sock value))` |
 | `sock:shutdown("send")` | `(await (socket/shutdown sock "send"))` |
 | `sock:receive("*l")` | `(await (socket/receive sock "*l"))` |

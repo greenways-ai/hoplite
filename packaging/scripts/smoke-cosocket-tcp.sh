@@ -5,6 +5,7 @@ image="${1:-hoplite-cosocket-tcp}"
 suffix="${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$"
 suffix="${suffix//[^A-Za-z0-9_.-]/-}"
 network="hoplite-cosocket-${suffix}"
+socket_volume="hoplite-cosocket-socket-${suffix}"
 echo_container="hoplite-cosocket-echo-${suffix}"
 app_container="hoplite-cosocket-app-${suffix}"
 body_file="$(mktemp)"
@@ -13,6 +14,7 @@ headers_file="$(mktemp)"
 cleanup() {
   docker rm -f "$app_container" "$echo_container" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
+  docker volume rm "$socket_volume" >/dev/null 2>&1 || true
   rm -f "$body_file" "$headers_file"
 }
 trap cleanup EXIT INT TERM
@@ -33,12 +35,15 @@ diagnose() {
 }
 
 docker network create "$network" >/dev/null
+docker volume create "$socket_volume" >/dev/null
 
 docker run --detach \
   --name "$echo_container" \
   --network "$network" \
+  --mount "type=volume,source=${socket_volume},target=/cosocket" \
   python:3.12-alpine \
   python -u -c '
+import os
 import socket
 import threading
 import time
@@ -47,6 +52,16 @@ listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 listener.bind(("0.0.0.0", 19091))
 listener.listen(64)
+
+unix_path = "/cosocket/echo.sock"
+try:
+    os.unlink(unix_path)
+except FileNotFoundError:
+    pass
+unix_listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+unix_listener.bind(unix_path)
+os.chmod(unix_path, 0o777)
+unix_listener.listen(64)
 print("echo-ready", flush=True)
 
 def split_send(connection, first, second):
@@ -84,9 +99,16 @@ def serve(connection):
     finally:
         connection.close()
 
-while True:
-    connection, _ = listener.accept()
-    threading.Thread(target=serve, args=(connection,), daemon=True).start()
+def accept_forever(server):
+    while True:
+        connection, _ = server.accept()
+        threading.Thread(target=serve, args=(connection,), daemon=True).start()
+
+threading.Thread(
+    target=accept_forever,
+    args=(unix_listener,),
+    daemon=True).start()
+accept_forever(listener)
 ' >/dev/null
 
 echo_ip=''
@@ -106,7 +128,7 @@ for _ in $(seq 1 50); do
   sleep .1
 done
 if [[ -z "$echo_ip" ]]; then
-  echo 'TCP echo peer did not become ready.' >&2
+  echo 'TCP and Unix echo peer did not become ready.' >&2
   diagnose
   exit 1
 fi
@@ -114,6 +136,7 @@ fi
 docker run --detach \
   --name "$app_container" \
   --network "$network" \
+  --mount "type=volume,source=${socket_volume},target=/cosocket" \
   -p 127.0.0.1::8080 \
   "$image" >/dev/null
 
@@ -196,6 +219,7 @@ if [[ "$ready" != true ]]; then
 fi
 
 request_expect /cosocket/echo ping tcp-event-loop
+request_expect /cosocket/unix unix tcp-unix-domain
 request_expect /cosocket/receiveany part tcp-receiveany
 request_expect /cosocket/receiveuntil 'alpha|beta|omega' tcp-receiveuntil
 request_expect \
@@ -216,5 +240,5 @@ for request in $(seq 1 5); do
   request_expect /cosocket/echo ping tcp-event-loop
 done
 
-printf 'Validated TCP receive, receiveany, receiveuntil, setoption, and send shutdown through %s.\n' \
+printf 'Validated TCP and Unix-domain connect, receive, receiveany, receiveuntil, setoption, and send shutdown through %s.\n' \
   "$image"

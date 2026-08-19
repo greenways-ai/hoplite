@@ -68,9 +68,15 @@
     (host-call "tcp" []))))
 
 (defn ^:async connect
-  "Connects a TCP cosocket to a numeric IPv4 or IPv6 address in this first
-  production slice. Returns [1 nil] or [nil error], matching OpenResty's
-  ordinary cosocket result convention."
+  "Connects a TCP cosocket to a numeric IPv4/IPv6 host and port, or to one
+  explicit Unix-domain target of the form unix:/absolute/path. Returns
+  [1 nil] or [nil error], matching OpenResty's ordinary cosocket result
+  convention. Hostname resolution is a separate Nginx-resolver slice."
+  ([socket target]
+   (std.foundation.coroutine/await
+    (host-call
+     "connect"
+     [(socket-handle socket) target])))
   ([socket host port]
    (connect socket host port {}))
   ([socket host port options]
