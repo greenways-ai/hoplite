@@ -71,8 +71,10 @@
   "Connects a TCP cosocket to a numeric IPv4/IPv6 address or hostname and port,
   or to one explicit Unix-domain target of the form unix:/absolute/path.
   Hostnames use the configured nonblocking Nginx resolver and remain bounded by
-  the connect and resolver timeouts. Returns [1 nil] or [nil error], matching
-  OpenResty's ordinary cosocket result convention."
+  the connect and resolver timeouts. The options map accepts :pool and
+  :pool-size; :backlog must remain zero until the bounded backlog slice lands.
+  Returns [1 nil] or [nil error], matching OpenResty's ordinary cosocket result
+  convention."
   ([socket target]
    (std.foundation.coroutine/await
     (host-call
@@ -177,9 +179,29 @@
     "setoption"
     [(socket-handle socket) option value])))
 
+(defn ^:async setkeepalive
+  "Returns a clean established connection to its worker-local idle pool.
+  Optional values set the idle timeout in milliseconds and per-key idle
+  capacity. Returns [1 nil] or [nil error]. The descriptor is closed after a
+  successful transfer and must not be used again."
+  ([socket]
+   (std.foundation.coroutine/await
+    (host-call "setkeepalive" [(socket-handle socket)])))
+  ([socket idle-timeout-milliseconds]
+   (std.foundation.coroutine/await
+    (host-call
+     "setkeepalive"
+     [(socket-handle socket) idle-timeout-milliseconds])))
+  ([socket idle-timeout-milliseconds pool-size]
+   (std.foundation.coroutine/await
+    (host-call
+     "setkeepalive"
+     [(socket-handle socket) idle-timeout-milliseconds pool-size]))))
+
 (defn ^:async getreusedtimes
-  "Returns [count nil]. Pooling is introduced by the next cosocket slice, so a
-  newly connected socket currently reports zero."
+  "Returns [count nil], where count is the number of prior worker-local pool
+  checkouts for the active connection. A newly established connection reports
+  zero."
   [socket]
   (std.foundation.coroutine/await
    (host-call "getreusedtimes" [(socket-handle socket)])))

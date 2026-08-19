@@ -132,6 +132,99 @@ request_expect_at() {
   fi
 }
 
+request_keepalive_at() {
+  local base="$1"
+  local host="$2"
+  local pool="$3"
+  local idle="$4"
+  local status
+  status="$(curl --silent --show-error \
+    --connect-timeout 1 \
+    --max-time 3 \
+    --header "x-cosocket-host: ${host}" \
+    --header "x-cosocket-pool: ${pool}" \
+    --header "x-cosocket-idle: ${idle}" \
+    --dump-header "$headers_file" \
+    --output "$body_file" \
+    --write-out '%{http_code}' \
+    "$base/cosocket/keepalive" || true)"
+  if [[ "$status" != 200 ]]; then
+    echo "/cosocket/keepalive failed; status: $status" >&2
+    cat "$headers_file" >&2 || true
+    cat "$body_file" >&2 || true
+    diagnose
+    exit 1
+  fi
+  if ! tr -d '\r' < "$headers_file" \
+    | grep -Fqi 'x-hoplite-cosocket: tcp-keepalive-pool'; then
+    echo '/cosocket/keepalive omitted its native pool identity header.' >&2
+    diagnose
+    exit 1
+  fi
+  cat "$body_file"
+}
+
+request_keepalive_unix_at() {
+  local base="$1"
+  local status
+  status="$(curl --silent --show-error \
+    --connect-timeout 1 \
+    --max-time 3 \
+    --dump-header "$headers_file" \
+    --output "$body_file" \
+    --write-out '%{http_code}' \
+    "$base/cosocket/keepalive-unix" || true)"
+  if [[ "$status" != 200 ]]; then
+    echo "/cosocket/keepalive-unix failed; status: $status" >&2
+    cat "$headers_file" >&2 || true
+    cat "$body_file" >&2 || true
+    diagnose
+    exit 1
+  fi
+  if ! tr -d '\r' < "$headers_file" \
+    | grep -Fqi 'x-hoplite-cosocket: unix-keepalive-pool'; then
+    echo '/cosocket/keepalive-unix omitted its native pool identity header.' >&2
+    diagnose
+    exit 1
+  fi
+  cat "$body_file"
+}
+
+assert_keepalive_pair() {
+  local first="$1"
+  local second="$2"
+  local label="$3"
+  local first_connection first_request first_reused
+  local second_connection second_request second_reused
+
+  IFS=':|' read -r first_connection first_request first_reused <<<"$first"
+  IFS=':|' read -r second_connection second_request second_reused <<<"$second"
+  if [[ -z "$first_connection" ]] \
+    || [[ "$first_connection" != "$second_connection" ]] \
+    || [[ "$first_request" != 1 ]] \
+    || [[ "$second_request" != 2 ]] \
+    || [[ "$first_reused" != 0 ]] \
+    || [[ "$second_reused" != 1 ]]; then
+    echo "$label did not reuse one persistent connection: $first / $second" >&2
+    diagnose
+    exit 1
+  fi
+}
+
+connection_id() {
+  local result="$1"
+  local identifier _request _reused
+  IFS=':|' read -r identifier _request _reused <<<"$result"
+  printf '%s' "$identifier"
+}
+
+reuse_count() {
+  local result="$1"
+  local _identifier _request reused
+  IFS=':|' read -r _identifier _request reused <<<"$result"
+  printf '%s' "$reused"
+}
+
 docker network create "$network" >/dev/null
 docker volume create "$socket_volume" >/dev/null
 
@@ -163,38 +256,66 @@ os.chmod(unix_path, 0o777)
 unix_listener.listen(64)
 print("echo-ready", flush=True)
 
+sequence_lock = threading.Lock()
+connection_sequence = 0
+
+def next_connection_id():
+    global connection_sequence
+    with sequence_lock:
+        connection_sequence += 1
+        return connection_sequence
+
 def split_send(connection, first, second):
     connection.sendall(first)
     time.sleep(0.05)
     connection.sendall(second)
     time.sleep(5)
 
+def read_line(connection):
+    data = bytearray()
+    while not data.endswith(b"\n"):
+        chunk = connection.recv(4096)
+        if not chunk:
+            break
+        data.extend(chunk)
+    return bytes(data)
+
 def serve(connection):
+    identifier = next_connection_id()
+    request_count = 0
     try:
-        data = bytearray()
-        while not data.endswith(b"\n"):
-            chunk = connection.recv(4096)
-            if not chunk:
+        while True:
+            data = read_line(connection)
+            if not data:
                 break
-            data.extend(chunk)
-        if data == b"receiveany\n":
-            connection.sendall(b"part-more")
-            time.sleep(5)
-        elif data == b"receiveuntil\n":
-            split_send(
-                connection,
-                b"alpha--bou",
-                b"ndary--beta--boundary--omega")
-        elif data == b"receiveuntil-inclusive\n":
-            split_send(connection, b"alpha--bou", b"ndary--omega")
-        elif data == b"receiveuntil-chunked\n":
-            split_send(connection, b"abcdef--bou", b"ndary--tail")
-        elif data == b"shutdown-send\n":
-            while connection.recv(4096):
-                pass
-            connection.sendall(b"after-fin\n")
-        elif data:
-            connection.sendall(data)
+            request_count += 1
+            if data == b"keepalive\n":
+                connection.sendall(
+                    f"{identifier}:{request_count}\n".encode("ascii"))
+                continue
+            if data == b"keepalive-dirty\n":
+                connection.sendall(b"dirty\nextra")
+                time.sleep(5)
+                break
+            if data == b"receiveany\n":
+                connection.sendall(b"part-more")
+                time.sleep(5)
+            elif data == b"receiveuntil\n":
+                split_send(
+                    connection,
+                    b"alpha--bou",
+                    b"ndary--beta--boundary--omega")
+            elif data == b"receiveuntil-inclusive\n":
+                split_send(connection, b"alpha--bou", b"ndary--omega")
+            elif data == b"receiveuntil-chunked\n":
+                split_send(connection, b"abcdef--bou", b"ndary--tail")
+            elif data == b"shutdown-send\n":
+                while connection.recv(4096):
+                    pass
+                connection.sendall(b"after-fin\n")
+            else:
+                connection.sendall(data)
+            break
     finally:
         connection.close()
 
@@ -239,11 +360,20 @@ docker cp \
 docker rm "$source_container" >/dev/null
 python3 - "$resolver_config" "$blackhole_config" <<'PY'
 from pathlib import Path
+import re
 import sys
 
 source = Path(sys.argv[1])
 blackhole = Path(sys.argv[2])
 text = source.read_text()
+text, replacements = re.subn(
+    r"worker_processes\s+(?:auto|[0-9]+);",
+    "worker_processes 1;",
+    text,
+    count=1,
+)
+if replacements != 1:
+    raise SystemExit("generated Nginx configuration has no worker_processes directive")
 needle = "http {\n"
 if needle not in text:
     raise SystemExit("generated Nginx configuration has no http block")
@@ -315,6 +445,71 @@ request_expect_at \
   after-fin \
   tcp-shutdown-send
 
+numeric_first="$(request_keepalive_at \
+  "$base" "$echo_ip" numeric-reuse long)"
+numeric_second="$(request_keepalive_at \
+  "$base" "$echo_ip" numeric-reuse long)"
+assert_keepalive_pair "$numeric_first" "$numeric_second" \
+  'numeric TCP keepalive'
+
+hostname_first="$(request_keepalive_at \
+  "$base" cosocket-echo.test hostname-reuse long)"
+hostname_second="$(request_keepalive_at \
+  "$base" cosocket-echo.test hostname-reuse long)"
+assert_keepalive_pair "$hostname_first" "$hostname_second" \
+  'resolver-backed hostname keepalive'
+
+unix_first="$(request_keepalive_unix_at "$base")"
+unix_second="$(request_keepalive_unix_at "$base")"
+assert_keepalive_pair "$unix_first" "$unix_second" \
+  'Unix-domain keepalive'
+
+transport_numeric="$(request_keepalive_at \
+  "$base" "$echo_ip" transport-isolation long)"
+transport_hostname="$(request_keepalive_at \
+  "$base" cosocket-echo.test transport-isolation long)"
+if [[ "$(connection_id "$transport_numeric")" \
+      == "$(connection_id "$transport_hostname")" ]] \
+  || [[ "$(reuse_count "$transport_numeric")" != 0 ]] \
+  || [[ "$(reuse_count "$transport_hostname")" != 0 ]]; then
+  echo "numeric and hostname pool identities collided: $transport_numeric / $transport_hostname" >&2
+  diagnose
+  exit 1
+fi
+
+pool_alpha="$(request_keepalive_at \
+  "$base" "$echo_ip" explicit-alpha long)"
+pool_beta="$(request_keepalive_at \
+  "$base" "$echo_ip" explicit-beta long)"
+if [[ "$(connection_id "$pool_alpha")" \
+      == "$(connection_id "$pool_beta")" ]] \
+  || [[ "$(reuse_count "$pool_alpha")" != 0 ]] \
+  || [[ "$(reuse_count "$pool_beta")" != 0 ]]; then
+  echo "explicit pool names collided: $pool_alpha / $pool_beta" >&2
+  diagnose
+  exit 1
+fi
+
+expiry_first="$(request_keepalive_at \
+  "$base" "$echo_ip" expiry short)"
+sleep .3
+expiry_second="$(request_keepalive_at \
+  "$base" "$echo_ip" expiry short)"
+if [[ "$(connection_id "$expiry_first")" \
+      == "$(connection_id "$expiry_second")" ]] \
+  || [[ "$(reuse_count "$expiry_first")" != 0 ]] \
+  || [[ "$(reuse_count "$expiry_second")" != 0 ]]; then
+  echo "expired idle connection was reused: $expiry_first / $expiry_second" >&2
+  diagnose
+  exit 1
+fi
+
+request_expect_at \
+  "$base" \
+  /cosocket/keepalive-dirty \
+  'connection in dubious state' \
+  tcp-keepalive-dirty
+
 for request in $(seq 1 5); do
   request_expect_at "$base" /cosocket/echo ping tcp-event-loop
 done
@@ -367,5 +562,5 @@ if ! docker stop --time 3 "$cancel_container" >/dev/null; then
   exit 1
 fi
 
-printf 'Validated numeric, Unix-domain, and Nginx-resolved TCP cosockets, bounded DNS failure, missing-resolver failure, cancellation, receive patterns, setoption, and send shutdown through %s.\n' \
+printf 'Validated numeric, Unix-domain, and Nginx-resolved TCP cosockets; worker-local keepalive reuse, identity isolation, expiry, and dirty rejection; bounded DNS failure, missing-resolver failure, cancellation, receive patterns, setoption, and send shutdown through %s.\n' \
   "$image"
