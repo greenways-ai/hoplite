@@ -263,6 +263,9 @@ blackhole.write_text(
     ).replace("resolver_timeout 1s;", "resolver_timeout 5s;", 1)
 )
 PY
+# docker cp preserves the source config mode, while the sibling mktemp file
+# remains 0600. Both bind mounts must be readable by the non-root image user.
+chmod 0644 "$resolver_config" "$blackhole_config"
 
 docker run --detach \
   --name "$app_container" \
