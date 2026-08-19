@@ -41,6 +41,7 @@ docker run --detach \
   python -u -c '
 import socket
 import threading
+import time
 
 listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -56,7 +57,10 @@ def serve(connection):
             if not chunk:
                 break
             data.extend(chunk)
-        if data:
+        if data == b"receiveany\n":
+            connection.sendall(b"part-more")
+            time.sleep(5)
+        elif data:
             connection.sendall(data)
     finally:
         connection.close()
@@ -154,6 +158,31 @@ if ! tr -d '\r' < "$headers_file" \
   exit 1
 fi
 
+last_status="$(curl --silent --show-error \
+  --connect-timeout 1 \
+  --max-time 3 \
+  --header "x-cosocket-host: ${echo_ip}" \
+  --dump-header "$headers_file" \
+  --output "$body_file" \
+  --write-out '%{http_code}' \
+  "$base/cosocket/receiveany" || true)"
+if [[ "$last_status" != 200 ]] \
+  || [[ "$(cat "$body_file")" != part ]]; then
+  echo "receiveany did not return the first available four bytes." >&2
+  echo '--- receiveany headers ---' >&2
+  cat "$headers_file" >&2 || true
+  echo '--- receiveany body ---' >&2
+  cat "$body_file" >&2 || true
+  diagnose
+  exit 1
+fi
+if ! tr -d '\r' < "$headers_file" \
+  | grep -Fqi 'x-hoplite-cosocket: tcp-receiveany'; then
+  echo 'receiveany response omitted its native event-loop identity header.' >&2
+  diagnose
+  exit 1
+fi
+
 for request in $(seq 1 5); do
   last_status="$(curl --silent --show-error \
     --max-time 3 \
@@ -169,5 +198,5 @@ for request in $(seq 1 5); do
   fi
 done
 
-printf 'Validated request-scoped TCP cosockets through %s on port %s.\n' \
+printf 'Validated TCP receive and receiveany through %s on port %s.\n' \
   "$image" "$port"

@@ -10,11 +10,12 @@ operations suspend the Hara coroutine while Nginx continues serving other
 connections. Application code uses typed namespace functions rather than public
 service and operation strings.
 
-The first production slice provides request-scoped TCP sockets with numeric
-IPv4 and IPv6 destinations. DNS, keepalive pools, TLS, delimiter iterators,
-concurrent read/write, Unix-domain sockets, and UDP remain tracked by the
-[cosocket programme](https://github.com/greenways-ai/hoplite/issues/163); they
-are not silently emulated with blocking I/O.
+The current production TCP slice provides numeric IPv4 and IPv6 destinations,
+fixed, line, and all-data receive modes, plus `receiveany`. DNS, keepalive
+pools, TLS, delimiter iterators, concurrent read/write, Unix-domain sockets,
+and UDP remain tracked by the
+[cosocket programme](https://github.com/greenways-ai/hoplite/issues/163);
+they are not silently emulated with blocking I/O.
 
 ## Basic TCP client
 
@@ -62,6 +63,7 @@ The API preserves OpenResty's ordinary error-return style:
 | `connect`, `close`, timeout setters | `[1 nil]` | `[nil error]` |
 | `send` | `[bytes-sent nil]` | `[nil error]` |
 | `receive` | `[data nil nil]` | `[nil error partial]` |
+| `receiveany` | `[data nil nil]` | `[nil error partial]` |
 | `getreusedtimes` | `[count nil]` | `[nil error]` |
 
 Invalid descriptors, malformed arguments, foreign handles, and unsupported
@@ -114,6 +116,18 @@ connection because the protocol position is no longer safely reusable.
 Every receive is bounded to 1 MiB in this alpha slice. A timeout or premature
 close returns the bytes already consumed as the third result value.
 
+## `receiveany`
+
+```clojure
+(socket/receiveany client 4096)
+```
+
+Returns as soon as at least one byte is available, without waiting to fill the
+requested maximum or for the peer to close. The maximum must be from 1 through
+1,048,576 bytes. The result uses the same closed three-value receive shape as
+`receive`, even though the corresponding OpenResty Lua API exposes two return
+values.
+
 ## Timeouts
 
 ```clojure
@@ -133,6 +147,7 @@ corresponding timer. `settimeout` assigns one value to connect, send, and read;
 | `sock:connect(host, port)` | `(await (socket/connect sock host port))` |
 | `sock:send(value)` | `(await (socket/send sock value))` |
 | `sock:receive("*l")` | `(await (socket/receive sock "*l"))` |
+| `sock:receiveany(max)` | `(await (socket/receiveany sock max))` |
 | `sock:settimeout(ms)` | `(await (socket/settimeout sock ms))` |
 | `sock:settimeouts(c, s, r)` | `(await (socket/settimeouts sock c s r))` |
 | `sock:getreusedtimes()` | `(await (socket/getreusedtimes sock))` |

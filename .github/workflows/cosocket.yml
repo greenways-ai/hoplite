@@ -46,5 +46,5 @@ jobs:
             .
       - name: Verify the production artifact contains no Hara source
         run: bash hoplite/packaging/scripts/assert-production-image.sh hoplite-cosocket-tcp
-      - name: Prove connect, send, receive, close, and repeated cleanup
+      - name: Prove connect, send, receive, receiveany, close, and cleanup
         run: bash hoplite/packaging/scripts/smoke-cosocket-tcp.sh hoplite-cosocket-tcp

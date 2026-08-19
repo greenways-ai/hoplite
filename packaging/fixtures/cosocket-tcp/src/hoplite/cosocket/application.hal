@@ -51,6 +51,48 @@
                          "x-hoplite-cosocket" "tcp-event-loop"}
                :body (get received 0)})))))))))
 
+(defn ^:async receive-any
+  [request]
+  (let [host (get (get request :headers) "x-cosocket-host")]
+    (if
+     (nil? host)
+     {:status 400
+      :headers {"content-type" "text/plain; charset=utf-8"}
+      :body "x-cosocket-host is required\n"}
+     (let [client
+           (std.foundation.coroutine/await
+            (socket/tcp))
+           configured
+           (std.foundation.coroutine/await
+            (socket/settimeouts client 1000 1000 1000))
+           connected
+           (std.foundation.coroutine/await
+            (socket/connect client host 19091))]
+       (if
+        (get connected 1)
+        (do
+          (std.foundation.coroutine/await (socket/close client))
+          (failure-response "connect" connected))
+        (let [sent
+              (std.foundation.coroutine/await
+               (socket/send client "receiveany\n"))]
+          (if
+           (get sent 1)
+           (do
+             (std.foundation.coroutine/await (socket/close client))
+             (failure-response "send" sent))
+           (let [received
+                 (std.foundation.coroutine/await
+                  (socket/receiveany client 4))]
+             (std.foundation.coroutine/await (socket/close client))
+             (if
+              (get received 1)
+              (failure-response "receiveany" received)
+              {:status 200
+               :headers {"content-type" "application/octet-stream"
+                         "x-hoplite-cosocket" "tcp-receiveany"}
+               :body (get received 0)})))))))))
+
 (def app
   (h/app
    {:name "cosocket-tcp"
@@ -58,4 +100,8 @@
     [["/cosocket/echo"
       {:get {:name "cosocket-tcp-echo"
              :summary "Connects, writes and reads through an evented TCP cosocket"
-             :handler #'echo}}]]}))
+             :handler #'echo}}]
+     ["/cosocket/receiveany"
+      {:get {:name "cosocket-tcp-receiveany"
+             :summary "Returns available bytes without waiting for the maximum"
+             :handler #'receive-any}}]]}))
