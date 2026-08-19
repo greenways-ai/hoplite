@@ -1,6 +1,7 @@
 (ns hoplite.cosocket.application
   (:require [hoplite.core :as h]
-            [hoplite.socket :as socket]))
+            [hoplite.socket :as socket]
+            [std.foundation.string :as string]))
 
 (defn failure-response
   [stage result]
@@ -106,7 +107,13 @@
      {:status 200
       :headers {"content-type" "application/octet-stream"
                 "x-hoplite-cosocket" "tcp-receiveuntil"}
-      :body (str (get first 0) "|" (get second 0) "|" (get tail 0))})))
+      :body
+      (str
+       (string/decode-utf8 (get first 0))
+       "|"
+       (string/decode-utf8 (get second 0))
+       "|"
+       (string/decode-utf8 (get tail 0)))})))
 
 (defn ^:async receive-until-inclusive
   [request]
@@ -139,7 +146,11 @@
      {:status 200
       :headers {"content-type" "application/octet-stream"
                 "x-hoplite-cosocket" "tcp-receiveuntil-inclusive"}
-      :body (str (get first 0) "|" (get tail 0))})))
+      :body
+      (str
+       (string/decode-utf8 (get first 0))
+       "|"
+       (string/decode-utf8 (get tail 0)))})))
 
 (defn ^:async receive-until-chunked
   [request]
@@ -175,13 +186,13 @@
                 "x-hoplite-cosocket" "tcp-receiveuntil-chunked"}
       :body
       (str
-       (get first 0)
+       (string/decode-utf8 (get first 0))
        "|"
-       (get second 0)
+       (string/decode-utf8 (get second 0))
        "|"
        (nil? (get done 0))
        "|"
-       (get tail 0))})))
+       (string/decode-utf8 (get tail 0)))})))
 
 (defn ^:async shutdown-send
   [request]
