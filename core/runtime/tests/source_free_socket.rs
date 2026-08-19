@@ -24,6 +24,12 @@ const APPLICATION_SOURCE: &str = r#"
         configured
         (std.foundation.coroutine/await
          (socket/settimeouts client 1000 1000 1000))
+        connected
+        (std.foundation.coroutine/await
+         (socket/connect client "127.0.0.1" 19091))
+        optioned
+        (std.foundation.coroutine/await
+         (socket/setoption client "tcp-nodelay" true))
         received
         (std.foundation.coroutine/await
          (socket/receiveany client 4))
@@ -38,6 +44,8 @@ const APPLICATION_SOURCE: &str = r#"
          (socket/shutdown client "send"))]
     {:client client
      :configured configured
+     :connected connected
+     :optioned optioned
      :received received
      :delimited delimited
      :shutdown shutdown}))
@@ -215,6 +223,22 @@ fn source_free_socket_coroutine_continues_after_synchronous_completions() {
     resolve(
         runtime.0,
         settimeouts_call,
+        Value::Vector(vec![Value::Number(1), Value::Nil].into()),
+    );
+
+    let connect = next_event(runtime.0);
+    let connect_call = host_call(&connect, "hoplite.socket", "connect");
+    resolve(
+        runtime.0,
+        connect_call,
+        Value::Vector(vec![Value::Number(1), Value::Nil].into()),
+    );
+
+    let setoption = next_event(runtime.0);
+    let setoption_call = host_call(&setoption, "hoplite.socket", "setoption");
+    resolve(
+        runtime.0,
+        setoption_call,
         Value::Vector(vec![Value::Number(1), Value::Nil].into()),
     );
 

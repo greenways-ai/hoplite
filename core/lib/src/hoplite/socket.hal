@@ -160,6 +160,16 @@
      send-milliseconds
      read-milliseconds])))
 
+(defn ^:async setoption
+  "Sets one OpenResty-compatible TCP socket option on an established
+  connection. Supported option names are keepalive, reuseaddr, tcp-nodelay,
+  sndbuf, and rcvbuf. Returns [1 nil] or [nil error]."
+  [socket option value]
+  (std.foundation.coroutine/await
+   (host-call
+    "setoption"
+    [(socket-handle socket) option value])))
+
 (defn ^:async getreusedtimes
   "Returns [count nil]. Pooling is introduced by the next cosocket slice, so a
   newly connected socket currently reports zero."
