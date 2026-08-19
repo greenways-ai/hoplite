@@ -183,6 +183,53 @@
        "|"
        (get tail 0))})))
 
+(defn ^:async set-options
+  [request]
+  (let [host (get (get request :headers) "x-cosocket-host")
+        client (std.foundation.coroutine/await (socket/tcp))
+        configured
+        (std.foundation.coroutine/await
+         (socket/settimeouts client 1000 1000 1000))
+        connected
+        (std.foundation.coroutine/await
+         (socket/connect client host 19091))
+        keepalive
+        (std.foundation.coroutine/await
+         (socket/setoption client "keepalive" true))
+        reuseaddr
+        (std.foundation.coroutine/await
+         (socket/setoption client "reuseaddr" 1))
+        nodelay
+        (std.foundation.coroutine/await
+         (socket/setoption client "tcp-nodelay" true))
+        sndbuf
+        (std.foundation.coroutine/await
+         (socket/setoption client "sndbuf" 32768))
+        rcvbuf
+        (std.foundation.coroutine/await
+         (socket/setoption client "rcvbuf" 32768))
+        sent
+        (std.foundation.coroutine/await
+         (socket/send client "setoption\n"))
+        received
+        (std.foundation.coroutine/await
+         (socket/receive client "*l"))]
+    (std.foundation.coroutine/await (socket/close client))
+    (cond
+     (get connected 1) (failure-response "setoption-connect" connected)
+     (get keepalive 1) (failure-response "setoption-keepalive" keepalive)
+     (get reuseaddr 1) (failure-response "setoption-reuseaddr" reuseaddr)
+     (get nodelay 1) (failure-response "setoption-tcp-nodelay" nodelay)
+     (get sndbuf 1) (failure-response "setoption-sndbuf" sndbuf)
+     (get rcvbuf 1) (failure-response "setoption-rcvbuf" rcvbuf)
+     (get sent 1) (failure-response "setoption-send" sent)
+     (get received 1) (failure-response "setoption-receive" received)
+     :else
+     {:status 200
+      :headers {"content-type" "application/octet-stream"
+                "x-hoplite-cosocket" "tcp-setoption"}
+      :body (get received 0)})))
+
 (defn ^:async shutdown-send
   [request]
   (let [host (get (get request :headers) "x-cosocket-host")
@@ -243,6 +290,10 @@
       {:get {:name "cosocket-tcp-receiveuntil-chunked"
              :summary "Iterates in bounded chunks until the delimiter"
              :handler #'receive-until-chunked}}]
+     ["/cosocket/setoption"
+      {:get {:name "cosocket-tcp-setoption"
+             :summary "Applies the bounded OpenResty TCP socket options"
+             :handler #'set-options}}]
      ["/cosocket/shutdown-send"
       {:get {:name "cosocket-tcp-shutdown-send"
              :summary "Half-closes the send direction and receives the peer reply"
