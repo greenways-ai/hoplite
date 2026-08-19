@@ -88,6 +88,64 @@
                       "x-hoplite-cosocket" "tcp-unix-domain"}
             :body (get received 0)})))))))
 
+(defn ^:async dns-echo
+  [_request]
+  (let [client
+        (std.foundation.coroutine/await
+         (socket/tcp))
+        configured
+        (std.foundation.coroutine/await
+         (socket/settimeouts client 1000 1000 1000))
+        connected
+        (std.foundation.coroutine/await
+         (socket/connect client "cosocket-echo.test" 19091))]
+    (if
+     (get connected 1)
+     (do
+       (std.foundation.coroutine/await (socket/close client))
+       (failure-response "dns-connect" connected))
+     (let [sent
+           (std.foundation.coroutine/await
+            (socket/send client "dns\n"))
+           received
+           (if
+            (get sent 1)
+            [nil (get sent 1) nil]
+            (std.foundation.coroutine/await
+             (socket/receive client "*l")))]
+       (std.foundation.coroutine/await (socket/close client))
+       (if
+        (get sent 1)
+        (failure-response "dns-send" sent)
+        (if
+         (get received 1)
+         (failure-response "dns-receive" received)
+         {:status 200
+          :headers {"content-type" "application/octet-stream"
+                    "x-hoplite-cosocket" "tcp-nginx-resolver"}
+          :body (get received 0)}))))))
+
+(defn ^:async dns-result
+  [request]
+  (let [host
+        (or
+         (get (get request :headers) "x-cosocket-name")
+         "missing.cosocket.test")
+        client
+        (std.foundation.coroutine/await
+         (socket/tcp))
+        configured
+        (std.foundation.coroutine/await
+         (socket/settimeouts client 1000 1000 1000))
+        connected
+        (std.foundation.coroutine/await
+         (socket/connect client host 19091))]
+    (std.foundation.coroutine/await (socket/close client))
+    {:status 200
+     :headers {"content-type" "text/plain; charset=utf-8"
+               "x-hoplite-cosocket" "tcp-nginx-resolver-error"}
+     :body (or (get connected 1) "connected")}))
+
 (defn ^:async receive-any
   [request]
   (let [host (get (get request :headers) "x-cosocket-host")
@@ -325,6 +383,14 @@
       {:get {:name "cosocket-unix-domain-echo"
              :summary "Connects through a Unix-domain stream cosocket"
              :handler #'unix-echo}}]
+     ["/cosocket/dns"
+      {:get {:name "cosocket-nginx-resolver-echo"
+             :summary "Resolves a hostname through the configured Nginx resolver"
+             :handler #'dns-echo}}]
+     ["/cosocket/dns-result"
+      {:get {:name "cosocket-nginx-resolver-result"
+             :summary "Returns one ordinary DNS or resolver configuration result"
+             :handler #'dns-result}}]
      ["/cosocket/receiveany"
       {:get {:name "cosocket-tcp-receiveany"
              :summary "Returns available bytes without waiting for the maximum"
