@@ -12,8 +12,9 @@ service and operation strings.
 
 The current production TCP slice provides numeric IPv4 and IPv6 destinations,
 fixed, line, and all-data receive modes, `receiveany`, stateful `receiveuntil`
-delimiter readers, and send-direction half-close. DNS, keepalive pools, TLS,
-concurrent read/write, Unix-domain sockets, and UDP remain tracked by the
+delimiter readers, send-direction half-close, and a bounded `setoption` surface.
+DNS, keepalive pools, TLS, concurrent read/write, Unix-domain sockets, and UDP
+remain tracked by the
 [cosocket programme](https://github.com/greenways-ai/hoplite/issues/163);
 they are not silently emulated with blocking I/O.
 
@@ -60,7 +61,7 @@ The API preserves OpenResty's ordinary error-return style:
 
 | Operation | Success | Network failure |
 | --- | --- | --- |
-| `connect`, `shutdown`, `close`, timeout setters | `[1 nil]` | `[nil error]` |
+| `connect`, `shutdown`, `close`, timeout setters, `setoption` | `[1 nil]` | `[nil error]` |
 | `send` | `[bytes-sent nil]` | `[nil error]` |
 | `receive` | `[data nil nil]` | `[nil error partial]` |
 | `receiveany` | `[data nil nil]` | `[nil error partial]` |
@@ -187,6 +188,29 @@ Timeouts are milliseconds from `0` through `3,600,000`. Zero disables the
 corresponding timer. `settimeout` assigns one value to connect, send, and read;
 `settimeouts` sets them independently.
 
+## `setoption`
+
+```clojure
+(socket/setoption client "keepalive" true)
+(socket/setoption client "reuseaddr" 1)
+(socket/setoption client "tcp-nodelay" true)
+(socket/setoption client "sndbuf" 32768)
+(socket/setoption client "rcvbuf" 32768)
+```
+
+`setoption` is available only after `connect` has established a TCP connection.
+The current compatibility set is deliberately closed to the five OpenResty
+options above. `keepalive`, `reuseaddr`, and `tcp-nodelay` accept a boolean or
+`0`/`1`; `sndbuf` and `rcvbuf` accept integers from `0` through the native
+`INT_MAX`. Unsupported names and invalid values are programming errors rather
+than an arbitrary native `setsockopt` escape hatch.
+
+The option is applied directly to the request-owned native socket. A kernel
+`setsockopt` failure resolves as `[nil error]`; success resolves as `[1 nil]`.
+Options remain effective until the connection closes. The later keepalive-pool
+slice must preserve option-sensitive connection semantics rather than silently
+reusing an incompatible pooled connection.
+
 ## OpenResty translation
 
 | OpenResty Lua | Hoplite Hara |
@@ -200,6 +224,7 @@ corresponding timer. `settimeout` assigns one value to connect, send, and read;
 | `sock:receiveuntil(pattern)` | `(await (socket/receiveuntil sock pattern))` |
 | `sock:settimeout(ms)` | `(await (socket/settimeout sock ms))` |
 | `sock:settimeouts(c, s, r)` | `(await (socket/settimeouts sock c s r))` |
+| `sock:setoption(name, value)` | `(await (socket/setoption sock name value))` |
 | `sock:getreusedtimes()` | `(await (socket/getreusedtimes sock))` |
 | `sock:close()` | `(await (socket/close sock))` |
 
