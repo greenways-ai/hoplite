@@ -1,0 +1,42 @@
+{
+  "name": "Hoplite",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "remoteUser": "vscode",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "24"
+    },
+    "ghcr.io/devcontainers/features/rust:1": {
+      "version": "1.88.0"
+    },
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+      "enableNonRootDocker": "true"
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "containerEnv": {
+    "CARGO_HOME": "/home/vscode/.cache/hoplite/cargo",
+    "npm_config_cache": "/home/vscode/.cache/hoplite/npm"
+  },
+  "forwardPorts": [8080, 4321],
+  "portsAttributes": {
+    "8080": {
+      "label": "Hoplite application"
+    },
+    "4321": {
+      "label": "Hoplite Astro site"
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "dbaeumer.vscode-eslint"
+      ]
+    }
+  }
+}
