@@ -75,6 +75,10 @@ def serve(connection):
             split_send(connection, b"alpha--bou", b"ndary--omega")
         elif data == b"receiveuntil-chunked\n":
             split_send(connection, b"abcdef--bou", b"ndary--tail")
+        elif data == b"shutdown-send\n":
+            while connection.recv(4096):
+                pass
+            connection.sendall(b"after-fin\n")
         elif data:
             connection.sendall(data)
     finally:
@@ -202,10 +206,14 @@ request_expect \
   /cosocket/receiveuntil-chunked \
   'abc|def|true|tail' \
   tcp-receiveuntil-chunked
+request_expect \
+  /cosocket/shutdown-send \
+  after-fin \
+  tcp-shutdown-send
 
 for request in $(seq 1 5); do
   request_expect /cosocket/echo ping tcp-event-loop
 done
 
-printf 'Validated TCP receive, receiveany, and receiveuntil through %s.\n' \
+printf 'Validated TCP receive, receiveany, receiveuntil, and send shutdown through %s.\n' \
   "$image"
