@@ -371,6 +371,157 @@
                 "x-hoplite-cosocket" "tcp-shutdown-send"}
       :body (get received 0)})))
 
+(defn ^:async keepalive-echo
+  [request]
+  (let [headers (get request :headers)
+        host (get headers "x-cosocket-host")
+        pool-name (or (get headers "x-cosocket-pool") "fixture")
+        idle-timeout (if (= "short" (get headers "x-cosocket-idle")) 100 5000)
+        client (std.foundation.coroutine/await (socket/tcp))
+        configured
+        (std.foundation.coroutine/await
+         (socket/settimeouts client 1000 1000 1000))
+        connected
+        (std.foundation.coroutine/await
+         (socket/connect
+          client host 19091
+          {:pool pool-name :pool-size 2 :backlog 0}))]
+    (if
+     (get connected 1)
+     (do
+       (std.foundation.coroutine/await (socket/close client))
+       (failure-response "keepalive-connect" connected))
+     (let [reused
+           (std.foundation.coroutine/await
+            (socket/getreusedtimes client))]
+       (if
+        (get reused 1)
+        (do
+          (std.foundation.coroutine/await (socket/close client))
+          (failure-response "keepalive-reused" reused))
+        (let [sent
+              (std.foundation.coroutine/await
+               (socket/send client "keepalive\n"))]
+          (if
+           (get sent 1)
+           (do
+             (std.foundation.coroutine/await (socket/close client))
+             (failure-response "keepalive-send" sent))
+           (let [received
+                 (std.foundation.coroutine/await
+                  (socket/receive client "*l"))]
+             (if
+              (get received 1)
+              (do
+                (std.foundation.coroutine/await (socket/close client))
+                (failure-response "keepalive-receive" received))
+              (let [returned
+                    (std.foundation.coroutine/await
+                     (socket/setkeepalive client idle-timeout 2))]
+                (if
+                 (get returned 1)
+                 (do
+                   (std.foundation.coroutine/await (socket/close client))
+                   (failure-response "setkeepalive" returned))
+                 {:status 200
+                  :headers {"content-type" "text/plain; charset=utf-8"
+                            "x-hoplite-cosocket" "tcp-keepalive-pool"}
+                  :body
+                  (str
+                   (string/decode-utf8 (get received 0))
+                   "|"
+                   (get reused 0))})))))))))))
+
+(defn ^:async keepalive-unix
+  [_request]
+  (let [client (std.foundation.coroutine/await (socket/tcp))
+        configured
+        (std.foundation.coroutine/await
+         (socket/settimeouts client 1000 1000 1000))
+        connected
+        (std.foundation.coroutine/await
+         (socket/connect client "unix:/cosocket/echo.sock"))]
+    (if
+     (get connected 1)
+     (do
+       (std.foundation.coroutine/await (socket/close client))
+       (failure-response "keepalive-unix-connect" connected))
+     (let [reused
+           (std.foundation.coroutine/await
+            (socket/getreusedtimes client))
+           sent
+           (std.foundation.coroutine/await
+            (socket/send client "keepalive\n"))
+           received
+           (std.foundation.coroutine/await
+            (socket/receive client "*l"))]
+       (cond
+        (get reused 1)
+        (do
+          (std.foundation.coroutine/await (socket/close client))
+          (failure-response "keepalive-unix-reused" reused))
+        (get sent 1)
+        (do
+          (std.foundation.coroutine/await (socket/close client))
+          (failure-response "keepalive-unix-send" sent))
+        (get received 1)
+        (do
+          (std.foundation.coroutine/await (socket/close client))
+          (failure-response "keepalive-unix-receive" received))
+        :else
+        (let [returned
+              (std.foundation.coroutine/await
+               (socket/setkeepalive client 5000 2))]
+          (if
+           (get returned 1)
+           (do
+             (std.foundation.coroutine/await (socket/close client))
+             (failure-response "keepalive-unix-return" returned))
+           {:status 200
+            :headers {"content-type" "text/plain; charset=utf-8"
+                      "x-hoplite-cosocket" "unix-keepalive-pool"}
+            :body
+            (str
+             (string/decode-utf8 (get received 0))
+             "|"
+             (get reused 0))})))))))
+
+(defn ^:async keepalive-dirty
+  [request]
+  (let [host (get (get request :headers) "x-cosocket-host")
+        client (std.foundation.coroutine/await (socket/tcp))
+        configured
+        (std.foundation.coroutine/await
+         (socket/settimeouts client 1000 1000 1000))
+        connected
+        (std.foundation.coroutine/await
+         (socket/connect
+          client host 19091
+          {:pool "dirty-fixture" :pool-size 2 :backlog 0}))]
+    (if
+     (get connected 1)
+     (do
+       (std.foundation.coroutine/await (socket/close client))
+       (failure-response "dirty-connect" connected))
+     (let [sent
+           (std.foundation.coroutine/await
+            (socket/send client "keepalive-dirty\n"))
+           received
+           (std.foundation.coroutine/await
+            (socket/receive client "*l"))
+           returned
+           (std.foundation.coroutine/await
+            (socket/setkeepalive client 5000 2))]
+       (std.foundation.coroutine/await (socket/close client))
+       (cond
+        (get sent 1) (failure-response "dirty-send" sent)
+        (get received 1) (failure-response "dirty-receive" received)
+        :else
+        {:status 200
+         :headers {"content-type" "text/plain; charset=utf-8"
+                   "x-hoplite-cosocket" "tcp-keepalive-dirty"}
+         :body (or (get returned 1) "pooled")})))))
+
 (def app
   (h/app
    {:name "cosocket-tcp"
@@ -414,4 +565,16 @@
      ["/cosocket/shutdown-send"
       {:get {:name "cosocket-tcp-shutdown-send"
              :summary "Half-closes the send direction and receives the peer reply"
-             :handler #'shutdown-send}}]]}))
+             :handler #'shutdown-send}}]
+     ["/cosocket/keepalive"
+      {:get {:name "cosocket-tcp-keepalive"
+             :summary "Returns and reuses a clean worker-local TCP connection"
+             :handler #'keepalive-echo}}]
+     ["/cosocket/keepalive-unix"
+      {:get {:name "cosocket-unix-keepalive"
+             :summary "Returns and reuses a clean worker-local Unix connection"
+             :handler #'keepalive-unix}}]
+     ["/cosocket/keepalive-dirty"
+      {:get {:name "cosocket-tcp-keepalive-dirty"
+             :summary "Rejects a connection with unread protocol residue"
+             :handler #'keepalive-dirty}}]]}))
