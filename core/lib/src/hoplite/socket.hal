@@ -125,6 +125,16 @@
           "receiveuntil-read"
           [handle reader (get sizes 0)])))))))
 
+(defn ^:async shutdown
+  "Shuts down the TCP send direction while leaving the receive direction open.
+  The only supported direction in this slice is the string send. Returns
+  [1 nil] or [nil error]."
+  [socket direction]
+  (std.foundation.coroutine/await
+   (host-call
+    "shutdown"
+    [(socket-handle socket) direction])))
+
 (defn ^:async close
   "Closes the native connection. Request cleanup also closes it exactly once."
   [socket]

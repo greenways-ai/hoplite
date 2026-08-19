@@ -11,10 +11,9 @@ connections. Application code uses typed namespace functions rather than public
 service and operation strings.
 
 The current production TCP slice provides numeric IPv4 and IPv6 destinations,
-fixed, line, and all-data receive modes, plus `receiveany` and stateful
-`receiveuntil` delimiter readers. DNS, keepalive pools, TLS, concurrent
-read/write, Unix-domain sockets,
-and UDP remain tracked by the
+fixed, line, and all-data receive modes, `receiveany`, stateful `receiveuntil`
+delimiter readers, and send-direction half-close. DNS, keepalive pools, TLS,
+concurrent read/write, Unix-domain sockets, and UDP remain tracked by the
 [cosocket programme](https://github.com/greenways-ai/hoplite/issues/163);
 they are not silently emulated with blocking I/O.
 
@@ -61,7 +60,7 @@ The API preserves OpenResty's ordinary error-return style:
 
 | Operation | Success | Network failure |
 | --- | --- | --- |
-| `connect`, `close`, timeout setters | `[1 nil]` | `[nil error]` |
+| `connect`, `shutdown`, `close`, timeout setters | `[1 nil]` | `[nil error]` |
 | `send` | `[bytes-sent nil]` | `[nil error]` |
 | `receive` | `[data nil nil]` | `[nil error partial]` |
 | `receiveany` | `[data nil nil]` | `[nil error partial]` |
@@ -106,6 +105,21 @@ blocking resolver call. Nginx-resolver integration, `pool`, `pool_size`, and
 Accepts strings or bytes up to 1 MiB per call. Partial kernel writes are resumed
 from the Nginx write event. A send timeout or connection error closes the
 connection because the protocol position is no longer safely reusable.
+
+## `shutdown`
+
+```clojure
+(std.foundation.coroutine/await
+ (socket/shutdown client "send"))
+```
+
+The current slice supports only the `"send"` direction. It sends the TCP FIN
+after already queued bytes while leaving the receive direction open, allowing a
+peer that waits for end-of-request EOF to send its response on the same
+connection. Further `send` calls resolve as `[nil "closed"]`; receive operations
+and the final exactly-once `close` remain valid. Other direction values are
+rejected as programming errors rather than being approximated with a full
+close.
 
 ## `receive`
 
@@ -180,6 +194,7 @@ corresponding timer. `settimeout` assigns one value to connect, send, and read;
 | `ngx.socket.tcp()` | `(await (socket/tcp))` |
 | `sock:connect(host, port)` | `(await (socket/connect sock host port))` |
 | `sock:send(value)` | `(await (socket/send sock value))` |
+| `sock:shutdown("send")` | `(await (socket/shutdown sock "send"))` |
 | `sock:receive("*l")` | `(await (socket/receive sock "*l"))` |
 | `sock:receiveany(max)` | `(await (socket/receiveany sock max))` |
 | `sock:receiveuntil(pattern)` | `(await (socket/receiveuntil sock pattern))` |
