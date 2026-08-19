@@ -53,45 +53,135 @@
 
 (defn ^:async receive-any
   [request]
-  (let [host (get (get request :headers) "x-cosocket-host")]
+  (let [host (get (get request :headers) "x-cosocket-host")
+        client (std.foundation.coroutine/await (socket/tcp))
+        configured
+        (std.foundation.coroutine/await
+         (socket/settimeouts client 1000 1000 1000))
+        connected
+        (std.foundation.coroutine/await
+         (socket/connect client host 19091))
+        sent
+        (std.foundation.coroutine/await
+         (socket/send client "receiveany\n"))
+        received
+        (std.foundation.coroutine/await
+         (socket/receiveany client 4))]
+    (std.foundation.coroutine/await (socket/close client))
     (if
-     (nil? host)
-     {:status 400
-      :headers {"content-type" "text/plain; charset=utf-8"}
-      :body "x-cosocket-host is required\n"}
-     (let [client
-           (std.foundation.coroutine/await
-            (socket/tcp))
-           configured
-           (std.foundation.coroutine/await
-            (socket/settimeouts client 1000 1000 1000))
-           connected
-           (std.foundation.coroutine/await
-            (socket/connect client host 19091))]
-       (if
-        (get connected 1)
-        (do
-          (std.foundation.coroutine/await (socket/close client))
-          (failure-response "connect" connected))
-        (let [sent
-              (std.foundation.coroutine/await
-               (socket/send client "receiveany\n"))]
-          (if
-           (get sent 1)
-           (do
-             (std.foundation.coroutine/await (socket/close client))
-             (failure-response "send" sent))
-           (let [received
-                 (std.foundation.coroutine/await
-                  (socket/receiveany client 4))]
-             (std.foundation.coroutine/await (socket/close client))
-             (if
-              (get received 1)
-              (failure-response "receiveany" received)
-              {:status 200
-               :headers {"content-type" "application/octet-stream"
-                         "x-hoplite-cosocket" "tcp-receiveany"}
-               :body (get received 0)})))))))))
+     (get received 1)
+     (failure-response "receiveany" received)
+     {:status 200
+      :headers {"content-type" "application/octet-stream"
+                "x-hoplite-cosocket" "tcp-receiveany"}
+      :body (get received 0)})))
+
+(defn ^:async receive-until
+  [request]
+  (let [host (get (get request :headers) "x-cosocket-host")
+        client (std.foundation.coroutine/await (socket/tcp))
+        configured
+        (std.foundation.coroutine/await
+         (socket/settimeouts client 1000 1000 1000))
+        connected
+        (std.foundation.coroutine/await
+         (socket/connect client host 19091))
+        sent
+        (std.foundation.coroutine/await
+         (socket/send client "receiveuntil\n"))
+        reader
+        (std.foundation.coroutine/await
+         (socket/receiveuntil client "--boundary--"))
+        first (std.foundation.coroutine/await (reader))
+        second (std.foundation.coroutine/await (reader))
+        tail
+        (std.foundation.coroutine/await
+         (socket/receiveany client 5))]
+    (std.foundation.coroutine/await (socket/close client))
+    (cond
+     (get first 1) (failure-response "receiveuntil-first" first)
+     (get second 1) (failure-response "receiveuntil-second" second)
+     (get tail 1) (failure-response "receiveuntil-tail" tail)
+     :else
+     {:status 200
+      :headers {"content-type" "application/octet-stream"
+                "x-hoplite-cosocket" "tcp-receiveuntil"}
+      :body (str (get first 0) "|" (get second 0) "|" (get tail 0))})))
+
+(defn ^:async receive-until-inclusive
+  [request]
+  (let [host (get (get request :headers) "x-cosocket-host")
+        client (std.foundation.coroutine/await (socket/tcp))
+        configured
+        (std.foundation.coroutine/await
+         (socket/settimeouts client 1000 1000 1000))
+        connected
+        (std.foundation.coroutine/await
+         (socket/connect client host 19091))
+        sent
+        (std.foundation.coroutine/await
+         (socket/send client "receiveuntil-inclusive\n"))
+        reader
+        (std.foundation.coroutine/await
+         (socket/receiveuntil
+          client
+          "--boundary--"
+          {:inclusive true}))
+        first (std.foundation.coroutine/await (reader))
+        tail
+        (std.foundation.coroutine/await
+         (socket/receiveany client 5))]
+    (std.foundation.coroutine/await (socket/close client))
+    (cond
+     (get first 1) (failure-response "receiveuntil-inclusive" first)
+     (get tail 1) (failure-response "receiveuntil-inclusive-tail" tail)
+     :else
+     {:status 200
+      :headers {"content-type" "application/octet-stream"
+                "x-hoplite-cosocket" "tcp-receiveuntil-inclusive"}
+      :body (str (get first 0) "|" (get tail 0))})))
+
+(defn ^:async receive-until-chunked
+  [request]
+  (let [host (get (get request :headers) "x-cosocket-host")
+        client (std.foundation.coroutine/await (socket/tcp))
+        configured
+        (std.foundation.coroutine/await
+         (socket/settimeouts client 1000 1000 1000))
+        connected
+        (std.foundation.coroutine/await
+         (socket/connect client host 19091))
+        sent
+        (std.foundation.coroutine/await
+         (socket/send client "receiveuntil-chunked\n"))
+        reader
+        (std.foundation.coroutine/await
+         (socket/receiveuntil client "--boundary--"))
+        first (std.foundation.coroutine/await (reader 3))
+        second (std.foundation.coroutine/await (reader 3))
+        done (std.foundation.coroutine/await (reader 3))
+        tail
+        (std.foundation.coroutine/await
+         (socket/receiveany client 4))]
+    (std.foundation.coroutine/await (socket/close client))
+    (cond
+     (get first 1) (failure-response "receiveuntil-chunk-first" first)
+     (get second 1) (failure-response "receiveuntil-chunk-second" second)
+     (get done 1) (failure-response "receiveuntil-chunk-done" done)
+     (get tail 1) (failure-response "receiveuntil-chunk-tail" tail)
+     :else
+     {:status 200
+      :headers {"content-type" "application/octet-stream"
+                "x-hoplite-cosocket" "tcp-receiveuntil-chunked"}
+      :body
+      (str
+       (get first 0)
+       "|"
+       (get second 0)
+       "|"
+       (nil? (get done 0))
+       "|"
+       (get tail 0))})))
 
 (def app
   (h/app
@@ -104,4 +194,16 @@
      ["/cosocket/receiveany"
       {:get {:name "cosocket-tcp-receiveany"
              :summary "Returns available bytes without waiting for the maximum"
-             :handler #'receive-any}}]]}))
+             :handler #'receive-any}}]
+     ["/cosocket/receiveuntil"
+      {:get {:name "cosocket-tcp-receiveuntil"
+             :summary "Reads repeated split delimiters and preserves the suffix"
+             :handler #'receive-until}}]
+     ["/cosocket/receiveuntil-inclusive"
+      {:get {:name "cosocket-tcp-receiveuntil-inclusive"
+             :summary "Includes a split delimiter in the returned data"
+             :handler #'receive-until-inclusive}}]
+     ["/cosocket/receiveuntil-chunked"
+      {:get {:name "cosocket-tcp-receiveuntil-chunked"
+             :summary "Iterates in bounded chunks until the delimiter"
+             :handler #'receive-until-chunked}}]]}))

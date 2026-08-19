@@ -49,6 +49,12 @@ listener.bind(("0.0.0.0", 19091))
 listener.listen(64)
 print("echo-ready", flush=True)
 
+def split_send(connection, first, second):
+    connection.sendall(first)
+    time.sleep(0.05)
+    connection.sendall(second)
+    time.sleep(5)
+
 def serve(connection):
     try:
         data = bytearray()
@@ -60,6 +66,15 @@ def serve(connection):
         if data == b"receiveany\n":
             connection.sendall(b"part-more")
             time.sleep(5)
+        elif data == b"receiveuntil\n":
+            split_send(
+                connection,
+                b"alpha--bou",
+                b"ndary--beta--boundary--omega")
+        elif data == b"receiveuntil-inclusive\n":
+            split_send(connection, b"alpha--bou", b"ndary--omega")
+        elif data == b"receiveuntil-chunked\n":
+            split_send(connection, b"abcdef--bou", b"ndary--tail")
         elif data:
             connection.sendall(data)
     finally:
@@ -119,18 +134,47 @@ if [[ -z "$port" ]]; then
 fi
 
 base="http://127.0.0.1:${port}"
-ready=false
-last_status='000'
-for _ in $(seq 1 60); do
-  last_status="$(curl --silent --show-error \
+
+request_expect() {
+  local path="$1"
+  local expected="$2"
+  local identity="$3"
+  local status
+  status="$(curl --silent --show-error \
     --connect-timeout 1 \
-    --max-time 2 \
+    --max-time 3 \
     --header "x-cosocket-host: ${echo_ip}" \
     --dump-header "$headers_file" \
     --output "$body_file" \
     --write-out '%{http_code}' \
-    "$base/cosocket/echo" || true)"
-  if [[ "$last_status" == 200 ]] \
+    "$base$path" || true)"
+  if [[ "$status" != 200 ]] || [[ "$(cat "$body_file")" != "$expected" ]]; then
+    echo "$path failed; status: $status" >&2
+    echo '--- response headers ---' >&2
+    cat "$headers_file" >&2 || true
+    echo '--- response body ---' >&2
+    cat "$body_file" >&2 || true
+    diagnose
+    exit 1
+  fi
+  if ! tr -d '\r' < "$headers_file" \
+    | grep -Fqi "x-hoplite-cosocket: $identity"; then
+    echo "$path omitted its native event-loop identity header." >&2
+    diagnose
+    exit 1
+  fi
+}
+
+ready=false
+for _ in $(seq 1 60); do
+  if request_status="$(curl --silent --show-error \
+      --connect-timeout 1 \
+      --max-time 2 \
+      --header "x-cosocket-host: ${echo_ip}" \
+      --output "$body_file" \
+      --write-out '%{http_code}' \
+      "$base/cosocket/echo" 2>/dev/null)" \
+    && [[ "$request_status" == 200 ]] \
     && [[ "$(cat "$body_file")" == ping ]]; then
     ready=true
     break
@@ -142,61 +186,26 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 if [[ "$ready" != true ]]; then
-  echo "Hoplite cosocket fixture did not become ready; status: $last_status" >&2
-  echo '--- last headers ---' >&2
-  cat "$headers_file" >&2 || true
-  echo '--- last body ---' >&2
-  cat "$body_file" >&2 || true
+  echo 'Hoplite cosocket fixture did not become ready.' >&2
   diagnose
   exit 1
 fi
 
-if ! tr -d '\r' < "$headers_file" \
-  | grep -Fqi 'x-hoplite-cosocket: tcp-event-loop'; then
-  echo 'Cosocket response omitted its native event-loop identity header.' >&2
-  diagnose
-  exit 1
-fi
-
-last_status="$(curl --silent --show-error \
-  --connect-timeout 1 \
-  --max-time 3 \
-  --header "x-cosocket-host: ${echo_ip}" \
-  --dump-header "$headers_file" \
-  --output "$body_file" \
-  --write-out '%{http_code}' \
-  "$base/cosocket/receiveany" || true)"
-if [[ "$last_status" != 200 ]] \
-  || [[ "$(cat "$body_file")" != part ]]; then
-  echo "receiveany did not return the first available four bytes." >&2
-  echo '--- receiveany headers ---' >&2
-  cat "$headers_file" >&2 || true
-  echo '--- receiveany body ---' >&2
-  cat "$body_file" >&2 || true
-  diagnose
-  exit 1
-fi
-if ! tr -d '\r' < "$headers_file" \
-  | grep -Fqi 'x-hoplite-cosocket: tcp-receiveany'; then
-  echo 'receiveany response omitted its native event-loop identity header.' >&2
-  diagnose
-  exit 1
-fi
+request_expect /cosocket/echo ping tcp-event-loop
+request_expect /cosocket/receiveany part tcp-receiveany
+request_expect /cosocket/receiveuntil 'alpha|beta|omega' tcp-receiveuntil
+request_expect \
+  /cosocket/receiveuntil-inclusive \
+  'alpha--boundary--|omega' \
+  tcp-receiveuntil-inclusive
+request_expect \
+  /cosocket/receiveuntil-chunked \
+  'abc|def|true|tail' \
+  tcp-receiveuntil-chunked
 
 for request in $(seq 1 5); do
-  last_status="$(curl --silent --show-error \
-    --max-time 3 \
-    --header "x-cosocket-host: ${echo_ip}" \
-    --output "$body_file" \
-    --write-out '%{http_code}' \
-    "$base/cosocket/echo")"
-  if [[ "$last_status" != 200 ]] \
-    || [[ "$(cat "$body_file")" != ping ]]; then
-    echo "Cosocket request $request failed after the initial dispatch." >&2
-    diagnose
-    exit 1
-  fi
+  request_expect /cosocket/echo ping tcp-event-loop
 done
 
-printf 'Validated TCP receive and receiveany through %s on port %s.\n' \
-  "$image" "$port"
+printf 'Validated TCP receive, receiveany, and receiveuntil through %s.\n' \
+  "$image"
