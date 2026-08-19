@@ -123,7 +123,7 @@
         (std.foundation.coroutine/await
          (host-call
           "receiveuntil-read"
-          [handle reader (get sizes 0)]))))))))
+          [handle reader (get sizes 0)])))))))
 
 (defn ^:async close
   "Closes the native connection. Request cleanup also closes it exactly once."
