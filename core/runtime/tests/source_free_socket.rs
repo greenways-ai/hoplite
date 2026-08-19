@@ -47,7 +47,23 @@ const APPLICATION_SOURCE: &str = r#"
          (socket/tcp))
         unix-connected
         (std.foundation.coroutine/await
-         (socket/connect unix-client "unix:/tmp/hoplite.sock"))]
+         (socket/connect unix-client "unix:/tmp/hoplite.sock"))
+        pooled-client
+        (std.foundation.coroutine/await
+         (socket/tcp))
+        pooled-connected
+        (std.foundation.coroutine/await
+         (socket/connect
+          pooled-client
+          "127.0.0.1"
+          19091
+          {:pool "source-free" :pool-size 2}))
+        reused
+        (std.foundation.coroutine/await
+         (socket/getreusedtimes pooled-client))
+        returned
+        (std.foundation.coroutine/await
+         (socket/setkeepalive pooled-client 1000 2))]
     {:client client
      :configured configured
      :connected connected
@@ -56,7 +72,11 @@ const APPLICATION_SOURCE: &str = r#"
      :delimited delimited
      :shutdown shutdown
      :unix-client unix-client
-     :unix-connected unix-connected}))
+     :unix-connected unix-connected
+     :pooled-client pooled-client
+     :pooled-connected pooled-connected
+     :reused reused
+     :returned returned}))
 "#;
 
 struct RuntimeGuard(*mut HopliteRuntime);
@@ -293,6 +313,34 @@ fn source_free_socket_coroutine_continues_after_synchronous_completions() {
     resolve(
         runtime.0,
         unix_connect_call,
+        Value::Vector(vec![Value::Number(1), Value::Nil].into()),
+    );
+
+    let pooled_tcp = next_event(runtime.0);
+    let pooled_tcp_call = host_call(&pooled_tcp, "hoplite.socket", "tcp");
+    resolve(runtime.0, pooled_tcp_call, Value::Number(3));
+
+    let pooled_connect = next_event(runtime.0);
+    let pooled_connect_call = host_call(&pooled_connect, "hoplite.socket", "connect");
+    resolve(
+        runtime.0,
+        pooled_connect_call,
+        Value::Vector(vec![Value::Number(1), Value::Nil].into()),
+    );
+
+    let reused = next_event(runtime.0);
+    let reused_call = host_call(&reused, "hoplite.socket", "getreusedtimes");
+    resolve(
+        runtime.0,
+        reused_call,
+        Value::Vector(vec![Value::Number(0), Value::Nil].into()),
+    );
+
+    let setkeepalive = next_event(runtime.0);
+    let setkeepalive_call = host_call(&setkeepalive, "hoplite.socket", "setkeepalive");
+    resolve(
+        runtime.0,
+        setkeepalive_call,
         Value::Vector(vec![Value::Number(1), Value::Nil].into()),
     );
 
