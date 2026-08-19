@@ -51,13 +51,43 @@ if docker exec "$failed_container" \
   exit 1
 fi
 
-grep -F '"sequence":1,"stage":"configuration","status":"ok"' "$work/error.log" >/dev/null
-grep -F '"sequence":2,"stage":"bundle","status":"failed","class":"application-bundle-checksum-mismatch"' "$work/error.log" >/dev/null
-if grep -Eq '"stage":"(modules|routes|readiness)"' "$work/error.log"; then
-  echo "Tampered HAB0 emitted a startup stage after bundle failure" >&2
-  cat "$work/error.log" >&2
-  exit 1
-fi
+python3 - "$work/error.log" <<'PY'
+import json
+import sys
+
+marker = "hoplite startup: "
+events = []
+with open(sys.argv[1], encoding="utf-8", errors="replace") as stream:
+    for line in stream:
+        if marker not in line:
+            continue
+        payload = line.split(marker, 1)[1].strip()
+        try:
+            events.append(json.loads(payload))
+        except json.JSONDecodeError:
+            continue
+
+required = [
+    {"sequence": 1, "stage": "configuration", "status": "ok"},
+    {
+        "sequence": 2,
+        "stage": "bundle",
+        "status": "failed",
+        "class": "application-bundle-checksum-mismatch",
+    },
+]
+for expected in required:
+    if not any(
+        all(event.get(key) == value for key, value in expected.items())
+        for event in events
+    ):
+        raise SystemExit(f"missing startup diagnostic: {expected!r}")
+
+later = {"modules", "routes", "providers", "readiness"}
+if any(event.get("stage") in later for event in events):
+    raise SystemExit("tampered HAB0 emitted a startup stage after bundle failure")
+PY
+
 if grep -Eq '(/Users/|/home/|0x[0-9a-fA-F]+)' "$work/error.log"; then
   echo "Startup diagnostics leaked a path or native pointer" >&2
   cat "$work/error.log" >&2

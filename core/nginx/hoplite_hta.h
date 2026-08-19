@@ -8,17 +8,25 @@
 /* Exact Hara wire prefix shared by the Nginx decoder and native providers. */
 #define HOPLITE_HTA_MAGIC_BYTES 'H', 'T', 'A', '0'
 
+/*
+ * Keep decoded kinds numerically aligned with their canonical HTA0 wire tags.
+ * Native providers also write exact HTA0 frames and may use these tag values
+ * while classifying decoded arguments. Explicit values prevent a provider-local
+ * wire-tag declaration from silently disagreeing with the shared decoder.
+ * Boolean values share one decoded kind even though false and true use tags 1
+ * and 2 respectively.
+ */
 typedef enum {
-    HOPLITE_HTA_NIL,
-    HOPLITE_HTA_BOOL,
-    HOPLITE_HTA_I64,
-    HOPLITE_HTA_STRING,
-    HOPLITE_HTA_BYTES,
-    HOPLITE_HTA_KEYWORD,
-    HOPLITE_HTA_VECTOR,
-    HOPLITE_HTA_MAP,
-    HOPLITE_HTA_ARRAY,
-    HOPLITE_HTA_OBJECT
+    HOPLITE_HTA_NIL = 0u,
+    HOPLITE_HTA_BOOL = 1u,
+    HOPLITE_HTA_I64 = 3u,
+    HOPLITE_HTA_STRING = 4u,
+    HOPLITE_HTA_BYTES = 5u,
+    HOPLITE_HTA_KEYWORD = 6u,
+    HOPLITE_HTA_VECTOR = 9u,
+    HOPLITE_HTA_MAP = 11u,
+    HOPLITE_HTA_ARRAY = 17u,
+    HOPLITE_HTA_OBJECT = 18u
 } hoplite_hta_kind_t;
 
 typedef struct hoplite_hta_value hoplite_hta_value_t;
