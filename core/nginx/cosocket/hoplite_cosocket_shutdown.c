@@ -1,12 +1,17 @@
 #include "hoplite_cosocket.h"
 
+#include <limits.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 
 /*
  * Keep the established TCP implementation in one translation unit while this
- * compatibility slice extends provider dispatch with send-direction shutdown.
- * The included core keeps its worker lifecycle and request-owned state; only
- * its provider entry points are renamed so the wrapper can add one operation.
+ * compatibility slice extends provider dispatch with send-direction shutdown
+ * and the bounded OpenResty/LuaSocket setoption surface. The included core
+ * keeps worker lifecycle and request-owned state; only its provider entry
+ * points are renamed so this wrapper can add operations without duplicating
+ * the event-loop implementation.
  */
 #define hoplite_cosocket_provider hoplite_cosocket_core_provider
 #define hoplite_cosocket_invoke hoplite_cosocket_core_invoke
@@ -90,6 +95,151 @@ hoplite_cosocket_shutdown(const hoplite_host_call_v1_t *call,
     return hoplite_cosocket_complete_ordinary_call(call, 1, 1, NULL);
 }
 
+static ngx_flag_t
+hoplite_cosocket_option_is(const ngx_str_t *option, const char *name)
+{
+    size_t len;
+
+    if (option == NULL || name == NULL) {
+        return 0;
+    }
+    len = ngx_strlen(name);
+    return option->len == len
+        && ngx_strncmp(option->data, name, len) == 0;
+}
+
+static ngx_int_t
+hoplite_cosocket_option_boolean(const hoplite_hta_value_t *value, int *output)
+{
+    int64_t number;
+
+    if (value == NULL || output == NULL) {
+        return NGX_ERROR;
+    }
+    if (value->kind == HOPLITE_HTA_BOOL) {
+        *output = value->as.boolean ? 1 : 0;
+        return NGX_OK;
+    }
+    if (hoplite_hta_number(value, &number) == NGX_OK
+        && (number == 0 || number == 1))
+    {
+        *output = (int) number;
+        return NGX_OK;
+    }
+    return NGX_ERROR;
+}
+
+static ngx_int_t
+hoplite_cosocket_option_buffer(const hoplite_hta_value_t *value, int *output)
+{
+    int64_t number;
+
+    if (value == NULL || output == NULL
+        || hoplite_hta_number(value, &number) != NGX_OK
+        || number < 0 || number > INT_MAX)
+    {
+        return NGX_ERROR;
+    }
+    *output = (int) number;
+    return NGX_OK;
+}
+
+static ngx_int_t
+hoplite_cosocket_setoption(const hoplite_host_call_v1_t *call,
+                           const hoplite_hta_value_t *arguments)
+{
+    hoplite_cosocket_t *socket;
+    ngx_str_t option;
+    int level, name, value;
+    ngx_err_t error;
+    const char *message;
+    ngx_int_t rc;
+
+    rc = hoplite_cosocket_argument_handle(call, arguments, 3, &socket);
+    if (rc == NGX_ERROR) {
+        return hoplite_cosocket_reject(
+            call, "hoplite.socket/setoption expects [socket option value]");
+    }
+    if (rc == NGX_DECLINED) {
+        return hoplite_cosocket_reject(
+            call, "unknown or foreign Hoplite cosocket");
+    }
+    if (socket->closed || !socket->connected
+        || socket->connection == NULL)
+    {
+        return hoplite_cosocket_complete_ordinary_call(
+            call, 0, 0, "closed");
+    }
+    if (hoplite_hta_text(arguments->as.vector.items[1], &option) != NGX_OK) {
+        return hoplite_cosocket_reject(
+            call, "cosocket setoption name must be text");
+    }
+
+    if (hoplite_cosocket_option_is(&option, "keepalive")) {
+        level = SOL_SOCKET;
+        name = SO_KEEPALIVE;
+        if (hoplite_cosocket_option_boolean(
+                arguments->as.vector.items[2], &value) != NGX_OK)
+        {
+            return hoplite_cosocket_reject(
+                call, "keepalive must be boolean or 0/1");
+        }
+    } else if (hoplite_cosocket_option_is(&option, "reuseaddr")) {
+        level = SOL_SOCKET;
+        name = SO_REUSEADDR;
+        if (hoplite_cosocket_option_boolean(
+                arguments->as.vector.items[2], &value) != NGX_OK)
+        {
+            return hoplite_cosocket_reject(
+                call, "reuseaddr must be boolean or 0/1");
+        }
+    } else if (hoplite_cosocket_option_is(&option, "tcp-nodelay")) {
+        level = IPPROTO_TCP;
+        name = TCP_NODELAY;
+        if (hoplite_cosocket_option_boolean(
+                arguments->as.vector.items[2], &value) != NGX_OK)
+        {
+            return hoplite_cosocket_reject(
+                call, "tcp-nodelay must be boolean or 0/1");
+        }
+    } else if (hoplite_cosocket_option_is(&option, "sndbuf")) {
+        level = SOL_SOCKET;
+        name = SO_SNDBUF;
+        if (hoplite_cosocket_option_buffer(
+                arguments->as.vector.items[2], &value) != NGX_OK)
+        {
+            return hoplite_cosocket_reject(
+                call, "sndbuf must be an integer from 0 through INT_MAX");
+        }
+    } else if (hoplite_cosocket_option_is(&option, "rcvbuf")) {
+        level = SOL_SOCKET;
+        name = SO_RCVBUF;
+        if (hoplite_cosocket_option_buffer(
+                arguments->as.vector.items[2], &value) != NGX_OK)
+        {
+            return hoplite_cosocket_reject(
+                call, "rcvbuf must be an integer from 0 through INT_MAX");
+        }
+    } else {
+        return hoplite_cosocket_reject(
+            call,
+            "setoption supports keepalive, reuseaddr, tcp-nodelay, sndbuf, or rcvbuf");
+    }
+
+    if (setsockopt(socket->connection->fd,
+                   level,
+                   name,
+                   (const void *) &value,
+                   sizeof(value)) == -1)
+    {
+        error = ngx_socket_errno;
+        message = hoplite_cosocket_error_text(error, "setsockopt failed");
+        return hoplite_cosocket_complete_ordinary_call(
+            call, 0, 0, message);
+    }
+    return hoplite_cosocket_complete_ordinary_call(call, 1, 1, NULL);
+}
+
 static int32_t
 hoplite_cosocket_invoke(const hoplite_host_call_v1_t *call)
 {
@@ -108,7 +258,8 @@ hoplite_cosocket_invoke(const hoplite_host_call_v1_t *call)
         return HOPLITE_HOST_PROVIDER_ERROR;
     }
     if (!hoplite_cosocket_operation(call, "shutdown")
-        && !hoplite_cosocket_operation(call, "send"))
+        && !hoplite_cosocket_operation(call, "send")
+        && !hoplite_cosocket_operation(call, "setoption"))
     {
         return hoplite_cosocket_core_invoke(call);
     }
@@ -125,6 +276,11 @@ hoplite_cosocket_invoke(const hoplite_host_call_v1_t *call)
 
     if (hoplite_cosocket_operation(call, "shutdown")) {
         rc = hoplite_cosocket_shutdown(call, arguments);
+        ngx_destroy_pool(pool);
+        return (int32_t) rc;
+    }
+    if (hoplite_cosocket_operation(call, "setoption")) {
+        rc = hoplite_cosocket_setoption(call, arguments);
         ngx_destroy_pool(pool);
         return (int32_t) rc;
     }
