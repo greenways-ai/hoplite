@@ -9,6 +9,7 @@
 #define HOPLITE_COSOCKET_MAX_TIMEOUT 3600000
 #define HOPLITE_COSOCKET_MAX_IO (1024u * 1024u)
 #define HOPLITE_COSOCKET_READ_CHUNK 4096u
+#define HOPLITE_COSOCKET_MAX_PATTERN 4096u
 
 #define HOPLITE_HTA_NIL 0u
 #define HOPLITE_HTA_I64 3u
@@ -27,10 +28,12 @@ typedef enum {
     HOPLITE_COSOCKET_RECEIVE_FIXED = 0,
     HOPLITE_COSOCKET_RECEIVE_LINE,
     HOPLITE_COSOCKET_RECEIVE_ALL,
-    HOPLITE_COSOCKET_RECEIVE_ANY
+    HOPLITE_COSOCKET_RECEIVE_ANY,
+    HOPLITE_COSOCKET_RECEIVE_UNTIL
 } hoplite_cosocket_receive_mode_t;
 
 typedef struct hoplite_cosocket_s hoplite_cosocket_t;
+typedef struct hoplite_cosocket_reader_s hoplite_cosocket_reader_t;
 
 struct hoplite_cosocket_s {
     uint64_t id;
@@ -57,10 +60,21 @@ struct hoplite_cosocket_s {
     size_t receive_capacity;
     size_t receive_target;
     hoplite_cosocket_receive_mode_t receive_mode;
+    hoplite_cosocket_reader_t *receive_reader;
+    hoplite_cosocket_reader_t *readers;
     u_char *leftover;
     size_t leftover_len;
     size_t leftover_capacity;
     hoplite_cosocket_t *next;
+};
+
+struct hoplite_cosocket_reader_s {
+    uint64_t id;
+    u_char *pattern;
+    size_t pattern_len;
+    ngx_flag_t inclusive;
+    ngx_flag_t done;
+    hoplite_cosocket_reader_t *next;
 };
 
 typedef struct {
@@ -72,6 +86,7 @@ typedef struct {
 static const u_char hoplite_cosocket_hta_magic[] = {HOPLITE_HTA_MAGIC_BYTES};
 static hoplite_cosocket_t *hoplite_cosockets;
 static uint64_t hoplite_cosocket_next_id;
+static uint64_t hoplite_cosocket_next_reader_id;
 static ngx_log_t *hoplite_cosocket_log;
 
 static int32_t hoplite_cosocket_invoke(const hoplite_host_call_v1_t *call);
@@ -338,6 +353,7 @@ hoplite_cosocket_clear_io(hoplite_cosocket_t *socket)
     socket->receive_len = 0;
     socket->receive_capacity = 0;
     socket->receive_target = 0;
+    socket->receive_reader = NULL;
 }
 
 static void
@@ -433,8 +449,28 @@ hoplite_cosocket_find(void *owner, uint64_t work, uint64_t id)
     return NULL;
 }
 
+static hoplite_cosocket_reader_t *
+hoplite_cosocket_reader_find(hoplite_cosocket_t *socket, uint64_t id)
+{
+    hoplite_cosocket_reader_t *reader;
+
+    if (socket == NULL) {
+        return NULL;
+    }
+    for (reader = socket->readers;
+         reader != NULL;
+         reader = reader->next)
+    {
+        if (reader->id == id) {
+            return reader;
+        }
+    }
+    return NULL;
+}
+
 static ngx_int_t
-hoplite_cosocket_result_writer(hoplite_cosocket_writer_t *writer,
+hoplite_cosocket_result_writer
+(hoplite_cosocket_writer_t *writer,
                                size_t extra,
                                ngx_log_t *log)
 {
@@ -542,8 +578,28 @@ hoplite_cosocket_complete_receive(hoplite_cosocket_t *socket,
     return hoplite_cosocket_deliver_state(socket, &writer);
 }
 
+static ngx_int_t
+hoplite_cosocket_complete_receive_done(hoplite_cosocket_t *socket)
+{
+    hoplite_cosocket_writer_t writer = {NULL, 0, 0};
+
+    if (hoplite_cosocket_result_writer(&writer, 0, socket->log) != NGX_OK
+        || hoplite_cosocket_write_u32(&writer, 3) != NGX_OK
+        || hoplite_cosocket_write_nil(&writer) != NGX_OK
+        || hoplite_cosocket_write_nil(&writer) != NGX_OK
+        || hoplite_cosocket_write_nil(&writer) != NGX_OK)
+    {
+        if (writer.data != NULL) {
+            ngx_free(writer.data);
+        }
+        return NGX_ERROR;
+    }
+    return hoplite_cosocket_deliver_state(socket, &writer);
+}
+
 static const char *
-hoplite_cosocket_error_text(ngx_err_t error, const char *fallback)
+hoplite_cosocket_error_text
+(ngx_err_t error, const char *fallback)
 {
     if (error == NGX_ETIMEDOUT) {
         return "timeout";
@@ -684,7 +740,133 @@ hoplite_cosocket_receive_line_data(hoplite_cosocket_t *socket,
 }
 
 static ngx_int_t
-hoplite_cosocket_arm_write(hoplite_cosocket_t *socket, ngx_msec_t timeout)
+hoplite_cosocket_pattern_find(const u_char *data,
+                               size_t len,
+                               const u_char *pattern,
+                               size_t pattern_len,
+                               size_t *match)
+{
+    size_t index;
+
+    if (pattern_len == 0 || pattern_len > len) {
+        return NGX_DECLINED;
+    }
+    for (index = 0; index <= len - pattern_len; index++) {
+        if (ngx_memcmp(data + index, pattern, pattern_len) == 0) {
+            *match = index;
+            return NGX_OK;
+        }
+    }
+    return NGX_DECLINED;
+}
+
+static size_t
+hoplite_cosocket_pattern_prefix(const u_char *data,
+                                 size_t len,
+                                 const u_char *pattern,
+                                 size_t pattern_len)
+{
+    size_t candidate = len < pattern_len ? len : pattern_len - 1;
+
+    while (candidate != 0) {
+        if (ngx_memcmp(data + len - candidate,
+                       pattern,
+                       candidate) == 0)
+        {
+            return candidate;
+        }
+        candidate--;
+    }
+    return 0;
+}
+
+static ngx_int_t
+hoplite_cosocket_receive_return(hoplite_cosocket_t *socket,
+                                 size_t result_len,
+                                 size_t consumed,
+                                 ngx_flag_t done)
+{
+    size_t suffix;
+
+    if (socket == NULL || result_len > consumed
+        || consumed > socket->receive_len)
+    {
+        return NGX_ERROR;
+    }
+    suffix = socket->receive_len - consumed;
+    if (hoplite_cosocket_leftover_set(socket,
+                                      socket->receive_data + consumed,
+                                      suffix) != NGX_OK)
+    {
+        hoplite_cosocket_reset_connection(socket);
+        return hoplite_cosocket_complete_receive(
+            socket, 0, "buffer too small");
+    }
+    socket->receive_len = result_len;
+    if (done && socket->receive_reader != NULL) {
+        socket->receive_reader->done = 1;
+    }
+    return hoplite_cosocket_complete_receive(socket, 1, NULL);
+}
+
+static ngx_int_t
+hoplite_cosocket_receive_until_ready(hoplite_cosocket_t *socket)
+{
+    hoplite_cosocket_reader_t *reader = socket->receive_reader;
+    size_t match, result_len, consumed, prefix, safe, limit;
+
+    if (reader == NULL) {
+        return NGX_ERROR;
+    }
+    limit = socket->receive_target;
+    if (hoplite_cosocket_pattern_find(socket->receive_data,
+                                      socket->receive_len,
+                                      reader->pattern,
+                                      reader->pattern_len,
+                                      &match) == NGX_OK)
+    {
+        if (limit != 0 && match >= limit) {
+            return hoplite_cosocket_receive_return(
+                socket, limit, limit, 0);
+        }
+        result_len = match
+            + (reader->inclusive ? reader->pattern_len : 0);
+        consumed = match + reader->pattern_len;
+        if (limit != 0 && result_len == 0) {
+            if (hoplite_cosocket_leftover_set(
+                    socket,
+                    socket->receive_data + consumed,
+                    socket->receive_len - consumed) != NGX_OK)
+            {
+                hoplite_cosocket_reset_connection(socket);
+                return hoplite_cosocket_complete_receive(
+                    socket, 0, "buffer too small");
+            }
+            socket->receive_len = 0;
+            return hoplite_cosocket_complete_receive_done(socket);
+        }
+        return hoplite_cosocket_receive_return(
+            socket, result_len, consumed, limit != 0);
+    }
+
+    if (limit != 0) {
+        prefix = hoplite_cosocket_pattern_prefix(
+            socket->receive_data,
+            socket->receive_len,
+            reader->pattern,
+            reader->pattern_len);
+        safe = socket->receive_len - prefix;
+        if (safe >= limit) {
+            return hoplite_cosocket_receive_return(
+                socket, limit, limit, 0);
+        }
+    }
+    return NGX_AGAIN;
+}
+
+static ngx_int_t
+hoplite_cosocket_arm_write
+(hoplite_cosocket_t *socket, ngx_msec_t timeout)
 {
     ngx_event_t *event = socket->connection->write;
 
@@ -772,9 +954,27 @@ hoplite_cosocket_receive_drive(hoplite_cosocket_t *socket)
     size_t amount, line_index, suffix;
     ssize_t received;
     ngx_flag_t complete;
+    ngx_int_t rc;
 
     if (socket->leftover_len != 0) {
-        if (socket->receive_mode == HOPLITE_COSOCKET_RECEIVE_ANY) {
+        if (socket->receive_mode == HOPLITE_COSOCKET_RECEIVE_UNTIL) {
+            if (hoplite_cosocket_receive_append(socket,
+                                                 socket->leftover,
+                                                 socket->leftover_len)
+                != NGX_OK)
+            {
+                hoplite_cosocket_reset_connection(socket);
+                return hoplite_cosocket_complete_receive(
+                    socket, 0, "buffer too small");
+            }
+            socket->leftover_len = 0;
+            rc = hoplite_cosocket_receive_until_ready(socket);
+            if (rc != NGX_AGAIN) {
+                return rc;
+            }
+        } else if (socket->receive_mode
+                   == HOPLITE_COSOCKET_RECEIVE_ANY)
+        {
             amount = socket->receive_target;
             if (amount > socket->leftover_len) {
                 amount = socket->leftover_len;
@@ -899,6 +1099,25 @@ hoplite_cosocket_receive_drive(hoplite_cosocket_t *socket)
                 hoplite_cosocket_reset_connection(socket);
                 return hoplite_cosocket_complete_receive(
                     socket, 0, "buffer too small");
+            }
+            if (socket->receive_mode == HOPLITE_COSOCKET_RECEIVE_UNTIL) {
+                if (hoplite_cosocket_receive_append(
+                        socket, chunk, (size_t) received) != NGX_OK)
+                {
+                    hoplite_cosocket_reset_connection(socket);
+                    return hoplite_cosocket_complete_receive(
+                        socket, 0, "buffer too small");
+                }
+                rc = hoplite_cosocket_receive_until_ready(socket);
+                if (rc != NGX_AGAIN) {
+                    return rc;
+                }
+                if (socket->receive_len == HOPLITE_COSOCKET_MAX_IO) {
+                    hoplite_cosocket_reset_connection(socket);
+                    return hoplite_cosocket_complete_receive(
+                        socket, 0, "buffer too small");
+                }
+                continue;
             }
             if (socket->receive_mode == HOPLITE_COSOCKET_RECEIVE_ANY) {
                 if (hoplite_cosocket_receive_append(
@@ -1372,6 +1591,142 @@ hoplite_cosocket_receiveany(const hoplite_host_call_v1_t *call,
 }
 
 static ngx_int_t
+hoplite_cosocket_receiveuntil(const hoplite_host_call_v1_t *call,
+                               const hoplite_hta_value_t *arguments)
+{
+    hoplite_cosocket_t *socket;
+    hoplite_cosocket_reader_t *reader;
+    hoplite_hta_value_t *options, *inclusive_value;
+    ngx_str_t pattern;
+    ngx_flag_t inclusive = 0;
+    ngx_int_t rc;
+
+    rc = hoplite_cosocket_argument_handle(call, arguments, 3, &socket);
+    if (rc == NGX_ERROR) {
+        return hoplite_cosocket_reject(
+            call,
+            "hoplite.socket/receiveuntil expects [socket pattern options]");
+    }
+    if (rc == NGX_DECLINED) {
+        return hoplite_cosocket_reject(
+            call, "unknown or foreign Hoplite cosocket");
+    }
+    if (hoplite_hta_text(arguments->as.vector.items[1], &pattern)
+            != NGX_OK
+        || pattern.len == 0
+        || pattern.len > HOPLITE_COSOCKET_MAX_PATTERN)
+    {
+        return hoplite_cosocket_reject(
+            call, "receiveuntil pattern must contain 1..4096 bytes");
+    }
+    options = arguments->as.vector.items[2];
+    if (options == NULL
+        || (options->kind != HOPLITE_HTA_MAP
+            && options->kind != HOPLITE_HTA_OBJECT))
+    {
+        return hoplite_cosocket_reject(
+            call, "receiveuntil options must be a map");
+    }
+    if (options->as.map.count != 0) {
+        inclusive_value = hoplite_hta_map_get(options, "inclusive");
+        if (options->as.map.count != 1
+            || inclusive_value == NULL
+            || inclusive_value->kind != HOPLITE_HTA_BOOL)
+        {
+            return hoplite_cosocket_reject(
+                call,
+                "receiveuntil supports only boolean :inclusive");
+        }
+        inclusive = inclusive_value->as.boolean;
+    }
+    if (hoplite_cosocket_next_reader_id == UINT64_MAX) {
+        return hoplite_cosocket_reject(
+            call, "hoplite cosocket reader handle space exhausted");
+    }
+    reader = ngx_pcalloc(socket->pool, sizeof(*reader));
+    if (reader == NULL) {
+        return HOPLITE_HOST_PROVIDER_ERROR;
+    }
+    reader->pattern = ngx_pnalloc(socket->pool, pattern.len);
+    if (reader->pattern == NULL) {
+        return HOPLITE_HOST_PROVIDER_ERROR;
+    }
+    ngx_memcpy(reader->pattern, pattern.data, pattern.len);
+    reader->id = ++hoplite_cosocket_next_reader_id;
+    reader->pattern_len = pattern.len;
+    reader->inclusive = inclusive;
+    reader->next = socket->readers;
+    socket->readers = reader;
+    return hoplite_cosocket_complete_number(call, (int64_t) reader->id);
+}
+
+static ngx_int_t
+hoplite_cosocket_receiveuntil_read(
+    const hoplite_host_call_v1_t *call,
+    const hoplite_hta_value_t *arguments)
+{
+    hoplite_cosocket_t *socket;
+    hoplite_cosocket_reader_t *reader;
+    hoplite_hta_value_t *size_value;
+    int64_t reader_id, size;
+    ngx_int_t rc;
+
+    rc = hoplite_cosocket_argument_handle(call, arguments, 3, &socket);
+    if (rc == NGX_ERROR
+        || hoplite_hta_number(arguments->as.vector.items[1],
+                              &reader_id) != NGX_OK
+        || reader_id <= 0)
+    {
+        return hoplite_cosocket_reject(
+            call,
+            "hoplite.socket/receiveuntil-read expects [socket reader size]");
+    }
+    if (rc == NGX_DECLINED) {
+        return hoplite_cosocket_reject(
+            call, "unknown or foreign Hoplite cosocket");
+    }
+    reader = hoplite_cosocket_reader_find(
+        socket, (uint64_t) reader_id);
+    if (reader == NULL) {
+        return hoplite_cosocket_reject(
+            call, "unknown Hoplite receiveuntil reader");
+    }
+    size_value = arguments->as.vector.items[2];
+    if (size_value == NULL || size_value->kind == HOPLITE_HTA_NIL) {
+        size = 0;
+    } else if (hoplite_hta_number(size_value, &size) != NGX_OK
+               || size < 1 || size > HOPLITE_COSOCKET_MAX_IO)
+    {
+        return hoplite_cosocket_reject(
+            call, "receiveuntil size must be nil or 1..1048576");
+    }
+
+    socket->receive_mode = HOPLITE_COSOCKET_RECEIVE_UNTIL;
+    socket->receive_target = (size_t) size;
+    socket->receive_reader = reader;
+    socket->pending = HOPLITE_COSOCKET_PENDING_RECEIVE;
+    socket->pending_call = call->call;
+    socket->completer = call->completer;
+    if (reader->done) {
+        reader->done = 0;
+        return hoplite_cosocket_complete_receive_done(socket);
+    }
+    if (socket->closed || !socket->connected
+        || socket->connection == NULL)
+    {
+        return hoplite_cosocket_complete_receive(
+            socket, 0, "closed");
+    }
+    rc = hoplite_cosocket_receive_drive(socket);
+    if (rc == NGX_AGAIN) {
+        return HOPLITE_HOST_PROVIDER_PENDING;
+    }
+    return rc == NGX_OK
+        ? HOPLITE_HOST_PROVIDER_OK
+        : HOPLITE_HOST_PROVIDER_ERROR;
+}
+
+static ngx_int_t
 hoplite_cosocket_close(const hoplite_host_call_v1_t *call,
                        const hoplite_hta_value_t *arguments)
 {
@@ -1519,6 +1874,12 @@ hoplite_cosocket_invoke(const hoplite_host_call_v1_t *call)
         rc = hoplite_cosocket_receive(call, arguments);
     } else if (hoplite_cosocket_operation(call, "receiveany")) {
         rc = hoplite_cosocket_receiveany(call, arguments);
+    } else if (hoplite_cosocket_operation(call, "receiveuntil")) {
+        rc = hoplite_cosocket_receiveuntil(call, arguments);
+    } else if (hoplite_cosocket_operation(call,
+                                          "receiveuntil-read"))
+    {
+        rc = hoplite_cosocket_receiveuntil_read(call, arguments);
     } else if (hoplite_cosocket_operation(call, "close")) {
         rc = hoplite_cosocket_close(call, arguments);
     } else if (hoplite_cosocket_operation(call, "settimeout")) {
@@ -1561,6 +1922,7 @@ hoplite_cosocket_register(ngx_cycle_t *cycle)
     hoplite_cosocket_log = cycle->log;
     hoplite_cosockets = NULL;
     hoplite_cosocket_next_id = 0;
+    hoplite_cosocket_next_reader_id = 0;
     rc = hoplite_host_provider_register_v1(&hoplite_cosocket_provider);
     return rc == HOPLITE_HOST_PROVIDER_REGISTER_OK ? NGX_OK : NGX_ERROR;
 }
@@ -1584,5 +1946,6 @@ hoplite_cosocket_worker_exit(void)
         }
     }
     hoplite_cosocket_next_id = 0;
+    hoplite_cosocket_next_reader_id = 0;
     hoplite_cosocket_log = NULL;
 }

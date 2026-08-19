@@ -11,8 +11,9 @@ connections. Application code uses typed namespace functions rather than public
 service and operation strings.
 
 The current production TCP slice provides numeric IPv4 and IPv6 destinations,
-fixed, line, and all-data receive modes, plus `receiveany`. DNS, keepalive
-pools, TLS, delimiter iterators, concurrent read/write, Unix-domain sockets,
+fixed, line, and all-data receive modes, plus `receiveany` and stateful
+`receiveuntil` delimiter readers. DNS, keepalive pools, TLS, concurrent
+read/write, Unix-domain sockets,
 and UDP remain tracked by the
 [cosocket programme](https://github.com/greenways-ai/hoplite/issues/163);
 they are not silently emulated with blocking I/O.
@@ -64,6 +65,7 @@ The API preserves OpenResty's ordinary error-return style:
 | `send` | `[bytes-sent nil]` | `[nil error]` |
 | `receive` | `[data nil nil]` | `[nil error partial]` |
 | `receiveany` | `[data nil nil]` | `[nil error partial]` |
+| `receiveuntil` reader | `[data nil nil]` | `[nil error partial]` |
 | `getreusedtimes` | `[count nil]` | `[nil error]` |
 
 Invalid descriptors, malformed arguments, foreign handles, and unsupported
@@ -128,6 +130,38 @@ requested maximum or for the peer to close. The maximum must be from 1 through
 `receive`, even though the corresponding OpenResty Lua API exposes two return
 values.
 
+## `receiveuntil`
+
+```clojure
+(let [reader
+      (std.foundation.coroutine/await
+       (socket/receiveuntil client "--boundary--"))]
+  (std.foundation.coroutine/await (reader)))
+```
+
+Awaiting `receiveuntil` creates one request-scoped reader function. Calling
+that function without a size returns the bytes before the next delimiter.
+The reader may be called repeatedly and preserves bytes after each match.
+Delimiters may span any number of Nginx kernel-read boundaries.
+
+Pass `{:inclusive true}` to include the delimiter itself:
+
+```clojure
+(socket/receiveuntil client "_END_" {:inclusive true})
+```
+
+Passing a positive size turns the reader into a bounded iterator. It
+returns chunks until the delimiter is consumed, then returns
+`[nil nil nil]` once before resetting for the next delimiter:
+
+```clojure
+(std.foundation.coroutine/await (reader 4096))
+```
+
+Patterns are bounded to 4096 bytes and individual results to 1 MiB. A
+read timeout leaves the connection open and returns consumed bytes as the
+partial value. Other connection failures close the connection.
+
 ## Timeouts
 
 ```clojure
@@ -148,6 +182,7 @@ corresponding timer. `settimeout` assigns one value to connect, send, and read;
 | `sock:send(value)` | `(await (socket/send sock value))` |
 | `sock:receive("*l")` | `(await (socket/receive sock "*l"))` |
 | `sock:receiveany(max)` | `(await (socket/receiveany sock max))` |
+| `sock:receiveuntil(pattern)` | `(await (socket/receiveuntil sock pattern))` |
 | `sock:settimeout(ms)` | `(await (socket/settimeout sock ms))` |
 | `sock:settimeouts(c, s, r)` | `(await (socket/settimeouts sock c s r))` |
 | `sock:getreusedtimes()` | `(await (socket/getreusedtimes sock))` |

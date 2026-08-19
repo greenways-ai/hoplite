@@ -101,6 +101,30 @@
   (std.foundation.coroutine/await
    (host-call "receiveany" [(socket-handle socket) maximum])))
 
+(defn ^:async receiveuntil
+  "Creates a stateful delimiter reader. Await the constructor, then await the
+  returned function with no argument or one positive chunk size. The optional
+  :inclusive flag includes the delimiter in the returned data."
+  ([socket pattern]
+   (receiveuntil socket pattern {}))
+  ([socket pattern options]
+   (let [handle (socket-handle socket)
+         reader
+         (std.foundation.coroutine/await
+          (host-call "receiveuntil" [handle pattern options]))]
+     (fn [& sizes]
+       (if
+        (> (count sizes) 1)
+        (throw
+         (ex-info
+          "receiveuntil reader accepts at most one size"
+          {:phase :socket/invalid-receiveuntil-arity
+           :arguments sizes}))
+        (std.foundation.coroutine/await
+         (host-call
+          "receiveuntil-read"
+          [handle reader (get sizes 0)])))))))
+
 (defn ^:async close
   "Closes the native connection. Request cleanup also closes it exactly once."
   [socket]

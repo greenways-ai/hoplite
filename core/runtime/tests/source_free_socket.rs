@@ -26,10 +26,17 @@ const APPLICATION_SOURCE: &str = r#"
          (socket/settimeouts client 1000 1000 1000))
         received
         (std.foundation.coroutine/await
-         (socket/receiveany client 4))]
+         (socket/receiveany client 4))
+        reader
+        (std.foundation.coroutine/await
+         (socket/receiveuntil client "--end--" {:inclusive true}))
+        delimited
+        (std.foundation.coroutine/await
+         (reader 4))]
     {:client client
      :configured configured
-     :received received}))
+     :received received
+     :delimited delimited}))
 "#;
 
 struct RuntimeGuard(*mut HopliteRuntime);
@@ -212,6 +219,22 @@ fn source_free_socket_coroutine_continues_after_synchronous_completions() {
     resolve(
         runtime.0,
         receiveany_call,
+        Value::Vector(
+            vec![Value::Bytes(b"part".to_vec()), Value::Nil, Value::Nil].into(),
+        ),
+    );
+
+    let receiveuntil = next_event(runtime.0);
+    let receiveuntil_call =
+        host_call(&receiveuntil, "hoplite.socket", "receiveuntil");
+    resolve(runtime.0, receiveuntil_call, Value::Number(2));
+
+    let reader = next_event(runtime.0);
+    let reader_call =
+        host_call(&reader, "hoplite.socket", "receiveuntil-read");
+    resolve(
+        runtime.0,
+        reader_call,
         Value::Vector(
             vec![Value::Bytes(b"part".to_vec()), Value::Nil, Value::Nil].into(),
         ),
