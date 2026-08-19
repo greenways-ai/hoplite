@@ -10,7 +10,7 @@ ngx_module_srcs="$ngx_addon_dir/ngx_http_hoplite_module.c \
        $ngx_addon_dir/hoplite_console_worker.c \
        $ngx_addon_dir/hoplite_host_provider.c \
        $ngx_addon_dir/hoplite_response_source.c \
-       $ngx_addon_dir/cosocket/hoplite_cosocket.c"
+       $ngx_addon_dir/cosocket/hoplite_cosocket_shutdown.c"
 ngx_module_incs="$ngx_addon_dir $ngx_addon_dir/cosocket"
 ngx_module_libs="$HOPLITE_RUNTIME_DIR/libhoplite_runtime.a \
        -ldl -lpthread -lm"
