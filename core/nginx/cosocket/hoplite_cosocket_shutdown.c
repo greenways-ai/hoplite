@@ -12,10 +12,10 @@
  * Keep the established TCP implementation in one translation unit while these
  * compatibility slices extend provider dispatch with send-direction shutdown,
  * the bounded OpenResty/LuaSocket setoption surface, Unix-domain stream
- * connections, and Nginx-resolver-backed hostnames. The included core keeps
- * worker lifecycle and request-owned state; only its provider entry points are
- * renamed so this wrapper can add operations without duplicating the event-loop
- * implementation.
+ * connections, Nginx-resolver-backed hostnames, and worker-local keepalive
+ * pools. The included core keeps worker lifecycle and request-owned state; only
+ * its provider entry points are renamed so this wrapper can add operations
+ * without duplicating the event-loop implementation.
  */
 #define hoplite_cosocket_provider hoplite_cosocket_core_provider
 #define hoplite_cosocket_invoke hoplite_cosocket_core_invoke
@@ -769,6 +769,8 @@ hoplite_cosocket_connect_hostname(const hoplite_host_call_v1_t *call,
         : HOPLITE_HOST_PROVIDER_PENDING;
 }
 
+#include "hoplite_cosocket_pool.inc"
+
 static int32_t
 hoplite_cosocket_invoke(const hoplite_host_call_v1_t *call)
 {
@@ -789,7 +791,9 @@ hoplite_cosocket_invoke(const hoplite_host_call_v1_t *call)
     if (!hoplite_cosocket_operation(call, "shutdown")
         && !hoplite_cosocket_operation(call, "send")
         && !hoplite_cosocket_operation(call, "setoption")
-        && !hoplite_cosocket_operation(call, "connect"))
+        && !hoplite_cosocket_operation(call, "connect")
+        && !hoplite_cosocket_operation(call, "setkeepalive")
+        && !hoplite_cosocket_operation(call, "getreusedtimes"))
     {
         return hoplite_cosocket_core_invoke(call);
     }
@@ -805,20 +809,19 @@ hoplite_cosocket_invoke(const hoplite_host_call_v1_t *call)
     }
 
     if (hoplite_cosocket_operation(call, "connect")) {
-        if (arguments->as.vector.count == 2) {
-            rc = hoplite_cosocket_connect_unix(call, arguments);
-            ngx_destroy_pool(pool);
-            return (int32_t) rc;
-        }
-        if (arguments->as.vector.count == 4) {
-            rc = hoplite_cosocket_connect_hostname(call, arguments, pool);
-            if (rc != NGX_DECLINED) {
-                ngx_destroy_pool(pool);
-                return (int32_t) rc;
-            }
-        }
+        rc = hoplite_cosocket_pool_connect(call, arguments, pool);
         ngx_destroy_pool(pool);
-        return hoplite_cosocket_core_invoke(call);
+        return (int32_t) rc;
+    }
+    if (hoplite_cosocket_operation(call, "setkeepalive")) {
+        rc = hoplite_cosocket_pool_setkeepalive(call, arguments);
+        ngx_destroy_pool(pool);
+        return (int32_t) rc;
+    }
+    if (hoplite_cosocket_operation(call, "getreusedtimes")) {
+        rc = hoplite_cosocket_pool_getreusedtimes(call, arguments);
+        ngx_destroy_pool(pool);
+        return (int32_t) rc;
     }
     if (hoplite_cosocket_operation(call, "shutdown")) {
         rc = hoplite_cosocket_shutdown(call, arguments);
@@ -826,6 +829,7 @@ hoplite_cosocket_invoke(const hoplite_host_call_v1_t *call)
         return (int32_t) rc;
     }
     if (hoplite_cosocket_operation(call, "setoption")) {
+        hoplite_cosocket_pool_mark_optioned(call, arguments);
         rc = hoplite_cosocket_setoption(call, arguments);
         ngx_destroy_pool(pool);
         return (int32_t) rc;
@@ -886,6 +890,7 @@ hoplite_cosocket_register(ngx_cycle_t *cycle)
     hoplite_cosocket_next_id = 0;
     hoplite_cosocket_next_reader_id = 0;
     hoplite_cosocket_resolutions = NULL;
+    hoplite_cosocket_pool_init();
     hoplite_cosocket_resolver_configure(cycle);
     rc = hoplite_host_provider_register_v1(&hoplite_cosocket_provider);
     return rc == HOPLITE_HOST_PROVIDER_REGISTER_OK ? NGX_OK : NGX_ERROR;
@@ -896,6 +901,7 @@ hoplite_cosocket_worker_exit(void)
 {
     hoplite_cosocket_resolution_t *state, *next;
 
+    hoplite_cosocket_pool_worker_exit();
     for (state = hoplite_cosocket_resolutions;
          state != NULL;
          state = next)
