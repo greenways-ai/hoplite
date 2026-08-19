@@ -112,7 +112,7 @@
          reader
          (std.foundation.coroutine/await
           (host-call "receiveuntil" [handle pattern options]))]
-     (fn ^:async [& sizes]
+     (fn [& sizes]
        (if
         (> (count sizes) 1)
         (throw
