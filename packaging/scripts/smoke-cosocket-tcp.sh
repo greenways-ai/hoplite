@@ -206,6 +206,7 @@ request_expect \
   /cosocket/receiveuntil-chunked \
   'abc|def|true|tail' \
   tcp-receiveuntil-chunked
+request_expect /cosocket/setoption setoption tcp-setoption
 request_expect \
   /cosocket/shutdown-send \
   after-fin \
@@ -215,5 +216,5 @@ for request in $(seq 1 5); do
   request_expect /cosocket/echo ping tcp-event-loop
 done
 
-printf 'Validated TCP receive, receiveany, receiveuntil, and send shutdown through %s.\n' \
+printf 'Validated TCP receive, receiveany, receiveuntil, setoption, and send shutdown through %s.\n' \
   "$image"
