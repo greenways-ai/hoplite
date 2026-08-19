@@ -94,6 +94,13 @@
    (std.foundation.coroutine/await
     (host-call "receive" [(socket-handle socket) pattern]))))
 
+(defn ^:async receiveany
+  "Receives as soon as any data is available, up to maximum bytes. Returns
+  [data nil nil] or [nil error partial]."
+  [socket maximum]
+  (std.foundation.coroutine/await
+   (host-call "receiveany" [(socket-handle socket) maximum])))
+
 (defn ^:async close
   "Closes the native connection. Request cleanup also closes it exactly once."
   [socket]
