@@ -123,10 +123,10 @@
        (if
         (> (count sizes) 1)
         (throw
-         (ex-info
-          "receiveuntil reader accepts at most one size"
-          {:phase :socket/invalid-receiveuntil-arity
-           :arguments sizes}))
+         (ex :argument
+             {:phase :socket/invalid-receiveuntil-arity
+              :arguments sizes}
+             :ex/message "receiveuntil reader accepts at most one size"))
         (std.foundation.coroutine/await
          (host-call
           "receiveuntil-read"
