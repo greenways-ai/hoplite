@@ -26,10 +26,16 @@ grep -F 'pub const HARA_BUNDLE_MAGIC: &[u8; 4] = b"HBX0";' \
 grep -F 'pub const RUNTIME_ABI_VERSION: u32 = 5;' \
   core/application-bundle/src/lib.rs >/dev/null
 
-test "$(tr -d '[:space:]' < packaging/hara-revision)" = \
-  '2b3efd14451e96e9e79cd9645fb7e10d9e3782d6'
-grep -F 'HARA_REF: 2b3efd14451e96e9e79cd9645fb7e10d9e3782d6' \
-  .github/workflows/ci.yml >/dev/null
+hara_revision="$(tr -d '[:space:]' < packaging/hara-revision)"
+case "$hara_revision" in
+  ''|*[!0-9a-f]*)
+    echo "invalid Hara revision: $hara_revision" >&2
+    exit 1
+    ;;
+esac
+test "${#hara_revision}" -eq 40
+grep -F "HARA_REF: $hara_revision" .github/workflows/ci.yml >/dev/null
+grep -F "HARA_REF: $hara_revision" .github/workflows/cosocket.yml >/dev/null
 
 grep -F 'docs/versioning.md' README.md >/dev/null
 grep -F 'hoplite.application-bundle/0-alpha' docs/application-bundle.md >/dev/null
