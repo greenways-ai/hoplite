@@ -1,0 +1,31 @@
+{
+  "schema": "hoplite.openresty.cosocket-compatibility/1",
+  "updated": "2026-08-20",
+  "programmeIssue": "https://github.com/greenways-ai/hoplite/issues/170",
+  "cosocketIssue": "https://github.com/greenways-ai/hoplite/issues/163",
+  "phaseBoundary": "Suspended HTTP content handlers; broader phase legality remains tracked by #164.",
+  "legend": {
+    "compatible": "Mechanically translatable with equivalent observable behavior.",
+    "adapted": "Same capability with an intentional Hara/Hoplite shape.",
+    "restricted": "Available through a narrower phase, authority, configuration, direction, or option set.",
+    "extension": "A Hoplite-specific stronger abstraction or guarantee.",
+    "not-planned": "Deliberately excluded with a recorded rationale.",
+    "pending": "Specified but not yet delivered; implementation issue is linked."
+  },
+  "delivery": {
+    "backlog": "https://github.com/greenways-ai/hoplite/issues/187",
+    "directionalConcurrency": "https://github.com/greenways-ai/hoplite/issues/191",
+    "tls": "https://github.com/greenways-ai/hoplite/issues/192",
+    "udp": "https://github.com/greenways-ai/hoplite/issues/193",
+    "stableErrors": "https://github.com/greenways-ai/hoplite/issues/194",
+    "lifecycleFuzzing": "https://github.com/greenways-ai/hoplite/issues/195",
+    "observability": "https://github.com/greenways-ai/hoplite/issues/196"
+  },
+  "operationFiles": [
+    "openresty-cosocket-compatibility/core-connect.json",
+    "openresty-cosocket-compatibility/tcp-io.json",
+    "openresty-cosocket-compatibility/pooling.json",
+    "openresty-cosocket-compatibility/tls.json",
+    "openresty-cosocket-compatibility/udp.json"
+  ]
+}

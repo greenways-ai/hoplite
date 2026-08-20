@@ -1,0 +1,126 @@
+[
+  {
+    "id": "descriptor.authority",
+    "namespace": "hoplite.socket",
+    "function": "socket descriptor",
+    "openresty": "Lua cosocket userdata",
+    "hoplite": "opaque `hoplite.socket/0-alpha` typed descriptor",
+    "status": "extension",
+    "argumentResultMapping": "Hara exposes kind, protocol, and opaque handle metadata; native code additionally validates request/work/worker ownership and generation.",
+    "allowedPhases": "Suspended HTTP content handlers; phase expansion is tracked by #164.",
+    "yielding": "Descriptor validation may complete synchronously; network operations return host Promises.",
+    "timeouts": "Not applicable.",
+    "pooling": "A descriptor may own one active connection or be retired after successful keepalive transfer.",
+    "cleanupOwner": "Owning request/work, explicit close or transfer, cancellation/disconnect, and worker shutdown.",
+    "authority": "Request-scoped typed capability; not serializable or transferable.",
+    "implementationIssue": "https://github.com/greenways-ai/hoplite/issues/163",
+    "evidence": [
+      "core/lib/src/hoplite/socket.hal",
+      "core/runtime/tests/source_free_socket.rs"
+    ],
+    "notes": "This is a stronger Hoplite boundary rather than a Lua-compatible representation."
+  },
+  {
+    "id": "tcp.constructor",
+    "namespace": "hoplite.socket",
+    "function": "tcp",
+    "openresty": "ngx.socket.tcp()",
+    "hoplite": "(socket/tcp)",
+    "status": "compatible",
+    "argumentResultMapping": "No arguments.",
+    "allowedPhases": "Suspended HTTP content handlers; phase expansion is tracked by #164.",
+    "yielding": "Returns a host Promise and may complete synchronously.",
+    "timeouts": "No network timeout applies until an operation is configured.",
+    "pooling": "No pool membership until connect/checkout.",
+    "cleanupOwner": "Owning request/work, explicit close or transfer, cancellation/disconnect, and worker shutdown.",
+    "authority": "Request-scoped outbound socket provider.",
+    "implementationIssue": "https://github.com/greenways-ai/hoplite/issues/163",
+    "evidence": [
+      "core/lib/src/hoplite/socket.hal",
+      "core/runtime/tests/source_free_socket.rs",
+      "packaging/scripts/smoke-cosocket-tcp.sh"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "tcp.connect.numeric",
+    "namespace": "hoplite.socket",
+    "function": "connect",
+    "openresty": "sock:connect(host, port)",
+    "hoplite": "(socket/connect socket host port)",
+    "status": "compatible",
+    "argumentResultMapping": "Numeric IPv4/IPv6 host plus integer port; resolves `[1 nil]` or `[nil error]`.",
+    "allowedPhases": "Suspended HTTP content handlers; phase expansion is tracked by #164.",
+    "yielding": "Suspends on Nginx connect readiness without blocking a worker.",
+    "timeouts": "Uses the socket connect timeout.",
+    "pooling": "Checks out a matching idle connection when pool options identify one; otherwise opens a new connection.",
+    "cleanupOwner": "Owning request/work, explicit close or transfer, cancellation/disconnect, and worker shutdown.",
+    "authority": "Outbound destination policy plus request-scoped descriptor.",
+    "implementationIssue": "https://github.com/greenways-ai/hoplite/issues/163",
+    "evidence": [
+      "core/runtime/tests/source_free_socket.rs",
+      "packaging/scripts/smoke-cosocket-tcp.sh"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "tcp.connect.hostname",
+    "namespace": "hoplite.socket",
+    "function": "connect",
+    "openresty": "sock:connect(hostname, port)",
+    "hoplite": "(socket/connect socket hostname port)",
+    "status": "restricted",
+    "argumentResultMapping": "Same public host/port shape.",
+    "allowedPhases": "Suspended HTTP content handlers; phase expansion is tracked by #164.",
+    "yielding": "Suspends across resolver and connect readiness.",
+    "timeouts": "DNS and connect share the bounded connect budget and configured resolver timeout.",
+    "pooling": "Hostname identity remains distinct even when two names resolve to the same address.",
+    "cleanupOwner": "Owning request/work, explicit close or transfer, cancellation/disconnect, and worker shutdown.",
+    "authority": "Configured resolver and outbound destination policy.",
+    "implementationIssue": "https://github.com/greenways-ai/hoplite/issues/186",
+    "evidence": [
+      "core/runtime/tests/source_free_socket.rs",
+      "packaging/scripts/smoke-cosocket-tcp.sh"
+    ],
+    "notes": "Restricted only by explicit deployment resolver configuration; there is no blocking libc fallback."
+  },
+  {
+    "id": "tcp.connect.unix",
+    "namespace": "hoplite.socket",
+    "function": "connect",
+    "openresty": "sock:connect(\"unix:/absolute/path\")",
+    "hoplite": "(socket/connect socket \"unix:/absolute/path\")",
+    "status": "compatible",
+    "argumentResultMapping": "Explicit absolute `unix:/` target; resolves `[1 nil]` or `[nil error]`.",
+    "allowedPhases": "Suspended HTTP content handlers; phase expansion is tracked by #164.",
+    "yielding": "Suspends on Nginx Unix-stream connect readiness.",
+    "timeouts": "Uses the socket connect timeout.",
+    "pooling": "Unix targets use isolated pool identity and never collide with TCP host/port pools.",
+    "cleanupOwner": "Owning request/work, explicit close or transfer, cancellation/disconnect, and worker shutdown.",
+    "authority": "Request-scoped descriptor and deployment-visible Unix target policy.",
+    "implementationIssue": "https://github.com/greenways-ai/hoplite/issues/186",
+    "evidence": [
+      "core/runtime/tests/source_free_socket.rs",
+      "packaging/scripts/smoke-cosocket-tcp.sh"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "tcp.connect.convenience",
+    "namespace": "hoplite.socket",
+    "function": "connect convenience constructor",
+    "openresty": "ngx.socket.connect(...)",
+    "hoplite": "(socket/connect host port options) (planned convenience arity)",
+    "status": "pending",
+    "argumentResultMapping": "No one-call constructor is public yet; allocate with `(socket/tcp)` and then call `socket/connect`.",
+    "allowedPhases": "Suspended HTTP content handlers; phase expansion is tracked by #164.",
+    "yielding": "The planned convenience form must preserve the same coroutine and cleanup ownership.",
+    "timeouts": "Must use the same connect budget.",
+    "pooling": "Must accept the same pool identity options.",
+    "cleanupOwner": "Owning request/work, explicit close or transfer, cancellation/disconnect, and worker shutdown.",
+    "authority": "Same authority as `tcp` plus `connect`.",
+    "implementationIssue": "https://github.com/greenways-ai/hoplite/issues/163",
+    "evidence": [],
+    "notes": "The two-step public path is complete; only the convenience constructor remains."
+  }
+]

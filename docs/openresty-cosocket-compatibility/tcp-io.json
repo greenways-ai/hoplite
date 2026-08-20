@@ -1,0 +1,191 @@
+[
+  {
+    "id": "tcp.send",
+    "namespace": "hoplite.socket",
+    "function": "send",
+    "openresty": "sock:send(value)",
+    "hoplite": "(socket/send socket value)",
+    "status": "compatible",
+    "argumentResultMapping": "String or Bytes input; resolves `[bytes-sent nil]` or `[nil error]`.",
+    "allowedPhases": "Suspended HTTP content handlers; phase expansion is tracked by #164.",
+    "yielding": "Suspends on Nginx write readiness for partial kernel writes.",
+    "timeouts": "Uses the send timeout.",
+    "pooling": "A failed or ambiguous write prevents later pooling.",
+    "cleanupOwner": "Owning request/work, explicit close or transfer, cancellation/disconnect, and worker shutdown.",
+    "authority": "Active request-owned established descriptor.",
+    "implementationIssue": "https://github.com/greenways-ai/hoplite/issues/163",
+    "evidence": [
+      "core/runtime/tests/source_free_socket.rs",
+      "packaging/scripts/smoke-cosocket-tcp.sh"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "tcp.receive",
+    "namespace": "hoplite.socket",
+    "function": "receive",
+    "openresty": "sock:receive(pattern)",
+    "hoplite": "(socket/receive socket pattern)",
+    "status": "compatible",
+    "argumentResultMapping": "Supports positive fixed size, `\"*l\"`, and `\"*a\"`; resolves `[data nil nil]` or `[nil error partial]`.",
+    "allowedPhases": "Suspended HTTP content handlers; phase expansion is tracked by #164.",
+    "yielding": "Suspends on Nginx read readiness.",
+    "timeouts": "Uses the read timeout and preserves consumed partial bytes.",
+    "pooling": "Unread residue or dubious connection state prevents keepalive transfer.",
+    "cleanupOwner": "Owning request/work, explicit close or transfer, cancellation/disconnect, and worker shutdown.",
+    "authority": "Active request-owned established descriptor.",
+    "implementationIssue": "https://github.com/greenways-ai/hoplite/issues/163",
+    "evidence": [
+      "core/runtime/tests/source_free_socket.rs",
+      "packaging/scripts/smoke-cosocket-tcp.sh"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "tcp.receiveany",
+    "namespace": "hoplite.socket",
+    "function": "receiveany",
+    "openresty": "sock:receiveany(max)",
+    "hoplite": "(socket/receiveany socket max)",
+    "status": "adapted",
+    "argumentResultMapping": "Returns the closed three-slot receive vector rather than Lua's two-value shape; maximum is bounded to 1 MiB.",
+    "allowedPhases": "Suspended HTTP content handlers; phase expansion is tracked by #164.",
+    "yielding": "Returns after the first available bytes rather than filling the maximum.",
+    "timeouts": "Uses the read timeout and preserves partial bytes.",
+    "pooling": "Same cleanliness rule as `receive`.",
+    "cleanupOwner": "Owning request/work, explicit close or transfer, cancellation/disconnect, and worker shutdown.",
+    "authority": "Active request-owned established descriptor.",
+    "implementationIssue": "https://github.com/greenways-ai/hoplite/issues/163",
+    "evidence": [
+      "core/runtime/tests/source_free_socket.rs",
+      "packaging/scripts/smoke-cosocket-tcp.sh"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "tcp.receiveuntil",
+    "namespace": "hoplite.socket",
+    "function": "receiveuntil",
+    "openresty": "sock:receiveuntil(pattern, options)",
+    "hoplite": "(socket/receiveuntil socket pattern options)",
+    "status": "adapted",
+    "argumentResultMapping": "Awaiting the constructor returns a request-scoped Hara reader function; reader calls return closed receive vectors.",
+    "allowedPhases": "Suspended HTTP content handlers; phase expansion is tracked by #164.",
+    "yielding": "Constructor and reader calls use host Promises; delimiter state persists between calls.",
+    "timeouts": "Reader calls use the read timeout and preserve bounded leftovers.",
+    "pooling": "Pending reader state prevents pooling.",
+    "cleanupOwner": "Owning request/work, explicit close or transfer, cancellation/disconnect, and worker shutdown.",
+    "authority": "Reader and socket remain bound to the exact request/work/worker/generation.",
+    "implementationIssue": "https://github.com/greenways-ai/hoplite/issues/163",
+    "evidence": [
+      "core/runtime/tests/source_free_socket.rs",
+      "packaging/scripts/smoke-cosocket-tcp.sh"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "tcp.shutdown",
+    "namespace": "hoplite.socket",
+    "function": "shutdown",
+    "openresty": "sock:shutdown(\"send\")",
+    "hoplite": "(socket/shutdown socket \"send\")",
+    "status": "restricted",
+    "argumentResultMapping": "Only send-direction half-close is supported; other directions are programming errors.",
+    "allowedPhases": "Suspended HTTP content handlers; phase expansion is tracked by #164.",
+    "yielding": "May yield until queued output is handed to the native socket.",
+    "timeouts": "Uses send-side lifecycle/timeout policy.",
+    "pooling": "A half-closed connection is not eligible for keepalive.",
+    "cleanupOwner": "Owning request/work, explicit close or transfer, cancellation/disconnect, and worker shutdown.",
+    "authority": "Active request-owned established descriptor.",
+    "implementationIssue": "https://github.com/greenways-ai/hoplite/issues/163",
+    "evidence": [
+      "core/runtime/tests/source_free_socket.rs",
+      "packaging/scripts/smoke-cosocket-tcp.sh"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "tcp.settimeout",
+    "namespace": "hoplite.socket",
+    "function": "settimeout",
+    "openresty": "sock:settimeout(ms)",
+    "hoplite": "(socket/settimeout socket ms)",
+    "status": "compatible",
+    "argumentResultMapping": "Sets connect, send, and read timeouts to one bounded millisecond value; resolves `[1 nil]` or `[nil error]`.",
+    "allowedPhases": "Suspended HTTP content handlers; phase expansion is tracked by #164.",
+    "yielding": "Configuration normally completes synchronously through the host Promise.",
+    "timeouts": "Zero disables each corresponding timer.",
+    "pooling": "Timeout values remain descriptor state and influence new/reused operation budgets, not pool identity.",
+    "cleanupOwner": "Owning request/work, explicit close or transfer, cancellation/disconnect, and worker shutdown.",
+    "authority": "Owning request-scoped descriptor.",
+    "implementationIssue": "https://github.com/greenways-ai/hoplite/issues/163",
+    "evidence": [
+      "core/lib/src/hoplite/socket.hal",
+      "core/runtime/tests/source_free_socket.rs"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "tcp.settimeouts",
+    "namespace": "hoplite.socket",
+    "function": "settimeouts",
+    "openresty": "sock:settimeouts(connect, send, read)",
+    "hoplite": "(socket/settimeouts socket connect-ms send-ms read-ms)",
+    "status": "compatible",
+    "argumentResultMapping": "Sets three bounded millisecond values; resolves `[1 nil]` or `[nil error]`.",
+    "allowedPhases": "Suspended HTTP content handlers; phase expansion is tracked by #164.",
+    "yielding": "Configuration normally completes synchronously through the host Promise.",
+    "timeouts": "Independent connect/send/read budgets.",
+    "pooling": "Timeout values are reset as request-owned descriptor configuration after pool checkout.",
+    "cleanupOwner": "Owning request/work, explicit close or transfer, cancellation/disconnect, and worker shutdown.",
+    "authority": "Owning request-scoped descriptor.",
+    "implementationIssue": "https://github.com/greenways-ai/hoplite/issues/163",
+    "evidence": [
+      "core/lib/src/hoplite/socket.hal",
+      "core/runtime/tests/source_free_socket.rs"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "tcp.setoption",
+    "namespace": "hoplite.socket",
+    "function": "setoption",
+    "openresty": "sock:setoption(name, value)",
+    "hoplite": "(socket/setoption socket name value)",
+    "status": "restricted",
+    "argumentResultMapping": "Closed set: `keepalive`, `reuseaddr`, `tcp-nodelay`, `sndbuf`, and `rcvbuf`; no arbitrary `setsockopt` escape hatch.",
+    "allowedPhases": "Suspended HTTP content handlers; phase expansion is tracked by #164.",
+    "yielding": "Applies through a host Promise and normally completes synchronously.",
+    "timeouts": "No operation timer; native failure resolves as ordinary error.",
+    "pooling": "Connection-semantic option state participates in safe reuse eligibility/identity.",
+    "cleanupOwner": "Owning request/work, explicit close or transfer, cancellation/disconnect, and worker shutdown.",
+    "authority": "Established request-owned descriptor.",
+    "implementationIssue": "https://github.com/greenways-ai/hoplite/issues/163",
+    "evidence": [
+      "core/runtime/tests/source_free_socket.rs",
+      "packaging/scripts/smoke-cosocket-tcp.sh"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "tcp.close",
+    "namespace": "hoplite.socket",
+    "function": "close",
+    "openresty": "sock:close()",
+    "hoplite": "(socket/close socket)",
+    "status": "compatible",
+    "argumentResultMapping": "Resolves `[1 nil]` or `[nil error]`; descriptor retirement and request cleanup are exactly once.",
+    "allowedPhases": "Suspended HTTP content handlers; phase expansion is tracked by #164.",
+    "yielding": "Completes through the host Promise; pending native operations are torn down.",
+    "timeouts": "No new close-specific timeout.",
+    "pooling": "Explicit close never returns a connection to the pool.",
+    "cleanupOwner": "Owning request/work, explicit close or transfer, cancellation/disconnect, and worker shutdown.",
+    "authority": "Caller may close; request/work/worker cleanup remains the final owner.",
+    "implementationIssue": "https://github.com/greenways-ai/hoplite/issues/163",
+    "evidence": [
+      "core/runtime/tests/source_free_socket.rs",
+      "packaging/scripts/smoke-cosocket-tcp.sh"
+    ],
+    "notes": ""
+  }
+]
