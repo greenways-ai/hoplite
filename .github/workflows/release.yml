@@ -40,7 +40,6 @@ jobs:
         with:
           repository: hara-lang/hara
           path: hara
-          submodules: recursive
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - name: Resolve immutable release inputs
@@ -136,7 +135,6 @@ jobs:
           repository: hara-lang/hara
           ref: ${{ needs.prepare.outputs.hara_revision }}
           path: hara
-          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - name: Build deterministic HARP
         run: |
@@ -165,7 +163,6 @@ jobs:
           repository: hara-lang/hara
           ref: ${{ needs.prepare.outputs.hara_revision }}
           path: hara
-          submodules: recursive
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -208,7 +205,6 @@ jobs:
           repository: hara-lang/hara
           ref: ${{ needs.prepare.outputs.hara_revision }}
           path: hara
-          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - run: brew install openssl@3 pcre2
       - name: Build and smoke-test standalone executable
@@ -245,7 +241,6 @@ jobs:
           repository: hara-lang/hara
           ref: ${{ needs.prepare.outputs.hara_revision }}
           path: hara
-          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - name: Install native build dependencies
         run: |
