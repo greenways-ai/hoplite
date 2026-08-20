@@ -98,6 +98,7 @@ export default defineConfig({
             { label: "hoplite.nchan", slug: "reference/hoplite-nchan" },
             { label: "hoplite.rtc", slug: "reference/hoplite-rtc" },
             { label: "hoplite.socket", slug: "reference/hoplite-socket" },
+            { label: "OpenResty cosocket compatibility", slug: "reference/openresty-cosocket-compatibility" },
             { label: "hoplite.host", slug: "reference/hoplite-host" },
             { label: "hoplite.response-source", slug: "reference/hoplite-response-source" },
             { label: "hoplite.dev", slug: "reference/hoplite-dev" },

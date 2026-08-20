@@ -1,0 +1,38 @@
+[
+  {
+    "id": "tcp.sslhandshake",
+    "namespace": "hoplite.socket",
+    "function": "sslhandshake",
+    "openresty": "sock:sslhandshake(...)",
+    "hoplite": "(socket/sslhandshake ...)",
+    "status": "pending",
+    "argumentResultMapping": "Planned opaque session value, SNI, verification, and ordinary TLS result errors.",
+    "allowedPhases": "Suspended HTTP content handlers; phase expansion is tracked by #164.",
+    "yielding": "Handshake must alternate Nginx read/write readiness without blocking.",
+    "timeouts": "Bounded handshake budget derived from socket configuration.",
+    "pooling": "TLS identity extends destination pool identity with SNI, verification, trust, session, and client-certificate state.",
+    "cleanupOwner": "Owning request/work, explicit close or transfer, cancellation/disconnect, and worker shutdown.",
+    "authority": "Trusted deployment TLS configuration plus request descriptor.",
+    "implementationIssue": "https://github.com/greenways-ai/hoplite/issues/192",
+    "evidence": [],
+    "notes": ""
+  },
+  {
+    "id": "tcp.setclientcert",
+    "namespace": "hoplite.socket",
+    "function": "setclientcert",
+    "openresty": "sock:setclientcert(cert, key)",
+    "hoplite": "trusted certificate reference (planned)",
+    "status": "pending",
+    "argumentResultMapping": "Hara will use configured credential references rather than application-visible private-key bytes or native pointers.",
+    "allowedPhases": "Suspended HTTP content handlers; phase expansion is tracked by #164.",
+    "yielding": "Credential selection must not block the worker.",
+    "timeouts": "Handshake budget applies when the credential is consumed.",
+    "pooling": "Client identity is part of TLS pool identity.",
+    "cleanupOwner": "Owning request/work, explicit close or transfer, cancellation/disconnect, and worker shutdown.",
+    "authority": "Declared trusted credential authority.",
+    "implementationIssue": "https://github.com/greenways-ai/hoplite/issues/192",
+    "evidence": [],
+    "notes": ""
+  }
+]

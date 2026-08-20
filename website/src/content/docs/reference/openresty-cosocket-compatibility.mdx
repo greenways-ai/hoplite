@@ -1,0 +1,193 @@
+---
+title: OpenResty cosocket compatibility
+description: A living, evidence-backed map from OpenResty socket APIs to Hoplite's typed Hara surface.
+---
+
+<span class="doc-badge doc-badge--caution">Living contract</span>
+
+This page records the observable compatibility boundary between OpenResty's
+cosocket APIs and `hoplite.socket`. It is not a wishlist and it does not infer
+support from public function names. A row is treated as delivered only when the
+source-free runtime and a real Nginx fixture provide evidence.
+
+The umbrella implementation is tracked in
+[issue #163](https://github.com/greenways-ai/hoplite/issues/163). The complete
+fixtures, diagnostics, examples, and documentation programme is tracked in
+[issue #170](https://github.com/greenways-ai/hoplite/issues/170).
+
+The canonical row-level data lives in
+[`docs/openresty-cosocket-compatibility.json`](https://github.com/greenways-ai/hoplite/blob/main/docs/openresty-cosocket-compatibility.json).
+The website build validates its schema, status vocabulary, required operations,
+issue links, and evidence paths.
+
+## Status vocabulary
+
+| Status | Meaning |
+| --- | --- |
+| `compatible` | OpenResty code can be translated mechanically with equivalent observable behaviour. |
+| `adapted` | The capability is equivalent, but Hara uses an intentional typed or closed-result shape. |
+| `restricted` | The operation is available through a narrower phase, authority, configuration, direction, or option set. |
+| `extension` | Hoplite provides a stronger abstraction or guarantee that has no direct Lua representation. |
+| `not-planned` | The surface is deliberately excluded and the matrix records why. |
+| `pending` | The contract is specified, but an implementation issue still owns delivery and evidence. |
+
+## Delivered TCP surface
+
+The current production slice is an Nginx event-loop TCP implementation. It
+supports numeric IPv4 and IPv6, Nginx-resolved hostnames, explicit Unix-domain
+streams, bounded receive modes, send half-close, a closed socket-option set,
+and worker-local keepalive reuse.
+
+| OpenResty | Hoplite Hara | Status | Important boundary |
+| --- | --- | --- | --- |
+| `ngx.socket.tcp()` | `(await (socket/tcp))` | `compatible` | Returns an opaque typed descriptor rather than Lua userdata. |
+| `sock:connect(host, port)` | `(await (socket/connect sock host port))` | `compatible` | Numeric TCP uses Nginx nonblocking connect readiness. |
+| hostname `connect` | same form | `restricted` | Requires the configured Nginx resolver; no blocking libc fallback exists. |
+| `sock:connect("unix:/path")` | `(await (socket/connect sock "unix:/path"))` | `compatible` | Only explicit absolute `unix:/` targets enter the Unix-stream path. |
+| `pool` / `pool_size` connect options | `{:pool name :pool-size size}` | `adapted` | Hara keywords select a bounded worker-local pool identity. |
+| `sock:send(value)` | `(await (socket/send sock value))` | `compatible` | Strings and Bytes are bounded to 1 MiB per call. |
+| `sock:receive(n \| "*l" \| "*a")` | `(await (socket/receive sock pattern))` | `compatible` | Receive results always use the closed three-slot vector. |
+| `sock:receiveany(max)` | `(await (socket/receiveany sock max))` | `adapted` | Hoplite returns `[data nil nil]` or `[nil error partial]`. |
+| `sock:receiveuntil(pattern)` | `(await (socket/receiveuntil sock pattern options))` | `adapted` | The constructor returns a request-scoped Hara reader function. |
+| `sock:shutdown("send")` | `(await (socket/shutdown sock "send"))` | `restricted` | Only send-direction half-close is supported. |
+| `sock:settimeout(ms)` | `(await (socket/settimeout sock ms))` | `compatible` | Applies one bounded value to connect, send, and read. |
+| `sock:settimeouts(c, s, r)` | `(await (socket/settimeouts sock c s r))` | `compatible` | Connect, send, and read budgets are independent. |
+| `sock:setoption(name, value)` | `(await (socket/setoption sock name value))` | `restricted` | Only `keepalive`, `reuseaddr`, `tcp-nodelay`, `sndbuf`, and `rcvbuf` are accepted. |
+| `sock:setkeepalive(timeout?, size?)` | `(await (socket/setkeepalive sock timeout-ms? pool-size?))` | `compatible` | A successful transfer retires the caller descriptor. |
+| `sock:getreusedtimes()` | `(await (socket/getreusedtimes sock))` | `compatible` | Returns `[count nil]`; new connections report zero. |
+| `sock:close()` | `(await (socket/close sock))` | `compatible` | Explicit close and request cleanup retire the connection exactly once. |
+
+`await` above abbreviates `std.foundation.coroutine/await`.
+
+## Pool identity and reuse
+
+The keepalive implementation delivered by
+[PR #188](https://github.com/greenways-ai/hoplite/pull/188) is worker-local and
+bounded. Pool identity distinguishes numeric TCP, resolver-backed hostname TCP,
+and Unix-domain streams. Hostname pools retain hostname identity even when two
+names currently resolve to the same address.
+
+A connection is eligible for `setkeepalive` only when it is established, clean,
+not half-closed, and has no unread protocol residue or pending operation. Idle
+entries expire on a monotonic timer. Failed, dirty, stale, expired, or evicted
+entries are closed and never returned to another request.
+
+```clojure
+(ns example.pooled-line
+  (:require [hoplite.socket :as socket]))
+
+(defn ^:async exchange [host port request]
+  (let [client (std.foundation.coroutine/await (socket/tcp))
+        connected
+        (std.foundation.coroutine/await
+         (socket/connect
+          client
+          host
+          port
+          {:pool "line-service"
+           :pool-size 16}))]
+    (if
+     (get connected 1)
+     connected
+     (let [reused
+           (std.foundation.coroutine/await
+            (socket/getreusedtimes client))
+           sent
+           (std.foundation.coroutine/await
+            (socket/send client request))
+           received
+           (if (get sent 1)
+             [nil (get sent 1) nil]
+             (std.foundation.coroutine/await
+              (socket/receive client "*l")))
+           returned
+           (if (get received 1)
+             (std.foundation.coroutine/await (socket/close client))
+             (std.foundation.coroutine/await
+              (socket/setkeepalive client 30000 16)))]
+       {:reused (get reused 0)
+        :received received
+        :returned returned}))))
+```
+
+Nonzero `:backlog` remains pending. Omitted or zero backlog preserves the
+current immediate-capacity behaviour.
+
+## Result and error boundary
+
+Hoplite keeps network outcomes in ordinary closed vectors so translated
+OpenResty control flow does not require exceptions.
+
+| Category | Public shape | Examples |
+| --- | --- | --- |
+| Successful ordinary operation | `[value nil]` | connect, send, close, keepalive transfer |
+| Successful receive | `[data nil nil]` | fixed, line, all-data, any-data, delimiter reader |
+| Network or lifecycle failure | `[nil error]` | timeout, refusal, DNS failure, closed connection |
+| Receive failure with consumed bytes | `[nil error partial]` | timeout or close after a partial read |
+| Programming or authority failure | rejected Promise with structured `ex-info` | malformed arguments, wrong owner, stale generation, unsupported option |
+
+The current implementation already preserves familiar strings such as
+`timeout`, `closed`, `host not found`, and `resolver not configured`. The
+centralized, platform-stable catalogue and its native mapping tests are owned by
+[issue #194](https://github.com/greenways-ai/hoplite/issues/194). Until that
+lands, applications should rely on documented strings only and not on arbitrary
+operating-system wording.
+
+## Phase, yielding, and cleanup
+
+The delivered socket surface runs from suspended HTTP content handlers. Broader
+Nginx phase legality remains part of
+[issue #164](https://github.com/greenways-ai/hoplite/issues/164).
+
+Every network operation is owned by the exact request, work, worker, descriptor
+kind, and descriptor generation. Nginx owns the native socket and readiness
+events. Cancellation, client disconnect, timeout teardown, explicit close,
+request cleanup, and worker exit converge on exactly-once native cleanup.
+
+The current request host-operation scheduler serializes operations. It does not
+yet claim OpenResty's legal simultaneous one-reader/one-writer behaviour.
+Independent directional state and deterministic `socket busy reading` /
+`socket busy writing` results are owned by
+[issue #191](https://github.com/greenways-ai/hoplite/issues/191).
+
+## Pending delivery train
+
+| Order | Slice | Issue | Dependency boundary |
+| --- | --- | --- | --- |
+| 1 | Bounded connect backlog | [#187](https://github.com/greenways-ai/hoplite/issues/187) | Builds on the pool identity and idle reuse already merged in #188. |
+| 2 | One concurrent reader and writer | [#191](https://github.com/greenways-ai/hoplite/issues/191) | Splits directional state without adding another socket runtime. |
+| 3 | Stable public errors | [#194](https://github.com/greenways-ai/hoplite/issues/194) | Centralizes native, resolver, pool, TLS, and UDP mappings. |
+| 4 | Lifecycle fuzzing | [#195](https://github.com/greenways-ai/hoplite/issues/195) | Exercises backlog and directional cleanup invariants with reproducible seeds. |
+| 5 | TLS handshake and pooling identity | [#192](https://github.com/greenways-ai/hoplite/issues/192) | Extends pool identity with SNI, verification, trust, session, and client identity. |
+| 6 | UDP datagram transport | [#193](https://github.com/greenways-ai/hoplite/issues/193) | Uses a distinct packet lifecycle; no TCP pool or stream assumptions. |
+| Parallel | Structured events and bounded metrics | [#196](https://github.com/greenways-ai/hoplite/issues/196) | Adds observability without affecting socket completion or cleanup. |
+
+## TLS and UDP status
+
+`sslhandshake`, `setclientcert`, `udp`, and `setpeername` are deliberately
+absent from the current public HAL namespace. They are marked `pending`, not
+emulated through blocking libraries or raw host calls.
+
+TLS delivery must use Nginx/OpenSSL readiness, SNI and certificate verification,
+opaque session values, and TLS-aware pool identity. UDP delivery must preserve
+one-datagram-per-operation boundaries, zero-length datagrams, bounded truncation
+behaviour, timeout, and cancellation.
+
+## Evidence and update rule
+
+Delivered TCP rows point to both:
+
+- `core/runtime/tests/source_free_socket.rs`, which proves compiled
+  `hoplite.socket` continuations in a fresh source-free runtime; and
+- `packaging/scripts/smoke-cosocket-tcp.sh`, which exercises the production
+  bundle through real Nginx and a real peer.
+
+A future row may move from `pending` only in the same PR that adds or updates
+its evidence. Run the matrix verifier directly with:
+
+```bash
+node website/scripts/verify-cosocket-compatibility.mjs
+```
+
+The verifier also runs through `npm run verify:surfaces` and therefore through
+the normal website build.

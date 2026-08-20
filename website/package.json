@@ -7,7 +7,7 @@
     "dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev",
     "check": "ASTRO_TELEMETRY_DISABLED=1 astro check",
     "build": "npm run verify:surfaces && ASTRO_TELEMETRY_DISABLED=1 astro check && ASTRO_TELEMETRY_DISABLED=1 astro build && node scripts/scope-pages-links.mjs && node scripts/inject-legacy-host-redirect.mjs && npm run verify:pages && npm run verify:og",
-    "verify:surfaces": "node scripts/verify-product-surfaces.mjs",
+    "verify:surfaces": "node scripts/verify-product-surfaces.mjs && node scripts/verify-cosocket-compatibility.mjs",
     "verify:pages": "node scripts/verify-pages-output.mjs && node scripts/verify-homepage-layout.mjs",
     "verify:og": "node scripts/verify-social-preview.mjs",
     "preview": "ASTRO_TELEMETRY_DISABLED=1 astro preview"

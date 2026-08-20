@@ -1,22 +1,30 @@
 ---
 title: hoplite.socket
-description: OpenResty-compatible request-scoped TCP and UDP cosockets on the Nginx event loop.
+description: OpenResty-compatible request-scoped TCP cosockets on the Nginx event loop.
 ---
 
 <span class="doc-badge doc-badge--caution">Experimental</span>
 
-`hoplite.socket` is Hoplite's OpenResty-compatible cosocket surface. Network
-operations suspend the Hara coroutine while Nginx continues serving other
-connections. Application code uses typed namespace functions rather than public
-service and operation strings.
+`hoplite.socket` is Hoplite's typed OpenResty-compatible cosocket surface.
+Network operations suspend the Hara coroutine while Nginx continues serving
+other connections. Application code uses namespace functions; raw public
+service/operation strings and native socket handles are not part of the API.
 
-The current production stream slice provides numeric IPv4 and IPv6 addresses,
-hostnames resolved through Nginx, explicit Unix-domain targets, fixed, line,
-and all-data receive modes, `receiveany`, stateful `receiveuntil` delimiter
-readers, send-direction half-close, and a bounded `setoption` surface.
-Keepalive pools, TLS, concurrent read/write, and UDP remain tracked by the
-[cosocket programme](https://github.com/greenways-ai/hoplite/issues/163);
-they are not silently emulated with blocking I/O.
+The current production TCP slice provides:
+
+- numeric IPv4 and IPv6 connections;
+- hostname lookup through the configured nonblocking Nginx resolver;
+- explicit Unix-domain stream targets;
+- fixed, line, all-data, any-data, and delimiter receive modes;
+- send-direction half-close;
+- bounded timeout and socket-option configuration; and
+- worker-local keepalive pools with monotonic expiry, bounded capacity, and real
+  reuse counts.
+
+Bounded positive connect backlog, simultaneous one-reader/one-writer operation,
+TLS, and UDP remain pending. See the
+[OpenResty cosocket compatibility matrix](../openresty-cosocket-compatibility/)
+for row-level status, evidence, and implementation owners.
 
 ## Basic TCP client
 
@@ -50,29 +58,36 @@ they are not silently emulated with blocking I/O.
        received))))
 ```
 
-The descriptor returned by `tcp` is opaque request authority. Its numeric
-handle is validated against the exact request, work, worker, socket kind, and
-native generation. Do not persist it, place it in a shared zone, or transfer it
-to another request.
+## Descriptor authority
+
+`tcp` returns an opaque typed descriptor with protocol
+`hoplite.socket/0-alpha`. The visible numeric handle is not a file descriptor.
+Native validation binds it to the exact request, work, worker, socket kind, and
+generation.
+
+Do not persist a descriptor, place it in a shared zone, serialize it, or pass it
+to another request. Invalid, stale, wrong-kind, and wrong-owner descriptors
+reject with structured `ex-info`.
+
+A descriptor is retired exactly once by explicit `close`, successful
+`setkeepalive`, request cleanup, cancellation, client disconnect, timeout
+teardown, or worker shutdown.
 
 ## Result convention
 
-The API preserves OpenResty's ordinary error-return style:
+Network and lifecycle outcomes remain ordinary closed vectors.
 
-| Operation | Success | Network failure |
+| Operation | Success | Network/lifecycle failure |
 | --- | --- | --- |
-| `connect`, `shutdown`, `close`, timeout setters, `setoption` | `[1 nil]` | `[nil error]` |
+| `connect`, `shutdown`, `close`, timeout setters, `setoption`, `setkeepalive` | `[1 nil]` | `[nil error]` |
 | `send` | `[bytes-sent nil]` | `[nil error]` |
-| `receive` | `[data nil nil]` | `[nil error partial]` |
-| `receiveany` | `[data nil nil]` | `[nil error partial]` |
-| `receiveuntil` reader | `[data nil nil]` | `[nil error partial]` |
+| `receive`, `receiveany`, `receiveuntil` reader | `[data nil nil]` | `[nil error partial]` |
 | `getreusedtimes` | `[count nil]` | `[nil error]` |
 
-Invalid descriptors, malformed arguments, foreign handles, and unsupported
-operations reject the host Promise as programming or authority errors. Refused
-connections, DNS failures, timeouts, closure, and other network outcomes
-resolve as ordinary result vectors so translated OpenResty control flow remains
-natural.
+Malformed arguments, invalid option maps, foreign descriptors, and unsupported
+state transitions reject the host Promise as programming or authority errors.
+Refusal, DNS failure, timeout, peer closure, and other network outcomes resolve
+normally so mechanically translated OpenResty control flow remains natural.
 
 ## `tcp`
 
@@ -81,20 +96,21 @@ natural.
  (socket/tcp))
 ```
 
-Creates one request-scoped TCP descriptor. Request completion, disconnect,
-cancellation, timeout teardown, worker shutdown, or explicit `close` closes the
-native connection exactly once.
+Creates one request-scoped TCP descriptor. It does not open a native connection
+until `connect`.
 
 ## `connect`
 
-Numeric IPv4 and IPv6 destinations use the host-and-port form:
+### Numeric TCP
 
 ```clojure
 (std.foundation.coroutine/await
  (socket/connect client "127.0.0.1" 6379))
 ```
 
-A hostname uses the same public form:
+Numeric IPv4 and IPv6 connects run only through Nginx's nonblocking event loop.
+
+### Hostname TCP
 
 ```clojure
 (std.foundation.coroutine/await
@@ -102,50 +118,65 @@ A hostname uses the same public form:
 ```
 
 Hostname lookup runs only through the resolver configured in the Nginx HTTP
-context. Hoplite never calls blocking `getaddrinfo` or another libc resolver on
-a worker. A deployment configures the ordinary Nginx directives, for example:
+context:
 
 ```nginx
 http {
     resolver 10.0.0.2 ipv6=off valid=30s;
     resolver_timeout 2s;
-    # generated Hoplite configuration follows
 }
 ```
 
-The DNS timeout is bounded by both `resolver_timeout` and the socket's connect
-timeout. When several addresses are returned, Hoplite selects one in stable
-address order rather than depending on resolver response order. The selected
-address is copied into request-owned state before the resolver context is
-released.
+Hoplite never falls back to blocking `getaddrinfo`. The DNS and connect stages
+share the socket's connect budget, additionally bounded by `resolver_timeout`.
+When several addresses are returned, Hoplite selects one in stable address
+order.
 
 A missing resolver resolves as `[nil "resolver not configured"]`. NXDOMAIN
-resolves as `[nil "host not found"]`; timeout, resolver refusal, resolver
-failure, and later connect failure remain ordinary cosocket results. Request
-cancellation, client disconnect, explicit request cleanup, and worker exit call
-`ngx_resolve_name_done` exactly once and never fall back to blocking DNS.
+resolves as `[nil "host not found"]`. Resolver refusal, timeout, cancellation,
+client disconnect, and later connect failures remain ordinary cosocket results.
+The resolver context is released exactly once.
 
-The current connect options map remains empty. `pool`, `pool_size`, and
-`backlog` are introduced by the later keepalive-pool slice.
-
-Unix-domain stream sockets use the explicit two-argument target form:
+### Unix-domain stream
 
 ```clojure
 (std.foundation.coroutine/await
  (socket/connect client "unix:/run/example/service.sock"))
 ```
 
-Only absolute targets beginning with `unix:/` enter the Unix-domain branch. The
-path is parsed by Nginx, bounded by the platform `sockaddr_un` path capacity,
-and copied into request-owned native state before the call can suspend. Empty,
-relative, embedded-NUL, and overlong targets are programming errors. Missing or
-refused sockets resolve through the ordinary `[nil error]` network result.
+Only explicit absolute targets beginning with `unix:/` enter the Unix-domain
+path. Empty, relative, embedded-NUL, and overlong targets are programming
+errors. Missing or refused sockets use the normal `[nil error]` result.
 
-After connection, resolved-hostname and Unix-domain sockets use the same
-nonblocking `send`, `receive`, `receiveany`, `receiveuntil`, timeout, shutdown,
-close, cancellation, disconnect, and worker-exit lifecycle as numeric TCP
-connections. No blocking filesystem, resolver, or socket compatibility path is
-introduced.
+Numeric TCP, hostname TCP, and Unix-domain streams have isolated pool identity
+and never collide.
+
+### Pool options
+
+```clojure
+(std.foundation.coroutine/await
+ (socket/connect
+  client
+  "redis.internal"
+  6379
+  {:pool "redis-primary"
+   :pool-size 32
+   :backlog 0}))
+```
+
+The options map accepts:
+
+| Option | Current contract |
+| --- | --- |
+| `:pool` | Explicit stable pool name. |
+| `:pool-size` | Positive bounded worker-local capacity for the pool key. |
+| `:backlog` | May be omitted or zero. Positive bounded scheduling is pending in [#187](https://github.com/greenways-ai/hoplite/issues/187). |
+
+A matching clean idle connection is checked out before Hoplite creates a new
+native connection. Pool identity distinguishes transport, canonical
+destination, hostname identity, explicit pool name, and connection-semantic
+socket options. The identity is extensible for TLS SNI, verification, session,
+and client-certificate state.
 
 ## `send`
 
@@ -154,9 +185,9 @@ introduced.
  (socket/send client "PING\r\n"))
 ```
 
-Accepts strings or bytes up to 1 MiB per call. Partial kernel writes are resumed
-from the Nginx write event. A send timeout or connection error closes the
-connection because the protocol position is no longer safely reusable.
+Accepts String or Bytes values up to 1 MiB per call. Partial kernel writes resume
+from the Nginx write event. A send timeout or ambiguous connection failure
+closes the connection because its protocol position is no longer safe to reuse.
 
 ## `shutdown`
 
@@ -166,12 +197,12 @@ connection because the protocol position is no longer safely reusable.
 ```
 
 The current slice supports only the `"send"` direction. It sends the stream FIN
-after already queued bytes while leaving the receive direction open, allowing a
-peer that waits for end-of-request EOF to send its response on the same
-connection. Further `send` calls resolve as `[nil "closed"]`; receive operations
-and the final exactly-once `close` remain valid. Other direction values are
-rejected as programming errors rather than being approximated with a full
-close.
+after queued bytes while leaving receive open, which supports peers that wait
+for request EOF before responding.
+
+Further sends resolve as `[nil "closed"]`. Receive and exactly-once `close`
+remain valid. Other directions are programming errors rather than aliases for a
+full close. Half-closed connections are not eligible for keepalive.
 
 ## `receive`
 
@@ -181,8 +212,8 @@ close.
 (socket/receive client "*a")  ;; all bytes until the peer closes
 ```
 
-Every receive is bounded to 1 MiB in this alpha slice. A timeout or premature
-close returns the bytes already consumed as the third result value.
+Each call is bounded to 1 MiB. A timeout or premature close returns bytes already
+consumed in the third result slot.
 
 ## `receiveany`
 
@@ -190,11 +221,11 @@ close returns the bytes already consumed as the third result value.
 (socket/receiveany client 4096)
 ```
 
-Returns as soon as at least one byte is available, without waiting to fill the
-requested maximum or for the peer to close. The maximum must be from 1 through
-1,048,576 bytes. The result uses the same closed three-value receive shape as
-`receive`, even though the corresponding OpenResty Lua API exposes two return
-values.
+Returns after at least one byte is available, without waiting to fill the
+maximum or for peer EOF. The maximum is from 1 through 1,048,576 bytes.
+
+Unlike OpenResty's two-value Lua result, Hoplite preserves the closed receive
+shape: `[data nil nil]` or `[nil error partial]`.
 
 ## `receiveuntil`
 
@@ -202,31 +233,32 @@ values.
 (let [reader
       (std.foundation.coroutine/await
        (socket/receiveuntil client "--boundary--"))]
-  (std.foundation.coroutine/await (reader)))
+  (std.foundation.coroutine/await
+   (reader)))
 ```
 
-Awaiting `receiveuntil` creates one request-scoped reader function. Calling
-that function without a size returns the bytes before the next delimiter.
-The reader may be called repeatedly and preserves bytes after each match.
-Delimiters may span any number of Nginx kernel-read boundaries.
+Awaiting the constructor creates one request-scoped reader function. Calling it
+without a size returns the bytes before the next delimiter. The reader may be
+called repeatedly and preserves bytes after each match. Delimiters may span any
+number of kernel-read boundaries.
 
-Pass `{:inclusive true}` to include the delimiter itself:
+Use `{:inclusive true}` to include the delimiter:
 
 ```clojure
 (socket/receiveuntil client "_END_" {:inclusive true})
 ```
 
-Passing a positive size turns the reader into a bounded iterator. It
-returns chunks until the delimiter is consumed, then returns
-`[nil nil nil]` once before resetting for the next delimiter:
+A positive reader size creates bounded chunks. Once the delimiter is consumed,
+the reader returns `[nil nil nil]` once before resetting for the next delimiter:
 
 ```clojure
-(std.foundation.coroutine/await (reader 4096))
+(std.foundation.coroutine/await
+ (reader 4096))
 ```
 
-Patterns are bounded to 4096 bytes and individual results to 1 MiB. A
-read timeout leaves the connection open and returns consumed bytes as the
-partial value. Other connection failures close the connection.
+Patterns are bounded to 4096 bytes and individual results to 1 MiB. A read
+timeout leaves the connection open and returns consumed bytes as the partial
+value. Other connection failures close it.
 
 ## Timeouts
 
@@ -236,10 +268,11 @@ partial value. Other connection failures close the connection.
 ```
 
 Timeouts are milliseconds from `0` through `3,600,000`. Zero disables the
-corresponding timer. `settimeout` assigns one value to connect, send, and read;
-`settimeouts` sets them independently. For hostname connects, the connect
-budget begins before DNS and the remaining duration is used for the evented
-socket connect.
+corresponding timer.
+
+`settimeout` applies one value to connect, send, and read. `settimeouts` assigns
+them independently. For hostname connects, the connect budget begins before
+DNS; only the remaining duration is available to the native connect stage.
 
 ## `setoption`
 
@@ -251,19 +284,91 @@ socket connect.
 (socket/setoption client "rcvbuf" 32768)
 ```
 
-`setoption` is available only after `connect` has established a stream
-connection. The current compatibility set is deliberately closed to the five
-OpenResty options above. `keepalive`, `reuseaddr`, and `tcp-nodelay` accept a
-boolean or `0`/`1`; `sndbuf` and `rcvbuf` accept integers from `0` through the
-native `INT_MAX`. Unsupported names, invalid values, and options unsupported by
-the connected transport are errors rather than an arbitrary native
-`setsockopt` escape hatch.
+`setoption` is available only on an established connection. The compatibility
+set is deliberately closed:
 
-The option is applied directly to the request-owned native socket. A kernel
-`setsockopt` failure resolves as `[nil error]`; success resolves as `[1 nil]`.
-Options remain effective until the connection closes. The later keepalive-pool
-slice must preserve option-sensitive connection semantics rather than silently
-reusing an incompatible pooled connection.
+- `keepalive`, `reuseaddr`, and `tcp-nodelay` accept Boolean or `0`/`1`;
+- `sndbuf` and `rcvbuf` accept bounded non-negative integers.
+
+Unsupported names and values are programming errors rather than an arbitrary
+native `setsockopt` escape hatch. Kernel application failure resolves as
+`[nil error]`.
+
+Connection-semantic option state participates in safe reuse eligibility and
+pool identity. Hoplite never silently reuses an incompatible connection.
+
+## Keepalive pooling
+
+### Return a connection
+
+```clojure
+(std.foundation.coroutine/await
+ (socket/setkeepalive client 30000 32))
+```
+
+Arity forms are:
+
+```clojure
+(socket/setkeepalive client)
+(socket/setkeepalive client idle-timeout-ms)
+(socket/setkeepalive client idle-timeout-ms pool-size)
+```
+
+A successful call returns `[1 nil]`, transfers the clean established connection
+to its worker-local idle pool, and retires the descriptor. Do not use that
+descriptor again.
+
+A connection is rejected rather than pooled when it is closed, failed,
+half-closed, unread/dirty, has pending state, has become stale, or cannot enter
+the bounded pool. Request cleanup does not close a connection after ownership
+has successfully transferred to the pool.
+
+Idle entries use monotonic expiry. EOF, peer data, reset, timeout, error,
+deterministic eviction, worker reload, and worker exit close them exactly once.
+
+### Read the reuse count
+
+```clojure
+(std.foundation.coroutine/await
+ (socket/getreusedtimes client))
+```
+
+Returns `[count nil]`. A newly established connection reports zero. Each prior
+successful checkout from the matching worker-local pool increments the count.
+
+## `close`
+
+```clojure
+(std.foundation.coroutine/await
+ (socket/close client))
+```
+
+Closes the native connection and retires the descriptor. Request cleanup is
+idempotent with explicit close. `close` never returns a connection to a pool.
+
+## Error compatibility
+
+The public API already uses stable ordinary errors for key outcomes, including
+`timeout`, `closed`, `host not found`, and `resolver not configured`.
+
+The centralized platform-independent error catalogue, including refusal/reset,
+same-direction busy, backlog, TLS, UDP, and policy outcomes, is tracked by
+[issue #194](https://github.com/greenways-ai/hoplite/issues/194). Application
+code should not depend on arbitrary operating-system `strerror` wording.
+
+## Phase and concurrency boundary
+
+The delivered slice runs from suspended HTTP content handlers. Broader phase
+legality remains tracked by
+[issue #164](https://github.com/greenways-ai/hoplite/issues/164).
+
+The current request host-operation scheduler serializes native operations. It
+does not yet claim OpenResty's simultaneous one-reader/one-writer legality.
+Independent directional state and deterministic same-direction busy results are
+tracked by [issue #191](https://github.com/greenways-ai/hoplite/issues/191).
+
+No production path uses a blocking resolver, blocking socket compatibility
+library, source evaluation, or a second socket runtime.
 
 ## OpenResty translation
 
@@ -272,6 +377,7 @@ reusing an incompatible pooled connection.
 | `ngx.socket.tcp()` | `(await (socket/tcp))` |
 | `sock:connect(host, port)` | `(await (socket/connect sock host port))` |
 | `sock:connect("unix:/path")` | `(await (socket/connect sock "unix:/path"))` |
+| `sock:connect(host, port, {pool=..., pool_size=...})` | `(await (socket/connect sock host port {:pool ... :pool-size ...}))` |
 | `sock:send(value)` | `(await (socket/send sock value))` |
 | `sock:shutdown("send")` | `(await (socket/shutdown sock "send"))` |
 | `sock:receive("*l")` | `(await (socket/receive sock "*l"))` |
@@ -280,19 +386,22 @@ reusing an incompatible pooled connection.
 | `sock:settimeout(ms)` | `(await (socket/settimeout sock ms))` |
 | `sock:settimeouts(c, s, r)` | `(await (socket/settimeouts sock c s r))` |
 | `sock:setoption(name, value)` | `(await (socket/setoption sock name value))` |
+| `sock:setkeepalive(timeout, size)` | `(await (socket/setkeepalive sock timeout size))` |
 | `sock:getreusedtimes()` | `(await (socket/getreusedtimes sock))` |
 | `sock:close()` | `(await (socket/close sock))` |
 
-`await` above abbreviates `std.foundation.coroutine/await`.
+`await` abbreviates `std.foundation.coroutine/await`.
 
-## Current phase and concurrency boundary
+## Pending APIs
 
-This slice runs from suspended HTTP content handlers. Hoplite currently
-serializes native host operations within one request, so it does not yet claim
-OpenResty's simultaneous one-reader/one-writer behaviour. The typed Nginx phase
-and cancellation work in
-[issue #164](https://github.com/greenways-ai/hoplite/issues/164) supplies the
-phase-legality registry and concurrent directional operations.
+These names are not silently emulated:
 
-No production path uses a blocking resolver or socket compatibility
-implementation.
+| Surface | Owner |
+| --- | --- |
+| Positive bounded connect backlog | [#187](https://github.com/greenways-ai/hoplite/issues/187) |
+| Concurrent one-reader/one-writer state | [#191](https://github.com/greenways-ai/hoplite/issues/191) |
+| `sslhandshake` and configured client identity | [#192](https://github.com/greenways-ai/hoplite/issues/192) |
+| `udp`, `setpeername`, UDP send/receive | [#193](https://github.com/greenways-ai/hoplite/issues/193) |
+| Stable complete error mapping | [#194](https://github.com/greenways-ai/hoplite/issues/194) |
+| Deterministic lifecycle fuzzing | [#195](https://github.com/greenways-ai/hoplite/issues/195) |
+| Structured lifecycle events and bounded metrics | [#196](https://github.com/greenways-ai/hoplite/issues/196) |
