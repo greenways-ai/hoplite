@@ -34,7 +34,6 @@ jobs:
           repository: hara-lang/hara
           ref: ${{ env.HARA_REF }}
           path: hara
-          submodules: recursive
       - name: Validate the fixture harness
         run: bash -n hoplite/packaging/scripts/smoke-cosocket-tcp.sh
       - name: Build the source-free TCP cosocket application
