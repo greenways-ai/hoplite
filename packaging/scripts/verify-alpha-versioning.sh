@@ -34,8 +34,15 @@ case "$hara_revision" in
     ;;
 esac
 test "${#hara_revision}" -eq 40
-grep -F "HARA_REF: $hara_revision" .github/workflows/ci.yml >/dev/null
-grep -F "HARA_REF: $hara_revision" .github/workflows/cosocket.yml >/dev/null
+for workflow in .github/workflows/ci.yml .github/workflows/cosocket.yml; do
+  grep -F "revision=\"\$(tr -d '[:space:]' < packaging/hara-revision)\"" \
+    "$workflow" >/dev/null
+  grep -F 'ref: ${{ steps.hara.outputs.revision }}' "$workflow" >/dev/null
+done
+if git grep -n -E 'HARA_REF:[[:space:]]+[0-9a-f]{40}' -- .github/workflows; then
+  echo "workflow duplicates the canonical packaging/hara-revision pin" >&2
+  exit 1
+fi
 
 grep -F 'docs/versioning.md' README.md >/dev/null
 grep -F 'hoplite.application-bundle/0-alpha' docs/application-bundle.md >/dev/null
