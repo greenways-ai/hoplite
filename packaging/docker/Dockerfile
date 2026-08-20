@@ -25,6 +25,7 @@ FROM scratch AS application-artifacts
 COPY --from=builder /app/.hoplite/ /
 
 FROM debian:bookworm-slim
+ARG HOPLITE_DEFAULT_WORKERS=auto
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl libpcre2-8-0 libssl3 zlib1g \
     && rm -rf /var/lib/apt/lists/*
@@ -35,7 +36,7 @@ COPY --from=builder /src/hoplite/core/target/release/hoplite-server /usr/local/b
 COPY --from=builder --chown=hoplite:hoplite /app/.hoplite /app/.hoplite
 USER hoplite
 ENV HOPLITE_SERVER_CACHE=/var/lib/hoplite/cache \
-    HOPLITE_WORKERS=auto
+    HOPLITE_WORKERS=${HOPLITE_DEFAULT_WORKERS}
 VOLUME ["/var/lib/hoplite"]
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 CMD curl --fail --silent http://127.0.0.1:8080/hello >/dev/null || exit 1
