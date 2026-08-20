@@ -155,4 +155,4 @@ sequential even though several events may become ready independently.
 `Test/run` awaits the returned Promise. The test does not need `deref` or a
 separate async testing library.
 
-Next: [Duplex transports and Relay](../duplex-relay/).
+Next: [Durable work and live streams](../durable-work/).
