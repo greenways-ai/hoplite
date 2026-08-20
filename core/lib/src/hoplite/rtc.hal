@@ -1,4 +1,5 @@
 (ns hoplite.rtc
+  (:require [std.stream.duplex :as duplex])
   (:config {}))
 
 (defn host-call
@@ -48,7 +49,7 @@
 (defn connect
   "Composes an already-signalled RTC session as a portable stream Duplex."
   [handle]
-  (Duplex/create
+  (duplex/create
    (receive-stream handle)
    (fn [item]
      (host-call "send" [handle item]))
