@@ -1,6 +1,136 @@
 (ns hoplite.rtc
-  (:require [std.stream.duplex :as duplex])
   (:config {}))
+
+(defstruct RtcDuplex [source write-fn close-fn abort-fn state])
+
+(defn duplex-rejected
+  [error]
+  (promise/new (fn [_ reject] (reject error))))
+
+(defn create-duplex
+  [source write-fn close-fn abort-fn]
+  (if (not (satisfies? IStream source))
+    (throw
+     (ex :io
+         {:error/type :hoplite.rtc/invalid-duplex-source
+          :source source}
+         :ex/message "RTC Duplex source must satisfy IStream")))
+  (if (not (fn? write-fn))
+    (throw
+     (ex :io
+         {:error/type :hoplite.rtc/invalid-duplex-write}
+         :ex/message "RTC Duplex write callback must be callable")))
+  (RtcDuplex source
+             write-fn
+             close-fn
+             abort-fn
+             (atom {:closed false :error nil})))
+
+(defn duplex-state
+  [duplex]
+  (deref (:state duplex)))
+
+(defn duplex-closed?
+  [duplex]
+  (:closed (duplex-state duplex)))
+
+(defn duplex-next
+  [duplex]
+  (let [current (duplex-state duplex)]
+    (cond
+      (:error current)
+      (duplex-rejected (:error current))
+
+      (:closed current)
+      (promise/from nil)
+
+      :else
+      (promise/then
+       (IStream/next (:source duplex))
+       (fn [value] value)))))
+
+(defn duplex-write
+  [duplex value]
+  (let [current (duplex-state duplex)]
+    (cond
+      (:error current)
+      (duplex-rejected (:error current))
+
+      (:closed current)
+      (duplex-rejected
+       (ex :io
+           {:error/type :hoplite.rtc/duplex-closed}
+           :ex/message "Cannot write to a closed RTC Duplex"))
+
+      :else
+      (promise/from ((:write-fn duplex) value)))))
+
+(defn duplex-close
+  [duplex]
+  (loop []
+    (let [current (duplex-state duplex)]
+      (if (:closed current)
+        duplex
+        (if (cas! (:state duplex)
+                  current
+                  (assoc current :closed true))
+          (do
+            (try
+              (IClose/close (:source duplex))
+              (catch Throwable ignored nil))
+            (if (:close-fn duplex)
+              ((:close-fn duplex))
+              nil)
+            duplex)
+          (recur))))))
+
+(defn duplex-abort
+  [duplex error]
+  (let [error
+        (or error
+            (ex :io
+                {:error/type :hoplite.rtc/duplex-aborted}
+                :ex/message "RTC Duplex aborted"))]
+    (loop []
+      (let [current (duplex-state duplex)]
+        (if (:closed current)
+          duplex
+          (if (cas! (:state duplex)
+                    current
+                    {:closed true :error error})
+            (do
+              (try
+                (if (satisfies? IAbort (:source duplex))
+                  (IAbort/abort (:source duplex) error)
+                  (IClose/close (:source duplex)))
+                (catch Throwable ignored nil))
+              (if (:abort-fn duplex)
+                ((:abort-fn duplex) error)
+                (if (:close-fn duplex)
+                  ((:close-fn duplex))
+                  nil))
+              duplex)
+            (recur)))))))
+
+(extend-type RtcDuplex IStream
+  (next [duplex]
+    (duplex-next duplex)))
+
+(extend-type RtcDuplex IStreamWrite
+  (write [duplex value]
+    (duplex-write duplex value)))
+
+(extend-type RtcDuplex IClose
+  (close [duplex]
+    (duplex-close duplex)))
+
+(extend-type RtcDuplex IAbort
+  (abort [duplex error]
+    (duplex-abort duplex error)))
+
+(extend-type RtcDuplex IClosed
+  (closed? [duplex]
+    (duplex-closed? duplex)))
 
 (defn host-call
   [operation arguments]
@@ -49,9 +179,10 @@
 (defn connect
   "Composes an already-signalled RTC session as a portable stream Duplex."
   [handle]
-  (duplex/create
+  (create-duplex
    (receive-stream handle)
    (fn [item]
      (host-call "send" [handle item]))
    (fn []
-     (host-call "close" [handle]))))
+     (host-call "close" [handle]))
+   nil))
