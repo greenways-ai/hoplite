@@ -42,8 +42,16 @@ jobs:
           docker build \
             -f hoplite/packaging/docker/Dockerfile \
             --build-arg HOPLITE_APP=packaging/fixtures/cosocket-tcp \
+            --build-arg HOPLITE_DEFAULT_WORKERS=1 \
             -t hoplite-cosocket-tcp \
             .
+      - name: Verify the fixture worker override
+        run: |
+          workers="$(docker image inspect \
+            --format '{{range .Config.Env}}{{println .}}{{end}}' \
+            hoplite-cosocket-tcp \
+            | sed -n 's/^HOPLITE_WORKERS=//p')"
+          test "$workers" = 1
       - name: Verify the production artifact contains no Hara source
         run: bash hoplite/packaging/scripts/assert-production-image.sh hoplite-cosocket-tcp
       - name: Prove connect, send, receive, receiveany, close, and cleanup
