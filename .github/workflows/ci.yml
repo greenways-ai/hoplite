@@ -63,7 +63,6 @@ jobs:
           repository: hara-lang/hara
           ref: ${{ env.HARA_REF }}
           path: hara
-          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -169,7 +168,6 @@ jobs:
           repository: hara-lang/hara
           ref: ${{ steps.hara.outputs.revision }}
           path: hara
-          submodules: recursive
       - name: Build the generic production image
         run: docker build -f hoplite/packaging/docker/Dockerfile -t hoplite-ci .
       - name: Prove reproducible source-free application output
