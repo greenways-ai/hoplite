@@ -32,7 +32,6 @@ jobs:
           repository: hara-lang/hara
           ref: ${{ steps.hara.outputs.revision }}
           path: hara
-          submodules: recursive
       - name: Install benchmark tools
         run: |
           sudo apt-get update
