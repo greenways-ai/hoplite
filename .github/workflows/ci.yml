@@ -1,9 +1,6 @@
 name: CI
 
 env:
-  # Hoplite consumes one reviewed Hara source revision until the embedding
-  # runtime is available as a published dependency.
-  HARA_REF: a9d9a98cfe20ba9166b30c1e8de6e71e73ee98d8
   # Cargo is invoked from the parent of the hoplite checkout, so repository
   # .cargo configuration is not discovered by CI. Match the normal Linux
   # process stack used by the builder and worker for evaluator-heavy tests.
@@ -32,9 +29,16 @@ jobs:
       - uses: actions/checkout@v5
         with:
           path: hoplite
-      - name: Verify the reviewed Hara revision
+      - name: Resolve the reviewed Hara revision
+        id: hara
         working-directory: hoplite
-        run: test "$(tr -d '[:space:]' < packaging/hara-revision)" = "$HARA_REF"
+        run: |
+          revision="$(tr -d '[:space:]' < packaging/hara-revision)"
+          case "$revision" in
+            ''|*[!0-9a-f]*) echo "invalid Hara revision: $revision" >&2; exit 1 ;;
+          esac
+          test "${#revision}" -eq 40
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
       - name: Verify the alpha version policy
         working-directory: hoplite
         run: bash packaging/scripts/verify-alpha-versioning.sh
@@ -61,7 +65,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
-          ref: ${{ env.HARA_REF }}
+          ref: ${{ steps.hara.outputs.revision }}
           path: hara
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -162,7 +166,13 @@ jobs:
       - name: Resolve the reviewed Hara revision
         id: hara
         working-directory: hoplite
-        run: echo "revision=$(tr -d '[:space:]' < packaging/hara-revision)" >> "$GITHUB_OUTPUT"
+        run: |
+          revision="$(tr -d '[:space:]' < packaging/hara-revision)"
+          case "$revision" in
+            ''|*[!0-9a-f]*) echo "invalid Hara revision: $revision" >&2; exit 1 ;;
+          esac
+          test "${#revision}" -eq 40
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
