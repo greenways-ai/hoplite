@@ -24,10 +24,8 @@
 (defn- invalid-socket
   [value]
   (throw
-   (ex-info
-    "invalid hoplite.socket/0-alpha descriptor"
-    {:phase :socket/invalid-descriptor
-     :value value})))
+   (ex :hoplite.ex/invalid-socket {:phase :socket/invalid-descriptor
+     :value value} :ex/message "invalid hoplite.socket/0-alpha descriptor" :ex/class :hoplite.class/socket)))
 
 (defn require-socket
   "Returns a validated socket descriptor or throws a structured error."

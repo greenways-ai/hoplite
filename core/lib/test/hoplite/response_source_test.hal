@@ -100,7 +100,10 @@
        [(ex-message error)
         (ex-data error)]))
    ["invalid hoplite.response-source/0-alpha"
-    {:phase :response-source/invalid
+    {:ex/code :hoplite.ex/invalid-response-source
+     :ex/class :hoplite.class/response-source
+     :ex/message "invalid hoplite.response-source/0-alpha"
+     :phase :response-source/invalid
      :reason :descriptor}])
 
   (test-check
@@ -109,7 +112,10 @@
      (source/source-length {:source-handle 17})
      (catch Throwable error
        (ex-data error)))
-   {:phase :response-source/invalid
+   {:ex/code :hoplite.ex/invalid-response-source
+    :ex/class :hoplite.class/response-source
+    :ex/message "invalid hoplite.response-source/0-alpha"
+    :phase :response-source/invalid
     :reason :descriptor})
 
   (test-check

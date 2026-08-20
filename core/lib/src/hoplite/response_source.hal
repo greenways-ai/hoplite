@@ -66,10 +66,8 @@
 (defn invalid
   [reason]
   (throw
-   (ex-info
-    "invalid hoplite.response-source/0-alpha"
-    {:phase :response-source/invalid
-     :reason reason})))
+   (ex :hoplite.ex/invalid-response-source {:phase :response-source/invalid
+     :reason reason} :ex/message "invalid hoplite.response-source/0-alpha" :ex/class :hoplite.class/response-source)))
 
 (defn require-response-source
   "Returns value when it is a valid response source, otherwise throws."
