@@ -1,5 +1,21 @@
 # AGENTS.md
 
+## Connector-first delivery
+
+GitHub issues, pull requests, native relationships, checks, and repository
+documents are authoritative. GitHub Projects are visual projections of that
+state, not a separate source of truth.
+
+Use the organisation workflow in
+[greenways-ai/.github](https://github.com/greenways-ai/.github/blob/main/docs/connector-first-delivery.md).
+Before implementing an issue, read its relationships and linked pull requests,
+then follow this repository's local documentation and validation instructions.
+
+Every executable issue must define Outcome, Scope, Acceptance criteria,
+Validation, Relationships, Readiness, and Delivery. Keep durable decisions and
+progress in the issue or pull request so that they remain visible through the
+GitHub connector; do not rely on chat history as the only record.
+
 ## GitHub publication contract
 
 These rules are mandatory whenever a user asks to open, create, raise, or publish a pull request; push a branch; or implement changes and publish them to GitHub.
