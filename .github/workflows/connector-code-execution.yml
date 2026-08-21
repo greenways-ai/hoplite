@@ -1,0 +1,209 @@
+name: Connector code execution
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches:
+      - 'agent/**'
+      - 'chat/**'
+      - 'codex/**'
+      - 'copilot/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: connector-code-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUST_MIN_STACK: 8388608
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hoplite
+    outputs:
+      runtime: ${{ steps.scope.outputs.runtime }}
+      contracts: ${{ steps.scope.outputs.contracts }}
+      website: ${{ steps.scope.outputs.website }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: hoplite
+          fetch-depth: 0
+      - name: Validate the committed connector contract
+        run: |
+          bash -n scripts/connector/detect-code-scope scripts/connector/run-code
+          scripts/connector/detect-code-scope --self-test
+      - name: Select executable scopes
+        id: scope
+        env:
+          CONNECTOR_BASE_REF: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
+          CONNECTOR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+        run: scripts/connector/detect-code-scope
+
+  runtime:
+    needs: contract
+    if: needs.contract.outputs.runtime == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hoplite
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: hoplite
+      - name: Resolve the reviewed Hara revision
+        id: hara
+        run: echo "revision=$(tr -d '[:space:]' < packaging/hara-revision)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: hara-lang/hara
+          ref: ${{ steps.hara.outputs.revision }}
+          path: hara
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt,clippy
+      - name: Execute runtime scope
+        run: scripts/connector/run-code runtime
+      - name: Record execution evidence
+        if: success()
+        run: |
+          mkdir -p connector-evidence
+          cat > connector-evidence/runtime.txt <<EOF
+          repository=greenways-ai/hoplite
+          scope=runtime
+          base=${{ github.event.pull_request.base.sha || github.event.before || 'manual' }}
+          head=${{ github.sha }}
+          run=${{ github.run_id }}
+          attempt=${{ github.run_attempt }}
+          command=scripts/connector/run-code runtime
+          EOF
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: connector-runtime-${{ github.run_id }}-${{ github.run_attempt }}
+          path: hoplite/connector-evidence/runtime.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  contracts:
+    needs: contract
+    if: needs.contract.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hoplite
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: hoplite
+      - name: Resolve the reviewed Hara revision
+        id: hara
+        run: echo "revision=$(tr -d '[:space:]' < packaging/hara-revision)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: hara-lang/hara
+          ref: ${{ steps.hara.outputs.revision }}
+          path: hara
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt,clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Execute contracts scope
+        run: scripts/connector/run-code contracts
+      - name: Record execution evidence
+        if: success()
+        run: |
+          mkdir -p connector-evidence
+          cat > connector-evidence/contracts.txt <<EOF
+          repository=greenways-ai/hoplite
+          scope=contracts
+          base=${{ github.event.pull_request.base.sha || github.event.before || 'manual' }}
+          head=${{ github.sha }}
+          run=${{ github.run_id }}
+          attempt=${{ github.run_attempt }}
+          command=scripts/connector/run-code contracts
+          EOF
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: connector-contracts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: hoplite/connector-evidence/contracts.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  website:
+    needs: contract
+    if: needs.contract.outputs.website == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hoplite
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: hoplite
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: hoplite/website/package-lock.json
+      - name: Execute website scope
+        run: scripts/connector/run-code website
+      - name: Record execution evidence
+        if: success()
+        run: |
+          mkdir -p connector-evidence
+          cat > connector-evidence/website.txt <<EOF
+          repository=greenways-ai/hoplite
+          scope=website
+          base=${{ github.event.pull_request.base.sha || github.event.before || 'manual' }}
+          head=${{ github.sha }}
+          run=${{ github.run_id }}
+          attempt=${{ github.run_attempt }}
+          command=scripts/connector/run-code website
+          EOF
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: connector-website-${{ github.run_id }}-${{ github.run_attempt }}
+          path: hoplite/connector-evidence/website.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  evidence-gate:
+    if: always()
+    needs:
+      - contract
+      - runtime
+      - contracts
+      - website
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a truthful connector result
+        env:
+          CONTRACT: ${{ needs.contract.result }}
+          RUNTIME: ${{ needs.runtime.result }}
+          CONTRACTS: ${{ needs.contracts.result }}
+          WEBSITE: ${{ needs.website.result }}
+        run: |
+          set -euo pipefail
+          test "$CONTRACT" = success
+          for result in "$RUNTIME" "$CONTRACTS" "$WEBSITE"; do
+            case "$result" in
+              success|skipped) ;;
+              *) echo "unexpected connector scope result: $result" >&2; exit 1 ;;
+            esac
+          done

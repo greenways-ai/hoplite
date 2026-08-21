@@ -108,3 +108,18 @@ Head: <branch> @ <verified SHA>
 Base: <base branch>
 Validation: <commands actually run>
 ```
+
+## ChatGPT GitHub connector programming workflow
+
+Programming tasks initiated through the ChatGPT web application must follow
+[`.github/CHATGPT_PROJECT_WORKFLOW.md`](.github/CHATGPT_PROJECT_WORKFLOW.md).
+Use the issue, task branch, commit, draft pull request, Actions runs, and repair
+history as the durable execution record.
+
+The committed execution contract is
+[`.github/workflows/connector-code-execution.yml`](.github/workflows/connector-code-execution.yml)
+together with [`scripts/connector/`](scripts/connector/). It is read-only with
+respect to repository contents. Do not create a one-off repository-mutating
+workflow as a substitute for connector delivery. Product release, deployment,
+materializer, and agent-adapter workflows remain domain-specific and are not
+delivery shortcuts.
