@@ -27,10 +27,10 @@ grep -F 'pub const RUNTIME_ABI_VERSION: u32 = 5;' \
   core/application-bundle/src/lib.rs >/dev/null
 
 test "$(tr -d '[:space:]' < packaging/hara-revision)" = \
-  '2bb38e5fffa301ff372da866f4079e88f3dde1ea'
-grep -F 'HARA_REF: 2bb38e5fffa301ff372da866f4079e88f3dde1ea' \
+  '4e19805cd6cdb62cca834914818bbe1a6275894b'
+grep -F 'HARA_REF: 4e19805cd6cdb62cca834914818bbe1a6275894b' \
   .github/workflows/ci.yml >/dev/null
-grep -F 'HARA_REF: 2bb38e5fffa301ff372da866f4079e88f3dde1ea' \
+grep -F 'HARA_REF: 4e19805cd6cdb62cca834914818bbe1a6275894b' \
   .github/workflows/cosocket.yml >/dev/null
 
 grep -F 'docs/versioning.md' README.md >/dev/null
