@@ -15,6 +15,7 @@ body_file="$(mktemp)"
 headers_file="$(mktemp)"
 resolver_config="$(mktemp)"
 blackhole_config="$(mktemp)"
+backlog_dir="$(mktemp -d)"
 
 cleanup() {
   docker rm -f \
@@ -30,6 +31,7 @@ cleanup() {
     "$headers_file" \
     "$resolver_config" \
     "$blackhole_config"
+  rm -rf "$backlog_dir"
 }
 trap cleanup EXIT INT TERM
 
@@ -190,6 +192,41 @@ request_keepalive_unix_at() {
   cat "$body_file"
 }
 
+request_backlog_at() {
+  local base="$1"
+  local pool="$2"
+  local backlog_mode="$3"
+  local timeout_mode="$4"
+  local body headers status
+  body="$(mktemp "${backlog_dir}/body.XXXXXX")"
+  headers="$(mktemp "${backlog_dir}/headers.XXXXXX")"
+  status="$(curl --silent --show-error \
+    --connect-timeout 1 \
+    --max-time 6 \
+    --header "x-cosocket-host: ${echo_ip}" \
+    --header "x-cosocket-pool: ${pool}" \
+    --header "x-cosocket-backlog: ${backlog_mode}" \
+    --header "x-cosocket-timeout: ${timeout_mode}" \
+    --dump-header "$headers" \
+    --output "$body" \
+    --write-out '%{http_code}' \
+    "$base/cosocket/backlog" || true)"
+  if [[ "$status" != 200 ]]; then
+    echo "/cosocket/backlog failed; status: $status" >&2
+    cat "$headers" >&2 || true
+    cat "$body" >&2 || true
+    diagnose
+    return 1
+  fi
+  if ! tr -d '\r' < "$headers" \
+    | grep -Fqi 'x-hoplite-cosocket: tcp-backlog'; then
+    echo '/cosocket/backlog omitted its native backlog identity header.' >&2
+    diagnose
+    return 1
+  fi
+  cat "$body"
+}
+
 assert_keepalive_pair() {
   local first="$1"
   local second="$2"
@@ -206,6 +243,32 @@ assert_keepalive_pair() {
     || [[ "$first_reused" != 0 ]] \
     || [[ "$second_reused" != 1 ]]; then
     echo "$label did not reuse one persistent connection: $first / $second" >&2
+    diagnose
+    exit 1
+  fi
+}
+
+assert_backlog_fifo() {
+  local first="$1"
+  local second="$2"
+  local third="$3"
+  local first_connection first_request first_reused
+  local second_connection second_request second_reused
+  local third_connection third_request third_reused
+
+  IFS=':|' read -r first_connection first_request first_reused <<<"$first"
+  IFS=':|' read -r second_connection second_request second_reused <<<"$second"
+  IFS=':|' read -r third_connection third_request third_reused <<<"$third"
+  if [[ -z "$first_connection" ]] \
+    || [[ "$first_connection" != "$second_connection" ]] \
+    || [[ "$first_connection" != "$third_connection" ]] \
+    || [[ "$first_request" != 1 ]] \
+    || [[ "$second_request" != 2 ]] \
+    || [[ "$third_request" != 3 ]] \
+    || [[ "$first_reused" != 0 ]] \
+    || [[ "$second_reused" != 1 ]] \
+    || [[ "$third_reused" != 2 ]]; then
+    echo "bounded FIFO backlog did not serialize one pool slot: $first / $second / $third" >&2
     diagnose
     exit 1
   fi
@@ -290,6 +353,11 @@ def serve(connection):
                 break
             request_count += 1
             if data == b"keepalive\n":
+                connection.sendall(
+                    f"{identifier}:{request_count}\n".encode("ascii"))
+                continue
+            if data == b"backlog\n":
+                time.sleep(0.6)
                 connection.sendall(
                     f"{identifier}:{request_count}\n".encode("ascii"))
                 continue
@@ -510,6 +578,79 @@ request_expect_at \
   'connection in dubious state' \
   tcp-keepalive-dirty
 
+fifo_first_file="${backlog_dir}/fifo-first"
+fifo_second_file="${backlog_dir}/fifo-second"
+fifo_third_file="${backlog_dir}/fifo-third"
+request_backlog_at "$base" backlog-fifo two normal >"$fifo_first_file" &
+fifo_first_pid=$!
+sleep .10
+request_backlog_at "$base" backlog-fifo two normal >"$fifo_second_file" &
+fifo_second_pid=$!
+sleep .10
+request_backlog_at "$base" backlog-fifo two normal >"$fifo_third_file" &
+fifo_third_pid=$!
+sleep .10
+fifo_overflow="$(request_backlog_at "$base" backlog-fifo two normal)"
+if [[ "$fifo_overflow" != 'too many waiting connect operations' ]]; then
+  echo "bounded backlog did not reject overflow: $fifo_overflow" >&2
+  diagnose
+  exit 1
+fi
+wait "$fifo_first_pid"
+wait "$fifo_second_pid"
+wait "$fifo_third_pid"
+fifo_first="$(cat "$fifo_first_file")"
+fifo_second="$(cat "$fifo_second_file")"
+fifo_third="$(cat "$fifo_third_file")"
+assert_backlog_fifo "$fifo_first" "$fifo_second" "$fifo_third"
+
+zero_holder_file="${backlog_dir}/zero-holder"
+request_backlog_at "$base" backlog-zero zero normal >"$zero_holder_file" &
+zero_holder_pid=$!
+sleep .10
+zero_full="$(request_backlog_at "$base" backlog-zero zero normal)"
+if [[ "$zero_full" != 'connection pool full' ]]; then
+  echo "zero backlog did not reject a full pool: $zero_full" >&2
+  diagnose
+  exit 1
+fi
+wait "$zero_holder_pid"
+
+timeout_holder_file="${backlog_dir}/timeout-holder"
+request_backlog_at "$base" backlog-timeout one normal >"$timeout_holder_file" &
+timeout_holder_pid=$!
+sleep .10
+timeout_result="$(request_backlog_at "$base" backlog-timeout one short)"
+if [[ "$timeout_result" != timeout ]]; then
+  echo "queued connect did not consume its connect timeout: $timeout_result" >&2
+  diagnose
+  exit 1
+fi
+wait "$timeout_holder_pid"
+timeout_holder="$(cat "$timeout_holder_file")"
+timeout_follow="$(request_backlog_at "$base" backlog-timeout one normal)"
+assert_keepalive_pair "$timeout_holder" "$timeout_follow" \
+  'backlog timeout removal'
+
+cancel_holder_file="${backlog_dir}/cancel-holder"
+request_backlog_at "$base" backlog-cancel one normal >"$cancel_holder_file" &
+cancel_holder_pid=$!
+sleep .10
+curl --silent --show-error \
+  --connect-timeout 1 \
+  --max-time 0.12 \
+  --header "x-cosocket-host: ${echo_ip}" \
+  --header 'x-cosocket-pool: backlog-cancel' \
+  --header 'x-cosocket-backlog: one' \
+  --header 'x-cosocket-timeout: normal' \
+  "$base/cosocket/backlog" >/dev/null 2>&1 || true
+sleep .10
+cancel_follow="$(request_backlog_at "$base" backlog-cancel one normal)"
+wait "$cancel_holder_pid"
+cancel_holder="$(cat "$cancel_holder_file")"
+assert_keepalive_pair "$cancel_holder" "$cancel_follow" \
+  'backlog cancellation removal'
+
 for request in $(seq 1 5); do
   request_expect_at "$base" /cosocket/echo ping tcp-event-loop
 done
@@ -562,5 +703,33 @@ if ! docker stop --time 3 "$cancel_container" >/dev/null; then
   exit 1
 fi
 
-printf 'Validated numeric, Unix-domain, and Nginx-resolved TCP cosockets; worker-local keepalive reuse, identity isolation, expiry, and dirty rejection; bounded DNS failure, missing-resolver failure, cancellation, receive patterns, setoption, and send shutdown through %s.\n' \
+curl --silent --show-error \
+  --connect-timeout 1 \
+  --max-time 5 \
+  --header "x-cosocket-host: ${echo_ip}" \
+  --header 'x-cosocket-pool: backlog-worker-exit' \
+  --header 'x-cosocket-backlog: one' \
+  --header 'x-cosocket-timeout: normal' \
+  "$base/cosocket/backlog" >/dev/null 2>&1 &
+shutdown_holder_pid=$!
+sleep .10
+curl --silent --show-error \
+  --connect-timeout 1 \
+  --max-time 5 \
+  --header "x-cosocket-host: ${echo_ip}" \
+  --header 'x-cosocket-pool: backlog-worker-exit' \
+  --header 'x-cosocket-backlog: one' \
+  --header 'x-cosocket-timeout: normal' \
+  "$base/cosocket/backlog" >/dev/null 2>&1 &
+shutdown_waiter_pid=$!
+sleep .10
+if ! docker stop --time 3 "$app_container" >/dev/null; then
+  echo 'Worker shutdown did not drain the cosocket backlog.' >&2
+  diagnose
+  exit 1
+fi
+wait "$shutdown_holder_pid" >/dev/null 2>&1 || true
+wait "$shutdown_waiter_pid" >/dev/null 2>&1 || true
+
+printf 'Validated numeric, Unix-domain, and Nginx-resolved TCP cosockets; worker-local keepalive reuse and bounded FIFO backlog admission, overflow, zero-backlog capacity, timeout, cancellation, and worker-shutdown draining; identity isolation, expiry, dirty rejection, bounded DNS failure, resolver cancellation, receive patterns, setoption, and send shutdown through %s.\n' \
   "$image"
