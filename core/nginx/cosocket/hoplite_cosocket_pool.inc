@@ -332,16 +332,29 @@ hoplite_cosocket_pool_connection_clean(ngx_connection_t *connection)
 }
 
 static void
+hoplite_cosocket_pool_idle_write_handler(ngx_event_t *event)
+{
+    (void) event;
+}
+
+static void
 hoplite_cosocket_pool_idle_handler(ngx_event_t *event)
 {
     ngx_connection_t *connection = event == NULL ? NULL : event->data;
     hoplite_cosocket_pool_idle_t *entry =
         connection == NULL ? NULL : connection->data;
 
-    if (entry != NULL && entry->connection == connection) {
-        hoplite_cosocket_pool_idle_close(entry);
-        hoplite_cosocket_pool_wake_waiters();
+    if (entry == NULL || entry->connection != connection) {
+        return;
     }
+    if (hoplite_cosocket_pool_connection_clean(connection)) {
+        event->ready = 0;
+        if (ngx_handle_read_event(event, 0) == NGX_OK) {
+            return;
+        }
+    }
+    hoplite_cosocket_pool_idle_close(entry);
+    hoplite_cosocket_pool_wake_waiters();
 }
 
 static hoplite_cosocket_pool_idle_t *
@@ -1280,7 +1293,7 @@ hoplite_cosocket_pool_setkeepalive(const hoplite_host_call_v1_t *call,
     connection->data = entry;
     connection->idle = 1;
     connection->read->handler = hoplite_cosocket_pool_idle_handler;
-    connection->write->handler = hoplite_cosocket_pool_idle_handler;
+    connection->write->handler = hoplite_cosocket_pool_idle_write_handler;
     connection->read->log = socket->log;
     connection->write->log = socket->log;
 
@@ -1297,6 +1310,9 @@ hoplite_cosocket_pool_setkeepalive(const hoplite_host_call_v1_t *call,
             call, 0, 0, "could not monitor idle connection");
         hoplite_cosocket_pool_wake_waiters();
         return rc;
+    }
+    if (connection->read->ready) {
+        hoplite_cosocket_pool_idle_handler(connection->read);
     }
     rc = hoplite_cosocket_complete_ordinary_call(call, 1, 1, NULL);
     hoplite_cosocket_pool_wake_waiters();
