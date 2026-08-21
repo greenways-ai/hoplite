@@ -1,0 +1,81 @@
+name: Apply directional include-order fix
+
+on:
+  push:
+    branches:
+      - agent/191-directional-cosocket-io
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/191-directional-cosocket-io
+          fetch-depth: 0
+
+      - name: Localize Nginx feature setup
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          header = Path("core/nginx/hoplite_host_provider.h")
+          source = header.read_text()
+          old = '''#ifndef HOPLITE_HOST_PROVIDER_H
+          #define HOPLITE_HOST_PROVIDER_H
+
+          /*
+           * Nginx feature-test macros must be established before any libc header is
+           * parsed.  This header is the first include in the composed cosocket
+           * translation unit, so load ngx_config.h before stddef/stdint.
+           */
+          #include <ngx_config.h>
+
+          #include <stddef.h>
+          '''
+          new = '''#ifndef HOPLITE_HOST_PROVIDER_H
+          #define HOPLITE_HOST_PROVIDER_H
+
+          #include <stddef.h>
+          '''
+          if source.count(old) != 1:
+              raise SystemExit(
+                  f"expected one public-header include block, found {source.count(old)}"
+              )
+          header.write_text(source.replace(old, new))
+
+          directional = Path(
+              "core/nginx/cosocket/hoplite_cosocket_directional.c"
+          )
+          source = directional.read_text()
+          old = '''#define HOPLITE_COSOCKET_BASE_IMPLEMENTATION 1
+
+          #include "hoplite_host_provider.h"
+          '''
+          new = '''#include <ngx_config.h>
+
+          #define HOPLITE_COSOCKET_BASE_IMPLEMENTATION 1
+
+          #include "hoplite_host_provider.h"
+          '''
+          if source.count(old) != 1:
+              raise SystemExit(
+                  f"expected one directional preamble, found {source.count(old)}"
+              )
+          directional.write_text(source.replace(old, new))
+          PY
+
+          git rm -- .github/workflows/agent-apply-directional-include-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- \
+            core/nginx/hoplite_host_provider.h \
+            core/nginx/cosocket/hoplite_cosocket_directional.c
+          git diff --cached --check
+          git commit -m "fix: localize Nginx feature macro setup"
+          git push origin HEAD:agent/191-directional-cosocket-io
