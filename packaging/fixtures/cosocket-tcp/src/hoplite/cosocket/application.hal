@@ -527,7 +527,11 @@
   (let [headers (get request :headers)
         host (get headers "x-cosocket-host")
         pool-name (or (get headers "x-cosocket-pool") "backlog-fixture")
-        backlog (if (= "one" (get headers "x-cosocket-backlog")) 1 2)
+        backlog
+        (if
+         (= "zero" (get headers "x-cosocket-backlog"))
+         0
+         (if (= "one" (get headers "x-cosocket-backlog")) 1 2))
         connect-timeout (if (= "short" (get headers "x-cosocket-timeout")) 120 2500)
         client (std.foundation.coroutine/await (socket/tcp))
         configured
