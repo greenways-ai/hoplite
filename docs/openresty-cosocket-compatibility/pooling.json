@@ -26,17 +26,20 @@
     "function": "connect",
     "openresty": "sock:connect(host, port, {backlog=n})",
     "hoplite": "(socket/connect socket host port {:backlog n})",
-    "status": "pending",
-    "argumentResultMapping": "Omitted or zero backlog is accepted.",
+    "status": "adapted",
+    "argumentResultMapping": "Lua backlog becomes the Hara :backlog keyword. Zero rejects at capacity; positive values admit a bounded FIFO queue and overflow is an ordinary cosocket error.",
     "allowedPhases": "Suspended HTTP content handlers; phase expansion is tracked by #164.",
-    "yielding": "Planned waiters suspend without threads, condition variables, or polling.",
-    "timeouts": "Backlog wait must consume the same connect timeout budget.",
-    "pooling": "Bounded per-pool FIFO wait queue; cancellation/removal exactly once.",
+    "yielding": "Queued waiters suspend without threads, condition variables, busy polling, or a second socket runtime.",
+    "timeouts": "Backlog wait consumes the same connect timeout budget; only the remaining budget is available after admission.",
+    "pooling": "Bounded per-pool FIFO wait queue with idle handoff before new connection creation and cancellation/removal exactly once.",
     "cleanupOwner": "Owning request/work, explicit close or transfer, cancellation/disconnect, and worker shutdown.",
-    "authority": "Exact request/work/call ownership retained while queued.",
+    "authority": "Exact request/work/call ownership is retained while queued; native descriptors remain private to Nginx.",
     "implementationIssue": "https://github.com/greenways-ai/hoplite/issues/187",
-    "evidence": [],
-    "notes": ""
+    "evidence": [
+      "core/runtime/tests/source_free_socket.rs",
+      "packaging/scripts/smoke-cosocket-tcp.sh"
+    ],
+    "notes": "Backlog is explicitly bounded to 0..4096 per connect request."
   },
   {
     "id": "tcp.setkeepalive",

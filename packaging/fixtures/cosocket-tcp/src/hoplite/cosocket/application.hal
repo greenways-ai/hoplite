@@ -522,6 +522,77 @@
                    "x-hoplite-cosocket" "tcp-keepalive-dirty"}
          :body (or (get returned 1) "pooled")})))))
 
+(defn ^:async backlog-echo
+  [request]
+  (let [headers (get request :headers)
+        host (get headers "x-cosocket-host")
+        pool-name (or (get headers "x-cosocket-pool") "backlog-fixture")
+        backlog
+        (if
+         (= "zero" (get headers "x-cosocket-backlog"))
+         0
+         (if (= "one" (get headers "x-cosocket-backlog")) 1 2))
+        connect-timeout (if (= "short" (get headers "x-cosocket-timeout")) 120 2500)
+        client (std.foundation.coroutine/await (socket/tcp))
+        configured
+        (std.foundation.coroutine/await
+         (socket/settimeouts client connect-timeout 1000 1000))
+        connected
+        (std.foundation.coroutine/await
+         (socket/connect
+          client host 19091
+          {:pool pool-name :pool-size 1 :backlog backlog}))]
+    (if
+     (get connected 1)
+     (do
+       (std.foundation.coroutine/await (socket/close client))
+       {:status 200
+        :headers {"content-type" "text/plain; charset=utf-8"
+                  "x-hoplite-cosocket" "tcp-backlog"}
+        :body (get connected 1)})
+     (let [reused
+           (std.foundation.coroutine/await
+            (socket/getreusedtimes client))
+           sent
+           (std.foundation.coroutine/await
+            (socket/send client "backlog\n"))
+           received
+           (if
+            (get sent 1)
+            [nil (get sent 1) nil]
+            (std.foundation.coroutine/await
+             (socket/receive client "*l")))]
+       (cond
+        (get reused 1)
+        (do
+          (std.foundation.coroutine/await (socket/close client))
+          (failure-response "backlog-reused" reused))
+        (get sent 1)
+        (do
+          (std.foundation.coroutine/await (socket/close client))
+          (failure-response "backlog-send" sent))
+        (get received 1)
+        (do
+          (std.foundation.coroutine/await (socket/close client))
+          (failure-response "backlog-receive" received))
+        :else
+        (let [returned
+              (std.foundation.coroutine/await
+               (socket/setkeepalive client 5000 1))]
+          (if
+           (get returned 1)
+           (do
+             (std.foundation.coroutine/await (socket/close client))
+             (failure-response "backlog-setkeepalive" returned))
+           {:status 200
+            :headers {"content-type" "text/plain; charset=utf-8"
+                      "x-hoplite-cosocket" "tcp-backlog"}
+            :body
+            (str
+             (string/decode-utf8 (get received 0))
+             "|"
+             (get reused 0))})))))))
+
 (def app
   (h/app
    {:name "cosocket-tcp"
@@ -577,4 +648,8 @@
      ["/cosocket/keepalive-dirty"
       {:get {:name "cosocket-tcp-keepalive-dirty"
              :summary "Rejects a connection with unread protocol residue"
-             :handler #'keepalive-dirty}}]]}))
+             :handler #'keepalive-dirty}}]
+     ["/cosocket/backlog"
+      {:get {:name "cosocket-tcp-backlog"
+             :summary "Queues bounded FIFO connects behind one worker-local pool slot"
+             :handler #'backlog-echo}}]]}))

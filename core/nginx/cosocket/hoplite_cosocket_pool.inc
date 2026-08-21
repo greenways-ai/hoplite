@@ -3,6 +3,7 @@
 
 #define HOPLITE_COSOCKET_POOL_DEFAULT_SIZE 30u
 #define HOPLITE_COSOCKET_POOL_MAX_SIZE 1024u
+#define HOPLITE_COSOCKET_POOL_MAX_BACKLOG 4096u
 #define HOPLITE_COSOCKET_POOL_DEFAULT_TIMEOUT 60000
 #define HOPLITE_COSOCKET_POOL_MAX_KEY 1024u
 
@@ -10,10 +11,13 @@ typedef struct hoplite_cosocket_pool_active_s
     hoplite_cosocket_pool_active_t;
 typedef struct hoplite_cosocket_pool_idle_s
     hoplite_cosocket_pool_idle_t;
+typedef struct hoplite_cosocket_pool_waiter_s
+    hoplite_cosocket_pool_waiter_t;
 
 typedef struct {
     ngx_str_t key;
     ngx_uint_t size;
+    ngx_uint_t backlog;
     ngx_flag_t numeric;
 } hoplite_cosocket_pool_spec_t;
 
@@ -41,9 +45,47 @@ struct hoplite_cosocket_pool_idle_s {
     hoplite_cosocket_pool_idle_t *next;
 };
 
+struct hoplite_cosocket_pool_waiter_s {
+    hoplite_host_call_v1_t call;
+    hoplite_cosocket_t *socket;
+    void *owner;
+    ngx_pool_t *pool;
+    ngx_str_t key;
+    ngx_str_t arguments;
+    ngx_event_t timer;
+    ngx_msec_t started;
+    ngx_msec_t timeout;
+    ngx_uint_t size;
+    ngx_uint_t backlog;
+    ngx_flag_t numeric;
+    ngx_flag_t linked;
+    ngx_flag_t done;
+    hoplite_cosocket_pool_waiter_t *prev;
+    hoplite_cosocket_pool_waiter_t *next;
+};
+
 static hoplite_cosocket_pool_active_t *hoplite_cosocket_pool_active;
 static hoplite_cosocket_pool_idle_t *hoplite_cosocket_pool_idle;
+static hoplite_cosocket_pool_waiter_t *hoplite_cosocket_pool_wait_head;
+static hoplite_cosocket_pool_waiter_t *hoplite_cosocket_pool_wait_tail;
 static uint64_t hoplite_cosocket_pool_serial;
+static ngx_flag_t hoplite_cosocket_pool_waking;
+
+static void hoplite_cosocket_pool_wake_waiters(void);
+
+static void
+hoplite_cosocket_pool_read_handler(ngx_event_t *event)
+{
+    hoplite_cosocket_read_handler(event);
+    hoplite_cosocket_pool_wake_waiters();
+}
+
+static void
+hoplite_cosocket_pool_write_handler(ngx_event_t *event)
+{
+    hoplite_cosocket_write_handler(event);
+    hoplite_cosocket_pool_wake_waiters();
+}
 
 static ngx_flag_t
 hoplite_cosocket_pool_key_equal(const u_char *left,
@@ -93,6 +135,7 @@ hoplite_cosocket_pool_active_cleanup(void *data)
     }
     state->socket = NULL;
     ngx_free(state);
+    hoplite_cosocket_pool_wake_waiters();
 }
 
 static hoplite_cosocket_pool_active_t *
@@ -109,6 +152,35 @@ hoplite_cosocket_pool_active_find(hoplite_cosocket_t *socket)
         }
     }
     return NULL;
+}
+
+static ngx_uint_t
+hoplite_cosocket_pool_active_count(const u_char *key, size_t key_len)
+{
+    hoplite_cosocket_pool_active_t *state;
+    hoplite_cosocket_t *socket;
+    ngx_uint_t count = 0;
+
+    for (state = hoplite_cosocket_pool_active;
+         state != NULL;
+         state = state->next)
+    {
+        socket = state->socket;
+        if (state->released || !state->linked || socket == NULL
+            || socket->released || socket->closed
+            || !hoplite_cosocket_pool_key_equal(
+                state->key, state->key_len, key, key_len))
+        {
+            continue;
+        }
+        if (socket->connected
+            || socket->connection != NULL
+            || socket->pending == HOPLITE_COSOCKET_PENDING_CONNECT)
+        {
+            count++;
+        }
+    }
+    return count;
 }
 
 static void
@@ -260,15 +332,29 @@ hoplite_cosocket_pool_connection_clean(ngx_connection_t *connection)
 }
 
 static void
+hoplite_cosocket_pool_idle_write_handler(ngx_event_t *event)
+{
+    (void) event;
+}
+
+static void
 hoplite_cosocket_pool_idle_handler(ngx_event_t *event)
 {
     ngx_connection_t *connection = event == NULL ? NULL : event->data;
     hoplite_cosocket_pool_idle_t *entry =
         connection == NULL ? NULL : connection->data;
 
-    if (entry != NULL && entry->connection == connection) {
-        hoplite_cosocket_pool_idle_close(entry);
+    if (entry == NULL || entry->connection != connection) {
+        return;
     }
+    if (hoplite_cosocket_pool_connection_clean(connection)) {
+        event->ready = 0;
+        if (ngx_handle_read_event(event, 0) == NGX_OK) {
+            return;
+        }
+    }
+    hoplite_cosocket_pool_idle_close(entry);
+    hoplite_cosocket_pool_wake_waiters();
 }
 
 static hoplite_cosocket_pool_idle_t *
@@ -327,6 +413,13 @@ hoplite_cosocket_pool_idle_count(const u_char *key, size_t key_len)
     return count;
 }
 
+static ngx_uint_t
+hoplite_cosocket_pool_capacity_used(const u_char *key, size_t key_len)
+{
+    return hoplite_cosocket_pool_active_count(key, key_len)
+        + hoplite_cosocket_pool_idle_count(key, key_len);
+}
+
 static hoplite_cosocket_pool_idle_t *
 hoplite_cosocket_pool_oldest(const u_char *key, size_t key_len)
 {
@@ -368,6 +461,7 @@ static ngx_int_t
 hoplite_cosocket_pool_options(const hoplite_hta_value_t *options,
                               ngx_str_t *name,
                               ngx_uint_t *size,
+                              ngx_uint_t *backlog,
                               const char **error)
 {
     hoplite_hta_value_t *name_value, *size_value, *backlog_value;
@@ -383,6 +477,7 @@ hoplite_cosocket_pool_options(const hoplite_hta_value_t *options,
     }
     ngx_memzero(name, sizeof(*name));
     *size = HOPLITE_COSOCKET_POOL_DEFAULT_SIZE;
+    *backlog = 0;
 
     name_value = hoplite_hta_map_get(options, "pool");
     if (name_value != NULL) {
@@ -417,15 +512,16 @@ hoplite_cosocket_pool_options(const hoplite_hta_value_t *options,
     if (backlog_value != NULL) {
         recognized++;
         if (hoplite_hta_number(backlog_value, &number) != NGX_OK
-            || number != 0)
+            || number < 0 || number > HOPLITE_COSOCKET_POOL_MAX_BACKLOG)
         {
-            *error = "positive cosocket :backlog lands in the next pool slice";
+            *error = "cosocket :backlog must be between 0 and 4096";
             return NGX_ERROR;
         }
+        *backlog = (ngx_uint_t) number;
     }
 
     if (recognized != options->as.map.count) {
-        *error = "cosocket connect supports only :pool, :pool-size, and zero :backlog";
+        *error = "cosocket connect supports only :pool, :pool-size, and :backlog";
         return NGX_ERROR;
     }
     return NGX_OK;
@@ -457,7 +553,7 @@ hoplite_cosocket_pool_host_spec(ngx_pool_t *pool,
     }
     options = arguments->as.vector.items[3];
     if (hoplite_cosocket_pool_options(
-            options, &name, &spec->size, error) != NGX_OK)
+            options, &name, &spec->size, &spec->backlog, error) != NGX_OK)
     {
         return NGX_ERROR;
     }
@@ -540,6 +636,7 @@ hoplite_cosocket_pool_unix_spec(ngx_pool_t *pool,
     cursor = ngx_cpymem(cursor, target.data, target.len);
     spec->key.len = (size_t) (cursor - spec->key.data);
     spec->size = HOPLITE_COSOCKET_POOL_DEFAULT_SIZE;
+    spec->backlog = 0;
     spec->numeric = 0;
     return NGX_OK;
 }
@@ -589,13 +686,401 @@ hoplite_cosocket_pool_checkout(const hoplite_host_call_v1_t *call,
     socket->connected = 1;
     socket->closed = 0;
     socket->pending = HOPLITE_COSOCKET_PENDING_NONE;
+    ngx_memzero(&socket->completer, sizeof(socket->completer));
+    socket->pending_call = 0;
     connection->data = socket;
     connection->idle = 0;
-    connection->read->handler = hoplite_cosocket_read_handler;
-    connection->write->handler = hoplite_cosocket_write_handler;
+    connection->read->handler = hoplite_cosocket_pool_read_handler;
+    connection->write->handler = hoplite_cosocket_pool_write_handler;
     connection->read->log = socket->log;
     connection->write->log = socket->log;
     return hoplite_cosocket_complete_ordinary_call(call, 1, 1, NULL);
+}
+
+static void
+hoplite_cosocket_pool_waiter_unlink(hoplite_cosocket_pool_waiter_t *state)
+{
+    if (state == NULL || !state->linked) {
+        return;
+    }
+    if (state->prev != NULL) {
+        state->prev->next = state->next;
+    } else {
+        hoplite_cosocket_pool_wait_head = state->next;
+    }
+    if (state->next != NULL) {
+        state->next->prev = state->prev;
+    } else {
+        hoplite_cosocket_pool_wait_tail = state->prev;
+    }
+    state->prev = NULL;
+    state->next = NULL;
+    state->linked = 0;
+}
+
+static void
+hoplite_cosocket_pool_waiter_clear_socket(hoplite_cosocket_pool_waiter_t *state)
+{
+    hoplite_cosocket_t *socket;
+
+    if (state == NULL) {
+        return;
+    }
+    socket = state->socket;
+    if (socket != NULL && !socket->released
+        && socket->pending == HOPLITE_COSOCKET_PENDING_CONNECT
+        && socket->pending_call == state->call.call)
+    {
+        socket->pending = HOPLITE_COSOCKET_PENDING_NONE;
+        socket->pending_call = 0;
+        ngx_memzero(&socket->completer, sizeof(socket->completer));
+    }
+}
+
+static void
+hoplite_cosocket_pool_waiter_stop(hoplite_cosocket_pool_waiter_t *state)
+{
+    if (state == NULL || state->done) {
+        return;
+    }
+    if (state->timer.timer_set) {
+        ngx_del_timer(&state->timer);
+    }
+    state->timer.timedout = 0;
+    hoplite_cosocket_pool_waiter_unlink(state);
+    state->done = 1;
+}
+
+static void
+hoplite_cosocket_pool_waiter_cleanup(void *data)
+{
+    hoplite_cosocket_pool_waiter_t *state = data;
+
+    if (state == NULL) {
+        return;
+    }
+    if (!state->done) {
+        hoplite_cosocket_pool_waiter_stop(state);
+    }
+    state->socket = NULL;
+    if (state->pool != NULL) {
+        ngx_destroy_pool(state->pool);
+        state->pool = NULL;
+    }
+    ngx_free(state);
+}
+
+static ngx_uint_t
+hoplite_cosocket_pool_waiter_count(const u_char *key, size_t key_len)
+{
+    hoplite_cosocket_pool_waiter_t *state;
+    ngx_uint_t count = 0;
+
+    for (state = hoplite_cosocket_pool_wait_head;
+         state != NULL;
+         state = state->next)
+    {
+        if (state->linked && !state->done
+            && hoplite_cosocket_pool_key_equal(
+                state->key.data, state->key.len, key, key_len))
+        {
+            count++;
+        }
+    }
+    return count;
+}
+
+static ngx_flag_t
+hoplite_cosocket_pool_waiter_has_earlier(hoplite_cosocket_pool_waiter_t *state)
+{
+    hoplite_cosocket_pool_waiter_t *cursor;
+
+    for (cursor = hoplite_cosocket_pool_wait_head;
+         cursor != NULL && cursor != state;
+         cursor = cursor->next)
+    {
+        if (cursor->linked && !cursor->done
+            && hoplite_cosocket_pool_key_equal(
+                cursor->key.data,
+                cursor->key.len,
+                state->key.data,
+                state->key.len))
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static ngx_int_t
+hoplite_cosocket_pool_waiter_complete(hoplite_cosocket_pool_waiter_t *state,
+                                      const char *error)
+{
+    if (state == NULL || state->done) {
+        return NGX_ERROR;
+    }
+    hoplite_cosocket_pool_waiter_stop(state);
+    hoplite_cosocket_pool_waiter_clear_socket(state);
+    return hoplite_cosocket_complete_ordinary_call(
+        &state->call, 0, 0, error);
+}
+
+static void
+hoplite_cosocket_pool_waiter_timeout(ngx_event_t *event)
+{
+    hoplite_cosocket_pool_waiter_t *state =
+        event == NULL ? NULL : event->data;
+
+    if (state == NULL || state->done || !state->linked) {
+        return;
+    }
+    (void) hoplite_cosocket_pool_waiter_complete(state, "timeout");
+    hoplite_cosocket_pool_wake_waiters();
+}
+
+static ngx_int_t
+hoplite_cosocket_pool_connect_now(const hoplite_host_call_v1_t *call,
+                                  hoplite_hta_value_t *arguments,
+                                  ngx_pool_t *pool,
+                                  hoplite_cosocket_t *socket,
+                                  const hoplite_cosocket_pool_spec_t *spec)
+{
+    hoplite_hta_value_t *options;
+    ngx_int_t rc;
+
+    if (hoplite_cosocket_pool_active_add(call,
+                                         socket,
+                                         spec->key.data,
+                                         spec->key.len,
+                                         spec->size,
+                                         0) != NGX_OK)
+    {
+        return hoplite_cosocket_reject(
+            call, "could not register cosocket pool identity");
+    }
+
+    if (arguments->as.vector.count == 2) {
+        rc = hoplite_cosocket_connect_unix(call, arguments);
+    } else {
+        options = arguments->as.vector.items[3];
+        options->as.map.count = 0;
+        rc = spec->numeric
+            ? hoplite_cosocket_connect(call, arguments)
+            : hoplite_cosocket_connect_hostname(call, arguments, pool);
+    }
+    if (socket->connection != NULL) {
+        socket->connection->read->handler = hoplite_cosocket_pool_read_handler;
+        socket->connection->write->handler = hoplite_cosocket_pool_write_handler;
+    }
+    if (rc != HOPLITE_HOST_PROVIDER_PENDING && !socket->connected) {
+        hoplite_cosocket_pool_wake_waiters();
+    }
+    return rc;
+}
+
+static ngx_int_t
+hoplite_cosocket_pool_waiter_admit(hoplite_cosocket_pool_waiter_t *state,
+                                   hoplite_cosocket_pool_idle_t *entry)
+{
+    hoplite_cosocket_pool_spec_t spec;
+    hoplite_hta_value_t *arguments = NULL;
+    hoplite_cosocket_t *socket;
+    ngx_pool_t *pool;
+    ngx_msec_t elapsed, remaining;
+    ngx_int_t rc;
+
+    if (state == NULL || state->done || !state->linked) {
+        if (entry != NULL) {
+            hoplite_cosocket_pool_idle_close(entry);
+        }
+        return NGX_DECLINED;
+    }
+    socket = state->socket;
+    if (socket == NULL || socket->released || socket->closed) {
+        if (entry != NULL) {
+            hoplite_cosocket_pool_idle_close(entry);
+        }
+        hoplite_cosocket_pool_waiter_stop(state);
+        return NGX_DECLINED;
+    }
+
+    remaining = state->timeout;
+    if (remaining != 0) {
+        elapsed = ngx_current_msec - state->started;
+        if (elapsed >= remaining) {
+            if (entry != NULL) {
+                hoplite_cosocket_pool_idle_close(entry);
+            }
+            return hoplite_cosocket_pool_waiter_complete(state, "timeout");
+        }
+        remaining -= elapsed;
+    }
+
+    hoplite_cosocket_pool_waiter_stop(state);
+    hoplite_cosocket_pool_waiter_clear_socket(state);
+    if (entry != NULL) {
+        return hoplite_cosocket_pool_checkout(
+            &state->call, socket, entry, state->size);
+    }
+
+    pool = ngx_create_pool(4096, socket->log);
+    if (pool == NULL) {
+        return hoplite_cosocket_reject(
+            &state->call, "could not resume queued cosocket connect");
+    }
+    if (hoplite_hta_decode(pool,
+                           state->arguments.data,
+                           state->arguments.len,
+                           &arguments) != NGX_OK
+        || arguments == NULL
+        || arguments->kind != HOPLITE_HTA_VECTOR)
+    {
+        ngx_destroy_pool(pool);
+        return hoplite_cosocket_reject(
+            &state->call, "could not decode queued cosocket connect");
+    }
+
+    ngx_memzero(&spec, sizeof(spec));
+    spec.key = state->key;
+    spec.size = state->size;
+    spec.backlog = state->backlog;
+    spec.numeric = state->numeric;
+    if (remaining != 0) {
+        socket->connect_timeout = remaining;
+    }
+    rc = hoplite_cosocket_pool_connect_now(
+        &state->call, arguments, pool, socket, &spec);
+    ngx_destroy_pool(pool);
+    return rc;
+}
+
+static ngx_int_t
+hoplite_cosocket_pool_waiter_enqueue(const hoplite_host_call_v1_t *call,
+                                     const hoplite_hta_value_t *arguments,
+                                     hoplite_cosocket_t *socket,
+                                     const hoplite_cosocket_pool_spec_t *spec)
+{
+    hoplite_cosocket_pool_waiter_t *state;
+
+    state = ngx_alloc(sizeof(*state), socket->log);
+    if (state == NULL) {
+        return HOPLITE_HOST_PROVIDER_ERROR;
+    }
+    ngx_memzero(state, sizeof(*state));
+    state->pool = ngx_create_pool(2048, socket->log);
+    if (state->pool == NULL) {
+        ngx_free(state);
+        return HOPLITE_HOST_PROVIDER_ERROR;
+    }
+    state->key.data = ngx_pnalloc(state->pool, spec->key.len);
+    if (state->key.data == NULL
+        || hoplite_hta_copy_frame(
+            state->pool, arguments, &state->arguments) != NGX_OK)
+    {
+        ngx_destroy_pool(state->pool);
+        ngx_free(state);
+        return HOPLITE_HOST_PROVIDER_ERROR;
+    }
+    ngx_memcpy(state->key.data, spec->key.data, spec->key.len);
+    state->key.len = spec->key.len;
+    state->call = *call;
+    state->socket = socket;
+    state->owner = call->request_context;
+    state->size = spec->size;
+    state->backlog = spec->backlog;
+    state->numeric = spec->numeric;
+    state->started = ngx_current_msec;
+    state->timeout = socket->connect_timeout;
+    state->timer.handler = hoplite_cosocket_pool_waiter_timeout;
+    state->timer.data = state;
+    state->timer.log = socket->log;
+    if (hoplite_host_request_cleanup_add_v1(
+            call->request_context,
+            call->work,
+            state,
+            hoplite_cosocket_pool_waiter_cleanup) != HOPLITE_HOST_RESOURCE_OK)
+    {
+        ngx_destroy_pool(state->pool);
+        ngx_free(state);
+        return hoplite_cosocket_reject(
+            call, "could not register cosocket backlog cleanup");
+    }
+
+    state->prev = hoplite_cosocket_pool_wait_tail;
+    if (hoplite_cosocket_pool_wait_tail != NULL) {
+        hoplite_cosocket_pool_wait_tail->next = state;
+    } else {
+        hoplite_cosocket_pool_wait_head = state;
+    }
+    hoplite_cosocket_pool_wait_tail = state;
+    state->linked = 1;
+    socket->pending = HOPLITE_COSOCKET_PENDING_CONNECT;
+    socket->pending_call = call->call;
+    socket->completer = call->completer;
+    if (state->timeout != 0) {
+        ngx_add_timer(&state->timer, state->timeout);
+    }
+    return HOPLITE_HOST_PROVIDER_PENDING;
+}
+
+static void
+hoplite_cosocket_pool_wake_waiters(void)
+{
+    hoplite_cosocket_pool_waiter_t *state, *next;
+    hoplite_cosocket_pool_idle_t *entry;
+    ngx_msec_t elapsed;
+    ngx_flag_t progressed;
+
+    if (hoplite_cosocket_pool_waking) {
+        return;
+    }
+    hoplite_cosocket_pool_waking = 1;
+    do {
+        progressed = 0;
+        for (state = hoplite_cosocket_pool_wait_head;
+             state != NULL;
+             state = next)
+        {
+            next = state->next;
+            if (state->done || !state->linked
+                || hoplite_cosocket_pool_waiter_has_earlier(state))
+            {
+                continue;
+            }
+            if (state->socket == NULL
+                || state->socket->released
+                || state->socket->closed)
+            {
+                hoplite_cosocket_pool_waiter_stop(state);
+                progressed = 1;
+                break;
+            }
+            if (state->timeout != 0) {
+                elapsed = ngx_current_msec - state->started;
+                if (elapsed >= state->timeout) {
+                    (void) hoplite_cosocket_pool_waiter_complete(
+                        state, "timeout");
+                    progressed = 1;
+                    break;
+                }
+            }
+            entry = hoplite_cosocket_pool_take(
+                state->key.data, state->key.len);
+            if (entry != NULL) {
+                (void) hoplite_cosocket_pool_waiter_admit(state, entry);
+                progressed = 1;
+                break;
+            }
+            if (hoplite_cosocket_pool_capacity_used(
+                    state->key.data, state->key.len) < state->size)
+            {
+                (void) hoplite_cosocket_pool_waiter_admit(state, NULL);
+                progressed = 1;
+                break;
+            }
+        }
+    } while (progressed);
+    hoplite_cosocket_pool_waking = 0;
 }
 
 static ngx_int_t
@@ -606,8 +1091,8 @@ hoplite_cosocket_pool_connect(const hoplite_host_call_v1_t *call,
     hoplite_cosocket_pool_spec_t spec;
     hoplite_cosocket_pool_idle_t *entry;
     hoplite_cosocket_t *socket;
-    hoplite_hta_value_t *options;
     const char *error = NULL;
+    ngx_uint_t waiting;
     ngx_int_t rc;
 
     ngx_memzero(&spec, sizeof(spec));
@@ -654,34 +1139,40 @@ hoplite_cosocket_pool_connect(const hoplite_host_call_v1_t *call,
         return hoplite_cosocket_complete_ordinary_call(
             call, 0, 0, "closed");
     }
-    if (socket->connected || socket->connection != NULL) {
+    if (socket->connected || socket->connection != NULL
+        || socket->pending != HOPLITE_COSOCKET_PENDING_NONE)
+    {
         return hoplite_cosocket_complete_ordinary_call(
             call, 0, 0, "already connected");
     }
 
-    entry = hoplite_cosocket_pool_take(spec.key.data, spec.key.len);
-    if (entry != NULL) {
-        return hoplite_cosocket_pool_checkout(call, socket, entry, spec.size);
-    }
-    if (hoplite_cosocket_pool_active_add(call,
-                                         socket,
-                                         spec.key.data,
-                                         spec.key.len,
-                                         spec.size,
-                                         0) != NGX_OK)
-    {
-        return hoplite_cosocket_reject(
-            call, "could not register cosocket pool identity");
+    hoplite_cosocket_pool_wake_waiters();
+    waiting = hoplite_cosocket_pool_waiter_count(
+        spec.key.data, spec.key.len);
+    if (waiting == 0) {
+        entry = hoplite_cosocket_pool_take(spec.key.data, spec.key.len);
+        if (entry != NULL) {
+            return hoplite_cosocket_pool_checkout(
+                call, socket, entry, spec.size);
+        }
+        if (hoplite_cosocket_pool_capacity_used(
+                spec.key.data, spec.key.len) < spec.size)
+        {
+            return hoplite_cosocket_pool_connect_now(
+                call, arguments, pool, socket, &spec);
+        }
     }
 
-    if (arguments->as.vector.count == 2) {
-        return hoplite_cosocket_connect_unix(call, arguments);
+    if (spec.backlog == 0) {
+        return hoplite_cosocket_complete_ordinary_call(
+            call, 0, 0, "connection pool full");
     }
-    options = arguments->as.vector.items[3];
-    options->as.map.count = 0;
-    return spec.numeric
-        ? hoplite_cosocket_connect(call, arguments)
-        : hoplite_cosocket_connect_hostname(call, arguments, pool);
+    if (waiting >= spec.backlog) {
+        return hoplite_cosocket_complete_ordinary_call(
+            call, 0, 0, "too many waiting connect operations");
+    }
+    return hoplite_cosocket_pool_waiter_enqueue(
+        call, arguments, socket, &spec);
 }
 
 static ngx_int_t
@@ -697,6 +1188,7 @@ hoplite_cosocket_pool_setkeepalive(const hoplite_host_call_v1_t *call,
     ngx_uint_t size;
     int64_t handle, number;
     size_t count;
+    ngx_int_t rc;
 
     count = arguments == NULL ? 0 : arguments->as.vector.count;
     if (count < 1 || count > 3
@@ -801,7 +1293,7 @@ hoplite_cosocket_pool_setkeepalive(const hoplite_host_call_v1_t *call,
     connection->data = entry;
     connection->idle = 1;
     connection->read->handler = hoplite_cosocket_pool_idle_handler;
-    connection->write->handler = hoplite_cosocket_pool_idle_handler;
+    connection->write->handler = hoplite_cosocket_pool_idle_write_handler;
     connection->read->log = socket->log;
     connection->write->log = socket->log;
 
@@ -814,10 +1306,17 @@ hoplite_cosocket_pool_setkeepalive(const hoplite_host_call_v1_t *call,
     }
     if (ngx_handle_read_event(connection->read, 0) != NGX_OK) {
         hoplite_cosocket_pool_idle_close(entry);
-        return hoplite_cosocket_complete_ordinary_call(
+        rc = hoplite_cosocket_complete_ordinary_call(
             call, 0, 0, "could not monitor idle connection");
+        hoplite_cosocket_pool_wake_waiters();
+        return rc;
     }
-    return hoplite_cosocket_complete_ordinary_call(call, 1, 1, NULL);
+    if (connection->read->ready) {
+        hoplite_cosocket_pool_idle_handler(connection->read);
+    }
+    rc = hoplite_cosocket_complete_ordinary_call(call, 1, 1, NULL);
+    hoplite_cosocket_pool_wake_waiters();
+    return rc;
 }
 
 static ngx_int_t
@@ -866,11 +1365,33 @@ hoplite_cosocket_pool_mark_optioned(const hoplite_host_call_v1_t *call,
 }
 
 static void
+hoplite_cosocket_pool_cancel(void *request_context)
+{
+    hoplite_cosocket_pool_waiter_t *state, *next;
+
+    for (state = hoplite_cosocket_pool_wait_head;
+         state != NULL;
+         state = next)
+    {
+        next = state->next;
+        if (state->owner != request_context || state->done) {
+            continue;
+        }
+        hoplite_cosocket_pool_waiter_stop(state);
+        hoplite_cosocket_pool_waiter_clear_socket(state);
+        state->socket = NULL;
+    }
+}
+
+static void
 hoplite_cosocket_pool_init(void)
 {
     hoplite_cosocket_pool_active = NULL;
     hoplite_cosocket_pool_idle = NULL;
+    hoplite_cosocket_pool_wait_head = NULL;
+    hoplite_cosocket_pool_wait_tail = NULL;
     hoplite_cosocket_pool_serial = 0;
+    hoplite_cosocket_pool_waking = 0;
 }
 
 static void
@@ -878,6 +1399,21 @@ hoplite_cosocket_pool_worker_exit(void)
 {
     hoplite_cosocket_pool_active_t *active;
     hoplite_cosocket_pool_idle_t *idle;
+    hoplite_cosocket_pool_waiter_t *waiter, *next;
+
+    for (waiter = hoplite_cosocket_pool_wait_head;
+         waiter != NULL;
+         waiter = next)
+    {
+        next = waiter->next;
+        if (!waiter->done) {
+            hoplite_cosocket_pool_waiter_stop(waiter);
+            hoplite_cosocket_pool_waiter_clear_socket(waiter);
+        }
+        waiter->socket = NULL;
+    }
+    hoplite_cosocket_pool_wait_head = NULL;
+    hoplite_cosocket_pool_wait_tail = NULL;
 
     while (hoplite_cosocket_pool_idle != NULL) {
         idle = hoplite_cosocket_pool_idle;
@@ -896,6 +1432,7 @@ hoplite_cosocket_pool_worker_exit(void)
     }
     hoplite_cosocket_pool_active = NULL;
     hoplite_cosocket_pool_serial = 0;
+    hoplite_cosocket_pool_waking = 0;
 }
 
 #endif

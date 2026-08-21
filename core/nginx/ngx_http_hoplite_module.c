@@ -2544,6 +2544,7 @@ ngx_http_hoplite_invoke(ngx_http_request_t *request,
     ngx_queue_insert_tail(&ngx_http_hoplite_requests, &ctx->queue);
     ctx->queued = 1;
     request->main->count++;
+    request->read_event_handler = ngx_http_test_reading;
     ctx->timeout.handler = ngx_http_hoplite_timeout_handler;
     ctx->timeout.data = ctx;
     ctx->timeout.log = request->connection->log;

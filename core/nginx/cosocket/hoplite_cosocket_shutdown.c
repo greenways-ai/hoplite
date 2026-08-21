@@ -12,10 +12,10 @@
  * Keep the established TCP implementation in one translation unit while these
  * compatibility slices extend provider dispatch with send-direction shutdown,
  * the bounded OpenResty/LuaSocket setoption surface, Unix-domain stream
- * connections, Nginx-resolver-backed hostnames, and worker-local keepalive
- * pools. The included core keeps worker lifecycle and request-owned state; only
- * its provider entry points are renamed so this wrapper can add operations
- * without duplicating the event-loop implementation.
+ * connections, Nginx-resolver-backed hostnames, worker-local keepalive pools,
+ * and bounded FIFO connect backlog. The included core keeps worker lifecycle
+ * and request-owned state; only its provider entry points are renamed so this
+ * wrapper can add operations without duplicating the event-loop implementation.
  */
 #define hoplite_cosocket_provider hoplite_cosocket_core_provider
 #define hoplite_cosocket_invoke hoplite_cosocket_core_invoke
@@ -46,6 +46,11 @@ struct hoplite_cosocket_resolution_s {
 static ngx_resolver_t *hoplite_cosocket_resolver;
 static ngx_msec_t hoplite_cosocket_resolver_timeout;
 static hoplite_cosocket_resolution_t *hoplite_cosocket_resolutions;
+
+/* Implemented by hoplite_cosocket_pool.inc below. */
+static void hoplite_cosocket_pool_wake_waiters(void);
+static void hoplite_cosocket_pool_read_handler(ngx_event_t *event);
+static void hoplite_cosocket_pool_write_handler(ngx_event_t *event);
 
 static void
 hoplite_cosocket_resolution_unlink(hoplite_cosocket_resolution_t *state)
@@ -390,13 +395,15 @@ hoplite_cosocket_connect_peer(hoplite_cosocket_t *socket,
     {
         socket->connection = socket->peer.connection;
         hoplite_cosocket_reset_connection(socket);
-        return hoplite_cosocket_complete_ordinary(
+        rc = hoplite_cosocket_complete_ordinary(
             socket, 0, 0, "connect failed");
+        hoplite_cosocket_pool_wake_waiters();
+        return rc;
     }
     socket->connection = socket->peer.connection;
     socket->connection->data = socket;
-    socket->connection->read->handler = hoplite_cosocket_read_handler;
-    socket->connection->write->handler = hoplite_cosocket_write_handler;
+    socket->connection->read->handler = hoplite_cosocket_pool_read_handler;
+    socket->connection->write->handler = hoplite_cosocket_pool_write_handler;
     socket->connection->read->log = socket->log;
     socket->connection->write->log = socket->log;
     if (socket->connection->pool == NULL) {
@@ -577,6 +584,7 @@ hoplite_cosocket_resolve_handler(ngx_resolver_ctx_t *ctx)
         } else if (ctx != NULL) {
             ngx_resolve_name_done(ctx);
         }
+        hoplite_cosocket_pool_wake_waiters();
         return;
     }
 
@@ -584,6 +592,7 @@ hoplite_cosocket_resolve_handler(ngx_resolver_ctx_t *ctx)
         const char *error = hoplite_cosocket_resolver_error(ctx->state);
         hoplite_cosocket_resolution_finish(state);
         (void) hoplite_cosocket_complete_ordinary(socket, 0, 0, error);
+        hoplite_cosocket_pool_wake_waiters();
         return;
     }
 
@@ -599,6 +608,7 @@ hoplite_cosocket_resolve_handler(ngx_resolver_ctx_t *ctx)
         hoplite_cosocket_resolution_finish(state);
         (void) hoplite_cosocket_complete_ordinary(
             socket, 0, 0, "could not retain resolved address");
+        hoplite_cosocket_pool_wake_waiters();
         return;
     }
     ngx_memcpy(sockaddr, selected->sockaddr, socklen);
@@ -611,6 +621,7 @@ hoplite_cosocket_resolve_handler(ngx_resolver_ctx_t *ctx)
             hoplite_cosocket_resolution_finish(state);
             (void) hoplite_cosocket_complete_ordinary(
                 socket, 0, 0, "timeout");
+            hoplite_cosocket_pool_wake_waiters();
             return;
         }
         remaining -= elapsed;
@@ -790,6 +801,10 @@ hoplite_cosocket_invoke(const hoplite_host_call_v1_t *call)
     }
     if (!hoplite_cosocket_operation(call, "shutdown")
         && !hoplite_cosocket_operation(call, "send")
+        && !hoplite_cosocket_operation(call, "receive")
+        && !hoplite_cosocket_operation(call, "receiveany")
+        && !hoplite_cosocket_operation(call, "receiveuntil-read")
+        && !hoplite_cosocket_operation(call, "close")
         && !hoplite_cosocket_operation(call, "setoption")
         && !hoplite_cosocket_operation(call, "connect")
         && !hoplite_cosocket_operation(call, "setkeepalive")
@@ -823,6 +838,12 @@ hoplite_cosocket_invoke(const hoplite_host_call_v1_t *call)
         ngx_destroy_pool(pool);
         return (int32_t) rc;
     }
+    if (hoplite_cosocket_operation(call, "close")) {
+        rc = hoplite_cosocket_close(call, arguments);
+        ngx_destroy_pool(pool);
+        hoplite_cosocket_pool_wake_waiters();
+        return (int32_t) rc;
+    }
     if (hoplite_cosocket_operation(call, "shutdown")) {
         rc = hoplite_cosocket_shutdown(call, arguments);
         ngx_destroy_pool(pool);
@@ -835,16 +856,20 @@ hoplite_cosocket_invoke(const hoplite_host_call_v1_t *call)
         return (int32_t) rc;
     }
 
-    rc = hoplite_cosocket_argument_handle(call, arguments, 2, &socket);
-    if (rc == NGX_OK && hoplite_cosocket_send_is_shutdown(socket)) {
-        rc = hoplite_cosocket_complete_ordinary_call(
-            call, 0, 0, "closed");
-        ngx_destroy_pool(pool);
-        return (int32_t) rc;
+    if (hoplite_cosocket_operation(call, "send")) {
+        rc = hoplite_cosocket_argument_handle(call, arguments, 2, &socket);
+        if (rc == NGX_OK && hoplite_cosocket_send_is_shutdown(socket)) {
+            rc = hoplite_cosocket_complete_ordinary_call(
+                call, 0, 0, "closed");
+            ngx_destroy_pool(pool);
+            return (int32_t) rc;
+        }
     }
 
     ngx_destroy_pool(pool);
-    return hoplite_cosocket_core_invoke(call);
+    rc = hoplite_cosocket_core_invoke(call);
+    hoplite_cosocket_pool_wake_waiters();
+    return (int32_t) rc;
 }
 
 static void
@@ -852,6 +877,7 @@ hoplite_cosocket_cancel(void *request_context)
 {
     hoplite_cosocket_resolution_t *state, *next;
 
+    hoplite_cosocket_pool_cancel(request_context);
     for (state = hoplite_cosocket_resolutions;
          state != NULL;
          state = next)
@@ -864,6 +890,7 @@ hoplite_cosocket_cancel(void *request_context)
         }
     }
     hoplite_cosocket_core_cancel(request_context);
+    hoplite_cosocket_pool_wake_waiters();
 }
 
 static const hoplite_host_provider_v1_t hoplite_cosocket_provider = {

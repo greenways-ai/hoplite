@@ -18,12 +18,11 @@ The current production TCP slice provides:
 - fixed, line, all-data, any-data, and delimiter receive modes;
 - send-direction half-close;
 - bounded timeout and socket-option configuration; and
-- worker-local keepalive pools with monotonic expiry, bounded capacity, and real
-  reuse counts.
+- worker-local keepalive pools with monotonic expiry, bounded capacity, real
+  reuse counts, and bounded FIFO connect backlog.
 
-Bounded positive connect backlog, simultaneous one-reader/one-writer operation,
-TLS, and UDP remain pending. See the
-[OpenResty cosocket compatibility matrix](../openresty-cosocket-compatibility/)
+Simultaneous one-reader/one-writer operation, TLS, and UDP remain pending. See
+the [OpenResty cosocket compatibility matrix](../openresty-cosocket-compatibility/)
 for row-level status, evidence, and implementation owners.
 
 ## Basic TCP client
@@ -86,8 +85,9 @@ Network and lifecycle outcomes remain ordinary closed vectors.
 
 Malformed arguments, invalid option maps, foreign descriptors, and unsupported
 state transitions reject the host Promise as programming or authority errors.
-Refusal, DNS failure, timeout, peer closure, and other network outcomes resolve
-normally so mechanically translated OpenResty control flow remains natural.
+Refusal, DNS failure, timeout, peer closure, pool capacity, backlog overflow, and
+other network/lifecycle outcomes resolve normally so mechanically translated
+OpenResty control flow remains natural.
 
 ## `tcp`
 
@@ -161,7 +161,7 @@ and never collide.
   6379
   {:pool "redis-primary"
    :pool-size 32
-   :backlog 0}))
+   :backlog 64}))
 ```
 
 The options map accepts:
@@ -170,13 +170,22 @@ The options map accepts:
 | --- | --- |
 | `:pool` | Explicit stable pool name. |
 | `:pool-size` | Positive bounded worker-local capacity for the pool key. |
-| `:backlog` | May be omitted or zero. Positive bounded scheduling is pending in [#187](https://github.com/greenways-ai/hoplite/issues/187). |
+| `:backlog` | Integer from `0` through `4096`. Zero returns `[nil "connection pool full"]` at capacity; positive values suspend up to that many FIFO waiters. |
 
 A matching clean idle connection is checked out before Hoplite creates a new
 native connection. Pool identity distinguishes transport, canonical
 destination, hostname identity, explicit pool name, and connection-semantic
 socket options. The identity is extensible for TLS SNI, verification, session,
 and client-certificate state.
+
+When active plus idle connections already consume the pool size, positive
+`:backlog` retains the exact request/work/call in a worker-local FIFO queue.
+Returning a clean idle connection hands it directly to the oldest matching
+waiter before opening another connection. A full wait queue resolves as
+`[nil "too many waiting connect operations"]`. Cancellation, client disconnect,
+explicit close, connection failure, timeout, and worker shutdown remove or wake
+queued work exactly once; no worker thread, condition variable, or polling loop
+is introduced.
 
 ## `send`
 
@@ -272,7 +281,8 @@ corresponding timer.
 
 `settimeout` applies one value to connect, send, and read. `settimeouts` assigns
 them independently. For hostname connects, the connect budget begins before
-DNS; only the remaining duration is available to the native connect stage.
+DNS. For a queued pool connect, it begins before backlog admission. Only the
+remaining duration is available to DNS and/or the native connect stage.
 
 ## `setoption`
 
@@ -345,14 +355,17 @@ successful checkout from the matching worker-local pool increments the count.
 
 Closes the native connection and retires the descriptor. Request cleanup is
 idempotent with explicit close. `close` never returns a connection to a pool.
+If the close releases the last active slot for a pool with queued connects, the
+oldest matching waiter is admitted immediately.
 
 ## Error compatibility
 
 The public API already uses stable ordinary errors for key outcomes, including
-`timeout`, `closed`, `host not found`, and `resolver not configured`.
+`timeout`, `closed`, `host not found`, `resolver not configured`,
+`connection pool full`, and `too many waiting connect operations`.
 
 The centralized platform-independent error catalogue, including refusal/reset,
-same-direction busy, backlog, TLS, UDP, and policy outcomes, is tracked by
+same-direction busy, TLS, UDP, and policy outcomes, is tracked by
 [issue #194](https://github.com/greenways-ai/hoplite/issues/194). Application
 code should not depend on arbitrary operating-system `strerror` wording.
 
@@ -377,7 +390,7 @@ library, source evaluation, or a second socket runtime.
 | `ngx.socket.tcp()` | `(await (socket/tcp))` |
 | `sock:connect(host, port)` | `(await (socket/connect sock host port))` |
 | `sock:connect("unix:/path")` | `(await (socket/connect sock "unix:/path"))` |
-| `sock:connect(host, port, {pool=..., pool_size=...})` | `(await (socket/connect sock host port {:pool ... :pool-size ...}))` |
+| `sock:connect(host, port, {pool=..., pool_size=..., backlog=...})` | `(await (socket/connect sock host port {:pool ... :pool-size ... :backlog ...}))` |
 | `sock:send(value)` | `(await (socket/send sock value))` |
 | `sock:shutdown("send")` | `(await (socket/shutdown sock "send"))` |
 | `sock:receive("*l")` | `(await (socket/receive sock "*l"))` |
@@ -398,7 +411,6 @@ These names are not silently emulated:
 
 | Surface | Owner |
 | --- | --- |
-| Positive bounded connect backlog | [#187](https://github.com/greenways-ai/hoplite/issues/187) |
 | Concurrent one-reader/one-writer state | [#191](https://github.com/greenways-ai/hoplite/issues/191) |
 | `sslhandshake` and configured client identity | [#192](https://github.com/greenways-ai/hoplite/issues/192) |
 | `udp`, `setpeername`, UDP send/receive | [#193](https://github.com/greenways-ai/hoplite/issues/193) |

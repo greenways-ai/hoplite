@@ -69,10 +69,11 @@
   "Connects a TCP cosocket to a numeric IPv4/IPv6 address or hostname and port,
   or to one explicit Unix-domain target of the form unix:/absolute/path.
   Hostnames use the configured nonblocking Nginx resolver and remain bounded by
-  the connect and resolver timeouts. The options map accepts :pool and
-  :pool-size; :backlog must remain zero until the bounded backlog slice lands.
-  Returns [1 nil] or [nil error], matching OpenResty's ordinary cosocket result
-  convention."
+  the connect and resolver timeouts. The options map accepts :pool, :pool-size,
+  and :backlog. A positive backlog queues a bounded number of FIFO connect
+  attempts when the worker-local pool is at capacity; queue time consumes the
+  same connect timeout budget. Returns [1 nil] or [nil error], matching
+  OpenResty's ordinary cosocket result convention."
   ([socket target]
    (std.foundation.coroutine/await
     (host-call
