@@ -88,17 +88,21 @@
     "namespace": "hoplite.socket",
     "function": "directional concurrency",
     "openresty": "one read and one write may be pending together",
-    "hoplite": "one receive-side call plus one send-side call",
-    "status": "pending",
-    "argumentResultMapping": "Current runtime serializes native host operations per request; same-direction busy errors and independent directional state are not yet claimed.",
+    "hoplite": "one receive-side Promise plus one send-side Promise",
+    "status": "compatible",
+    "argumentResultMapping": "One receive-side Promise and one send-side Promise may be pending together. A second receive returns `[nil \"socket busy reading\" partial]`; a second send returns `[nil \"socket busy writing\"]`.",
     "allowedPhases": "Suspended HTTP content handlers; phase expansion is tracked by #164.",
-    "yielding": "Target permits one read and one write Promise concurrently.",
-    "timeouts": "Independent read and write timers.",
-    "pooling": "Neither direction may be pending during pool transfer.",
-    "cleanupOwner": "Owning request/work, explicit close or transfer, cancellation/disconnect, and worker shutdown.",
-    "authority": "Exact directional call ownership plus shared socket lifecycle.",
+    "yielding": "Read and write suspend independently on the Nginx read and write events without threads or polling.",
+    "timeouts": "Independent read and write event timers; one direction never clears the other direction's timer.",
+    "pooling": "Pool transfer is rejected with `connection in dubious state` while either direction is pending.",
+    "cleanupOwner": "Owning request/work, explicit close or transfer, cancellation/disconnect, and worker shutdown retire both directions exactly once.",
+    "authority": "Exact directional call/completer ownership plus the shared request-scoped socket lifecycle and connection generation.",
     "implementationIssue": "https://github.com/greenways-ai/hoplite/issues/191",
-    "evidence": [],
-    "notes": ""
+    "evidence": [
+      "core/nginx/cosocket/hoplite_cosocket_directional.c",
+      "packaging/fixtures/cosocket-directional/src/hoplite/cosocket/directional.hal",
+      "packaging/scripts/smoke-cosocket-directional.sh"
+    ],
+    "notes": "Connect/resolver/backlog remain in the shared lifecycle state; the established receive path and independent write sidecar share only the connection lifetime."
   }
 ]

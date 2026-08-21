@@ -1,0 +1,14 @@
+{:hara/type :project
+ :hara/version "1.0.0"
+ :project/id hoplite/cosocket-directional-fixture
+ :project/version "0.1.0"
+ :project/source-paths ["src"]
+ :project/test-paths []
+ :project/extension-paths []
+ :project/capabilities #{:host/cosocket}
+ :project/main hoplite.cosocket.directional
+ :project/default-profile :server
+ :project/profiles
+ {:server {:profile/language :hoplite
+           :profile/main hoplite.cosocket.directional/app
+           :profile/options {:port 8080}}}}

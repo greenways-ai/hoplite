@@ -57,6 +57,7 @@
     {"path":"packaging/scripts/render-homebrew-formula","status":"distribution","summary":"Renders the package formula."},
     {"path":"packaging/scripts/run-benchmarks.sh","status":"internal-evidence","summary":"Runs scheduled benchmark collection."},
     {"path":"packaging/scripts/run-with-docker-top-compat.sh","status":"internal-evidence","summary":"Normalizes Docker process inspection."},
+    {"path":"packaging/scripts/smoke-cosocket-directional.sh","status":"reference-conformance","summary":"Exercises one concurrent TCP cosocket read and write, same-direction busy results, pool rejection, half-close, cancellation, and worker cleanup through the real Nginx event loop."},
     {"path":"packaging/scripts/smoke-cosocket-tcp.sh","status":"reference-conformance","summary":"Exercises request-scoped TCP connect, send, receive, close, and cleanup through the real Nginx event loop."},
     {"path":"packaging/scripts/smoke-embedding.sh","status":"reference-conformance","summary":"Executes Rust and C embedding fixtures."},
     {"path":"packaging/scripts/smoke-host-providers.sh","status":"reference-conformance","summary":"Exercises generic host suspension and rejection."},
