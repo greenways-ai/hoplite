@@ -1,7 +1,7 @@
 name: Nginx programmability
 
 env:
-  HARA_REF: 2b3efd14451e96e9e79cd9645fb7e10d9e3782d6
+  HARA_REF: caffdb29955c933847d176d15ab7e883dfe0030c
 
 on:
   push:
