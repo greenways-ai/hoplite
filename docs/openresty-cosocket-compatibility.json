@@ -1,6 +1,6 @@
 {
   "schema": "hoplite.openresty.cosocket-compatibility/1",
-  "updated": "2026-08-20",
+  "updated": "2026-08-21",
   "programmeIssue": "https://github.com/greenways-ai/hoplite/issues/170",
   "cosocketIssue": "https://github.com/greenways-ai/hoplite/issues/163",
   "phaseBoundary": "Suspended HTTP content handlers; broader phase legality remains tracked by #164.",
