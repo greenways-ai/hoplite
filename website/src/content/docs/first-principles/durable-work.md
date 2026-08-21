@@ -264,5 +264,5 @@ from a sequence without rerunning the work. A transport can reconnect without
 becoming the source of truth. Those separations reduce the number of components
 that must be understood during an incident.
 
-Next, [Duplex and Relay](./duplex-relay/) turns bidirectional transports into
+Next, [Duplex and Relay](../duplex-relay/) turns bidirectional transports into
 portable application protocols.
