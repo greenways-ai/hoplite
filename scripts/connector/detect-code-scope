@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCOPES=(runtime contracts website)
+declare -A SELECTED=()
+
+reset_scopes() {
+  local scope
+  for scope in "${SCOPES[@]}"; do
+    SELECTED["$scope"]=false
+  done
+}
+
+mark() {
+  SELECTED["$1"]=true
+}
+
+mark_all() {
+  local scope
+  for scope in "${SCOPES[@]}"; do
+    mark "$scope"
+  done
+}
+
+classify_paths() {
+  local path known
+  for path in "$@"; do
+    known=false
+    case "$path" in
+      .github/workflows/connector-code-execution.yml|scripts/connector/run-code)
+        mark_all; known=true
+        ;;
+      .github/CHATGPT_PROJECT_WORKFLOW.md|scripts/connector/detect-code-scope|AGENTS.md)
+        known=true
+        ;;
+      packaging/hara-revision)
+        mark "runtime"; mark "contracts"; known=true
+        ;;
+      core/*|.cargo/*|Cargo.toml|Cargo.lock|rust-toolchain|rust-toolchain.toml)
+        mark "runtime"; known=true
+        ;;
+      packaging/*|.hara/*|fixtures/*|tests/*)
+        mark "contracts"; known=true
+        ;;
+      website/*)
+        mark "website"; known=true
+        ;;
+      .github/workflows/*|Makefile|scripts/*)
+        mark_all; known=true
+        ;;
+      docs/*|README.md|CONTRIBUTING.md|CHANGELOG.md|LICENSE|LICENSE-*|*.md|.gitignore|.editorconfig|.github/ISSUE_TEMPLATE/*|.github/PULL_REQUEST_TEMPLATE*)
+        known=true
+        ;;
+    esac
+    if [[ "$known" != true ]]; then
+      printf 'Unclassified path %s; selecting all executable scopes.\n' "$path" >&2
+      mark_all
+    fi
+  done
+}
+
+expect_scope() {
+  local scope="$1" expected="$2"
+  if [[ "${SELECTED[$scope]}" != "$expected" ]]; then
+    printf 'Expected %s=%s, got %s\n' "$scope" "$expected" "${SELECTED[$scope]}" >&2
+    exit 1
+  fi
+}
+
+self_test() {
+  reset_scopes; classify_paths "core/hoplite-runtime/src/lib.rs"
+  expect_scope runtime true; expect_scope contracts false; expect_scope website false
+  reset_scopes; classify_paths "packaging/scripts/verify-default-product.sh"
+  expect_scope runtime false; expect_scope contracts true; expect_scope website false
+  reset_scopes; classify_paths "website/src/pages/index.astro"
+  expect_scope runtime false; expect_scope contracts false; expect_scope website true
+  reset_scopes; classify_paths "README.md"
+  expect_scope runtime false; expect_scope contracts false; expect_scope website false
+  reset_scopes; classify_paths "scripts/connector/run-code"
+  expect_scope runtime true; expect_scope contracts true; expect_scope website true
+  reset_scopes; classify_paths "new-runtime-config.toml"
+  expect_scope runtime true; expect_scope contracts true; expect_scope website true
+  printf 'connector scope detector self-test passed\n'
+}
+
+emit_outputs() {
+  local scope value
+  for scope in "${SCOPES[@]}"; do
+    value="${SELECTED[$scope]}"
+    printf '%s=%s\n' "$scope" "$value"
+    if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+      printf '%s=%s\n' "$scope" "$value" >> "$GITHUB_OUTPUT"
+    fi
+  done
+}
+
+resolve_base() {
+  if [[ -n "${CONNECTOR_BASE_SHA:-}" ]]; then
+    printf '%s\n' "$CONNECTOR_BASE_SHA"
+    return
+  fi
+
+  local base_ref="${CONNECTOR_BASE_REF:-main}"
+  git fetch --no-tags --prune origin "$base_ref"
+  git merge-base HEAD FETCH_HEAD
+}
+
+main() {
+  if [[ "${1:-}" == "--self-test" ]]; then
+    self_test
+    return
+  fi
+
+  local base
+  base="$(resolve_base)"
+  mapfile -t changed < <(git diff --name-only "$base...HEAD")
+  reset_scopes
+  classify_paths "${changed[@]}"
+  emit_outputs
+}
+
+reset_scopes
+main "$@"
