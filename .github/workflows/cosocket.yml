@@ -56,3 +56,39 @@ jobs:
         run: bash hoplite/packaging/scripts/assert-production-image.sh hoplite-cosocket-tcp
       - name: Prove connect, send, receive, receiveany, close, and cleanup
         run: bash hoplite/packaging/scripts/smoke-cosocket-tcp.sh hoplite-cosocket-tcp
+
+  directional-cosocket:
+    name: TCP directional cosocket
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+      - name: Verify the reviewed Hara revision
+        working-directory: hoplite
+        run: test "$(tr -d '[:space:]' < packaging/hara-revision)" = "$HARA_REF"
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ env.HARA_REF }}
+          path: hara
+          submodules: recursive
+      - name: Validate the directional fixture harness
+        run: bash -n hoplite/packaging/scripts/smoke-cosocket-directional.sh
+      - name: Build the source-free directional cosocket application
+        run: |
+          docker build \
+            -f hoplite/packaging/docker/Dockerfile \
+            --build-arg HOPLITE_APP=packaging/fixtures/cosocket-directional \
+            --build-arg HOPLITE_DEFAULT_WORKERS=1 \
+            -t hoplite-cosocket-directional \
+            .
+      - name: Verify the directional production artifact contains no Hara source
+        run: |
+          bash hoplite/packaging/scripts/assert-production-image.sh \
+            hoplite-cosocket-directional
+      - name: Prove independent read/write state and lifecycle cleanup
+        run: |
+          bash hoplite/packaging/scripts/smoke-cosocket-directional.sh \
+            hoplite-cosocket-directional
