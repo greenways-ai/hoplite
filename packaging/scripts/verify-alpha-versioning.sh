@@ -27,9 +27,11 @@ grep -F 'pub const RUNTIME_ABI_VERSION: u32 = 5;' \
   core/application-bundle/src/lib.rs >/dev/null
 
 test "$(tr -d '[:space:]' < packaging/hara-revision)" = \
-  '2b3efd14451e96e9e79cd9645fb7e10d9e3782d6'
-grep -F 'HARA_REF: 2b3efd14451e96e9e79cd9645fb7e10d9e3782d6' \
+  'caffdb29955c933847d176d15ab7e883dfe0030c'
+grep -F 'HARA_REF: caffdb29955c933847d176d15ab7e883dfe0030c' \
   .github/workflows/ci.yml >/dev/null
+grep -F 'HARA_REF: caffdb29955c933847d176d15ab7e883dfe0030c' \
+  .github/workflows/cosocket.yml >/dev/null
 
 grep -F 'docs/versioning.md' README.md >/dev/null
 grep -F 'hoplite.application-bundle/0-alpha' docs/application-bundle.md >/dev/null
