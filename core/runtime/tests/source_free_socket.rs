@@ -57,7 +57,7 @@ const APPLICATION_SOURCE: &str = r#"
           pooled-client
           "127.0.0.1"
           19091
-          {:pool "source-free" :pool-size 2}))
+          {:pool "source-free" :pool-size 2 :backlog 2}))
         reused
         (std.foundation.coroutine/await
          (socket/getreusedtimes pooled-client))
@@ -333,7 +333,7 @@ fn source_free_socket_coroutine_continues_after_synchronous_completions() {
     resolve(
         runtime.0,
         reused_call,
-        Value::Vector(vec![Value::Number(0), Value::Nil].into()),
+        Value::Vector(vec![Value::Number(1), Value::Nil].into()),
     );
 
     let setkeepalive = next_event(runtime.0);
