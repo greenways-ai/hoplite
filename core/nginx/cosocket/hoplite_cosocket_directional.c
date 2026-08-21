@@ -1,3 +1,5 @@
+#include <ngx_config.h>
+
 #define HOPLITE_COSOCKET_BASE_IMPLEMENTATION 1
 
 #include "hoplite_host_provider.h"

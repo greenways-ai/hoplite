@@ -1,13 +1,6 @@
 #ifndef HOPLITE_HOST_PROVIDER_H
 #define HOPLITE_HOST_PROVIDER_H
 
-/*
- * Nginx feature-test macros must be established before any libc header is
- * parsed.  This header is the first include in the composed cosocket
- * translation unit, so load ngx_config.h before stddef/stdint.
- */
-#include <ngx_config.h>
-
 #include <stddef.h>
 #include <stdint.h>
 
