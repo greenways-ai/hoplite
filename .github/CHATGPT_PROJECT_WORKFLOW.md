@@ -1,8 +1,11 @@
 # ChatGPT GitHub connector programming workflow
 
-**Repository:** `greenways-ai/hoplite`  
-**Tracking issue:** `#208`  
-**Initial base:** `ecda211ad117d047081a6bd9075a19f3c87c9669`  
+**Repository:** `greenways-ai/hoplite`
+
+**Tracking issue:** `#208`
+
+**Initial base:** `ecda211ad117d047081a6bd9075a19f3c87c9669`
+
 **Status:** canonical repository-local contract for programming initiated through the ChatGPT web application
 
 This contract specializes the organisation's
