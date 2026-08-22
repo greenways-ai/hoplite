@@ -342,8 +342,11 @@ impl Model {
         let Some(socket) = self.socket(slot) else {
             return Outcome::programming("unknown socket");
         };
-        if !matches!(socket.state, SocketState::Established) || socket.write_pending {
-            return Outcome::programming("send direction cannot be shut down");
+        if !matches!(socket.state, SocketState::Established) {
+            return Outcome::programming("send direction is unavailable");
+        }
+        if socket.write_pending {
+            return Outcome::programming("send direction has pending output");
         }
         self.socket_mut(slot).unwrap().send_shutdown = true;
         Outcome::ACCEPTED
@@ -382,6 +385,9 @@ impl Model {
             return Outcome::programming("unknown socket");
         };
         let id = socket.id;
+        if matches!(socket.state, SocketState::IdlePool | SocketState::Retired) {
+            return Outcome::programming("socket is not active");
+        }
         match socket.state {
             SocketState::Resolving => {
                 self.socket_mut(slot).unwrap().state = SocketState::Allocated;
