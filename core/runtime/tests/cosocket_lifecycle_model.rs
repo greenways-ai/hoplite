@@ -413,7 +413,7 @@ impl Model {
         Outcome::ACCEPTED
     }
 
-    fn close(&mut self, slot: usize, detail: &'static str) -> Outcome {
+    fn close(&mut self, slot: usize, detail: &'static str, accepted: bool) -> Outcome {
         let Some(socket) = self.socket(slot).cloned() else {
             return Outcome::programming("unknown socket");
         };
@@ -421,7 +421,11 @@ impl Model {
             return Outcome::ordinary(detail);
         }
         self.retire(slot, &socket);
-        Outcome::ordinary(detail)
+        if accepted {
+            Outcome::ACCEPTED
+        } else {
+            Outcome::ordinary(detail)
+        }
     }
 
     fn retire(&mut self, slot: usize, socket: &Socket) {
@@ -524,8 +528,8 @@ impl Model {
             Operation::TimeoutRead(slot) => self.cancel_direction(slot, Direction::Read),
             Operation::TimeoutWrite(slot) => self.cancel_direction(slot, Direction::Write),
             Operation::Cancel(slot) => self.cancel(slot),
-            Operation::Close(slot) => self.close(slot, "closed"),
-            Operation::PeerClose(slot) => self.close(slot, "peer closed"),
+            Operation::Close(slot) => self.close(slot, "closed", true),
+            Operation::PeerClose(slot) => self.close(slot, "peer closed", false),
             Operation::Keepalive(slot) => self.keepalive(slot),
             Operation::Checkout(slot) => self.checkout(slot),
             Operation::StaleCallback(_) => Outcome::ordinary("stale callback ignored"),
@@ -724,6 +728,7 @@ fn run_trace(seed: u64, operations: impl IntoIterator<Item = Operation>) -> Vec<
 }
 
 fn run_seed(seed: u64, steps: usize) {
+    assert_ne!(seed, 0, "lifecycle seeds must be non-zero");
     let mut generator = Generator::new(seed);
     run_trace(seed, (0..steps).map(|_| generator.operation()));
 }
