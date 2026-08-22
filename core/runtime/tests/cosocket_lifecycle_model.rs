@@ -19,6 +19,21 @@ enum SocketState {
     Retired,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Transport {
+    Tcp,
+    Unix,
+}
+
+impl Transport {
+    fn pool_index(self) -> usize {
+        match self {
+            Self::Tcp => 0,
+            Self::Unix => 1,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Direction {
     Connect,
@@ -82,7 +97,7 @@ impl Outcome {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Operation {
-    Allocate(usize),
+    Allocate(usize, Transport),
     ResolveStart(usize),
     ResolveOk(usize),
     ConnectStart(usize),
@@ -94,6 +109,7 @@ enum Operation {
     ReadComplete(usize),
     WriteStart(usize),
     WriteComplete(usize),
+    ShutdownWrite(usize),
     TimeoutConnect(usize),
     TimeoutRead(usize),
     TimeoutWrite(usize),
@@ -117,6 +133,7 @@ impl fmt::Display for Operation {
 #[derive(Clone, Debug)]
 struct Socket {
     id: u64,
+    transport: Transport,
     state: SocketState,
     read_pending: bool,
     write_pending: bool,
@@ -126,9 +143,10 @@ struct Socket {
 }
 
 impl Socket {
-    fn new(id: u64) -> Self {
+    fn new(id: u64, transport: Transport) -> Self {
         Self {
             id,
+            transport,
             state: SocketState::Allocated,
             read_pending: false,
             write_pending: false,
@@ -159,7 +177,7 @@ struct Model {
     sockets: Vec<Option<Socket>>,
     resources: BTreeSet<Resource>,
     next_id: u64,
-    idle_count: usize,
+    idle_by_transport: [usize; 2],
     backlog_count: usize,
 }
 
@@ -172,7 +190,7 @@ impl Model {
         self.sockets.get_mut(slot).and_then(Option::as_mut)
     }
 
-    fn allocate(&mut self, slot: usize) -> Outcome {
+    fn allocate(&mut self, slot: usize, transport: Transport) -> Outcome {
         if slot >= MAX_SOCKETS {
             return Outcome::programming("invalid socket slot");
         }
@@ -183,7 +201,7 @@ impl Model {
             return Outcome::programming("socket slot is occupied");
         }
         self.next_id += 1;
-        let socket = Socket::new(self.next_id);
+        let socket = Socket::new(self.next_id, transport);
         self.resources.insert(Resource::Cleanup(socket.id));
         if slot == self.sockets.len() {
             self.sockets.push(Some(socket));
@@ -327,6 +345,17 @@ impl Model {
         Outcome::ACCEPTED
     }
 
+    fn shutdown_write(&mut self, slot: usize) -> Outcome {
+        let Some(socket) = self.socket(slot) else {
+            return Outcome::programming("unknown socket");
+        };
+        if !matches!(socket.state, SocketState::Established) || socket.write_pending {
+            return Outcome::programming("send direction cannot be shut down");
+        }
+        self.socket_mut(slot).unwrap().send_shutdown = true;
+        Outcome::ACCEPTED
+    }
+
     fn complete_direction(&mut self, slot: usize, direction: Direction) -> Outcome {
         let Some(socket) = self.socket(slot) else {
             return Outcome::programming("unknown socket");
@@ -421,7 +450,7 @@ impl Model {
             self.resources.remove(&Resource::Backlog(id));
         }
         if matches!(socket.state, SocketState::IdlePool) {
-            self.idle_count -= 1;
+            self.idle_by_transport[socket.transport.pool_index()] -= 1;
             self.resources.remove(&Resource::PoolEntry(id));
         }
         self.resources.remove(&Resource::Descriptor(id));
@@ -441,12 +470,13 @@ impl Model {
         {
             return Outcome::programming("connection is not poolable");
         }
-        if self.idle_count >= POOL_CAPACITY {
+        let pool_index = socket.transport.pool_index();
+        if self.idle_by_transport[pool_index] >= POOL_CAPACITY {
             self.retire(slot, &socket);
             return Outcome::ordinary("keepalive pool full");
         }
         self.socket_mut(slot).unwrap().state = SocketState::IdlePool;
-        self.idle_count += 1;
+        self.idle_by_transport[pool_index] += 1;
         self.resources.insert(Resource::PoolEntry(socket.id));
         Outcome::ACCEPTED
     }
@@ -461,7 +491,7 @@ impl Model {
         self.socket_mut(slot).unwrap().state = SocketState::Established;
         self.socket_mut(slot).unwrap().generation += 1;
         self.socket_mut(slot).unwrap().reused += 1;
-        self.idle_count -= 1;
+        self.idle_by_transport[socket.transport.pool_index()] -= 1;
         self.resources.remove(&Resource::PoolEntry(socket.id));
         Outcome::ACCEPTED
     }
@@ -478,7 +508,7 @@ impl Model {
 
     fn apply(&mut self, operation: Operation) -> Outcome {
         match operation {
-            Operation::Allocate(slot) => self.allocate(slot),
+            Operation::Allocate(slot, transport) => self.allocate(slot, transport),
             Operation::ResolveStart(slot) => self.begin_connect(slot, true),
             Operation::ResolveOk(slot) => self.resolve_ok(slot),
             Operation::ConnectStart(slot) => self.begin_connect(slot, false),
@@ -496,7 +526,8 @@ impl Model {
             Operation::ReadComplete(slot) => self.complete_direction(slot, Direction::Read),
             Operation::WriteStart(slot) => self.begin_write(slot),
             Operation::WriteComplete(slot) => self.complete_direction(slot, Direction::Write),
-            Operation::TimeoutConnect(slot) => self.cancel(slot),
+            Operation::ShutdownWrite(slot) => self.shutdown_write(slot),
+            Operation::TimeoutConnect(slot) => self.cancel_direction(slot, Direction::Connect),
             Operation::TimeoutRead(slot) => self.cancel_direction(slot, Direction::Read),
             Operation::TimeoutWrite(slot) => self.cancel_direction(slot, Direction::Write),
             Operation::Cancel(slot) => self.cancel(slot),
@@ -600,7 +631,10 @@ impl Model {
             "seed {seed:#x} has an unowned or multiply-owned cleanup resource"
         );
         assert!(
-            self.idle_count <= POOL_CAPACITY && self.backlog_count <= BACKLOG_CAPACITY,
+            self.idle_by_transport
+                .iter()
+                .all(|count| *count <= POOL_CAPACITY)
+                && self.backlog_count <= BACKLOG_CAPACITY,
             "seed {seed:#x} exceeded bounded pool or backlog capacity"
         );
     }
@@ -626,30 +660,32 @@ impl Generator {
 
     fn operation(&mut self) -> Operation {
         let slot = (self.next() as usize) % MAX_SOCKETS;
-        match self.next() % 24 {
-            0 => Operation::Allocate(slot),
-            1 => Operation::ResolveStart(slot),
-            2 => Operation::ResolveOk(slot),
-            3 => Operation::ConnectStart(slot),
-            4 => Operation::ConnectOk(slot),
-            5 => Operation::BacklogStart(slot),
-            6 => Operation::BacklogAdmit(slot),
-            7 => Operation::ReadStart(slot),
-            8 => Operation::ReadPartial(slot),
-            9 => Operation::ReadComplete(slot),
-            10 => Operation::WriteStart(slot),
-            11 => Operation::WriteComplete(slot),
-            12 => Operation::TimeoutConnect(slot),
-            13 => Operation::TimeoutRead(slot),
-            14 => Operation::TimeoutWrite(slot),
-            15 => Operation::Cancel(slot),
-            16 => Operation::Close(slot),
-            17 => Operation::PeerClose(slot),
-            18 => Operation::Keepalive(slot),
-            19 => Operation::Checkout(slot),
-            20 => Operation::StaleCallback(slot),
-            21 => Operation::UseForeign(slot),
-            22 => Operation::ClientAbort,
+        match self.next() % 26 {
+            0 => Operation::Allocate(slot, Transport::Tcp),
+            1 => Operation::Allocate(slot, Transport::Unix),
+            2 => Operation::ResolveStart(slot),
+            3 => Operation::ResolveOk(slot),
+            4 => Operation::ConnectStart(slot),
+            5 => Operation::ConnectOk(slot),
+            6 => Operation::BacklogStart(slot),
+            7 => Operation::BacklogAdmit(slot),
+            8 => Operation::ReadStart(slot),
+            9 => Operation::ReadPartial(slot),
+            10 => Operation::ReadComplete(slot),
+            11 => Operation::WriteStart(slot),
+            12 => Operation::WriteComplete(slot),
+            13 => Operation::ShutdownWrite(slot),
+            14 => Operation::TimeoutConnect(slot),
+            15 => Operation::TimeoutRead(slot),
+            16 => Operation::TimeoutWrite(slot),
+            17 => Operation::Cancel(slot),
+            18 => Operation::Close(slot),
+            19 => Operation::PeerClose(slot),
+            20 => Operation::Keepalive(slot),
+            21 => Operation::Checkout(slot),
+            22 => Operation::StaleCallback(slot),
+            23 => Operation::UseForeign(slot),
+            24 => Operation::ClientAbort,
             _ => Operation::WorkerReload,
         }
     }
@@ -716,7 +752,7 @@ fn required_lifecycle_regressions_preserve_cleanup_invariants() {
         (
             "connect-cancel",
             vec![
-                Operation::Allocate(0),
+                Operation::Allocate(0, Transport::Tcp),
                 Operation::ConnectStart(0),
                 Operation::Cancel(0),
             ],
@@ -724,7 +760,7 @@ fn required_lifecycle_regressions_preserve_cleanup_invariants() {
         (
             "connect-timeout",
             vec![
-                Operation::Allocate(0),
+                Operation::Allocate(0, Transport::Tcp),
                 Operation::ConnectStart(0),
                 Operation::TimeoutConnect(0),
             ],
@@ -732,7 +768,7 @@ fn required_lifecycle_regressions_preserve_cleanup_invariants() {
         (
             "connect-close",
             vec![
-                Operation::Allocate(0),
+                Operation::Allocate(0, Transport::Tcp),
                 Operation::ConnectStart(0),
                 Operation::Close(0),
             ],
@@ -740,15 +776,36 @@ fn required_lifecycle_regressions_preserve_cleanup_invariants() {
         (
             "resolve-client-abort",
             vec![
-                Operation::Allocate(0),
+                Operation::Allocate(0, Transport::Tcp),
                 Operation::ResolveStart(0),
                 Operation::ClientAbort,
             ],
         ),
         (
+            "unix-peer-close",
+            vec![
+                Operation::Allocate(0, Transport::Unix),
+                Operation::ConnectStart(0),
+                Operation::ConnectOk(0),
+                Operation::WriteStart(0),
+                Operation::PeerClose(0),
+            ],
+        ),
+        (
+            "receive-timeout-partial",
+            vec![
+                Operation::Allocate(0, Transport::Tcp),
+                Operation::ConnectStart(0),
+                Operation::ConnectOk(0),
+                Operation::ReadStart(0),
+                Operation::ReadPartial(0),
+                Operation::TimeoutRead(0),
+            ],
+        ),
+        (
             "simultaneous-read-write-close",
             vec![
-                Operation::Allocate(0),
+                Operation::Allocate(0, Transport::Tcp),
                 Operation::ConnectStart(0),
                 Operation::ConnectOk(0),
                 Operation::ReadStart(0),
@@ -759,7 +816,7 @@ fn required_lifecycle_regressions_preserve_cleanup_invariants() {
         (
             "keepalive-checkout",
             vec![
-                Operation::Allocate(0),
+                Operation::Allocate(0, Transport::Tcp),
                 Operation::ConnectStart(0),
                 Operation::ConnectOk(0),
                 Operation::Keepalive(0),
@@ -767,9 +824,47 @@ fn required_lifecycle_regressions_preserve_cleanup_invariants() {
             ],
         ),
         (
+            "pool-transfer-rejects-pending-read",
+            vec![
+                Operation::Allocate(0, Transport::Tcp),
+                Operation::ConnectStart(0),
+                Operation::ConnectOk(0),
+                Operation::ReadStart(0),
+                Operation::Keepalive(0),
+                Operation::Close(0),
+            ],
+        ),
+        (
+            "pool-key-isolation",
+            vec![
+                Operation::Allocate(0, Transport::Tcp),
+                Operation::ConnectStart(0),
+                Operation::ConnectOk(0),
+                Operation::Keepalive(0),
+                Operation::Allocate(1, Transport::Unix),
+                Operation::ConnectStart(1),
+                Operation::ConnectOk(1),
+                Operation::Keepalive(1),
+                Operation::Checkout(0),
+                Operation::Checkout(1),
+            ],
+        ),
+        (
+            "half-close-with-live-read",
+            vec![
+                Operation::Allocate(0, Transport::Tcp),
+                Operation::ConnectStart(0),
+                Operation::ConnectOk(0),
+                Operation::ReadStart(0),
+                Operation::ShutdownWrite(0),
+                Operation::ReadComplete(0),
+                Operation::Close(0),
+            ],
+        ),
+        (
             "backlog-cancel",
             vec![
-                Operation::Allocate(0),
+                Operation::Allocate(0, Transport::Tcp),
                 Operation::BacklogStart(0),
                 Operation::Cancel(0),
             ],
@@ -777,7 +872,7 @@ fn required_lifecycle_regressions_preserve_cleanup_invariants() {
         (
             "backlog-timeout",
             vec![
-                Operation::Allocate(0),
+                Operation::Allocate(0, Transport::Tcp),
                 Operation::BacklogStart(0),
                 Operation::TimeoutConnect(0),
             ],
@@ -785,7 +880,7 @@ fn required_lifecycle_regressions_preserve_cleanup_invariants() {
         (
             "backlog-worker-reload",
             vec![
-                Operation::Allocate(0),
+                Operation::Allocate(0, Transport::Tcp),
                 Operation::BacklogStart(0),
                 Operation::WorkerReload,
             ],
@@ -807,7 +902,7 @@ fn directional_busy_and_authority_results_are_distinct() {
     let outcomes = run_trace(
         0xD1CE,
         [
-            Operation::Allocate(0),
+            Operation::Allocate(0, Transport::Tcp),
             Operation::ConnectStart(0),
             Operation::ConnectOk(0),
             Operation::ReadStart(0),
