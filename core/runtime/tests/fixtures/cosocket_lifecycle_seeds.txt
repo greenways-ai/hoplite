@@ -1,0 +1,7 @@
+# Fixed hexadecimal seeds for the required bounded lifecycle corpus.
+connect-cancel=0x0000000000000001
+resolver-abort=0x00000000000000c0
+directional-overlap=0x0000000000001911
+pool-reuse=0x0000000000000187
+backlog-drain=0x0000000000000201
+worker-reload=0x0000000000000195
