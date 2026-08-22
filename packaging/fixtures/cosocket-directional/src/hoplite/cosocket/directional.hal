@@ -21,6 +21,10 @@
   [request]
   (get (get request :headers) "x-cosocket-host"))
 
+(defn start-operation
+  [operation]
+  (std.foundation.promise/run operation))
+
 (defn ^:async concurrent-read-write
   [request]
   (let [client
@@ -36,8 +40,14 @@
      (do
        (std.foundation.coroutine/await (socket/close client))
        (failure-response "concurrent-connect" connected))
-     (let [receiving (socket/receive client "*l")
-           sending (socket/send client "concurrent\n")
+     (let [receiving
+           (start-operation
+            (fn []
+              (socket/receive client "*l")))
+           sending
+           (start-operation
+            (fn []
+              (socket/send client "concurrent\n")))
            results
            (std.foundation.coroutine/await
             (std.foundation.promise/all [receiving sending]))
@@ -67,11 +77,17 @@
      (do
        (std.foundation.coroutine/await (socket/close client))
        (failure-response "busy-read-connect" connected))
-     (let [receiving (socket/receive client "*l")
+     (let [receiving
+           (start-operation
+            (fn []
+              (socket/receive client "*l")))
            busy
            (std.foundation.coroutine/await
             (socket/receive client "*l"))
-           sending (socket/send client "busy-read\n")
+           sending
+           (start-operation
+            (fn []
+              (socket/send client "busy-read\n")))
            results
            (std.foundation.coroutine/await
             (std.foundation.promise/all [receiving sending]))
@@ -117,8 +133,14 @@
      (do
        (std.foundation.coroutine/await (socket/close client))
        (failure-response "busy-write-connect" connected))
-     (let [receiving (socket/receive client "*l")
-           writing (socket/send client (write-payload))
+     (let [receiving
+           (start-operation
+            (fn []
+              (socket/receive client "*l")))
+           writing
+           (start-operation
+            (fn []
+              (socket/send client (write-payload))))
            pooled
            (std.foundation.coroutine/await
             (socket/setkeepalive client 1000 1))
@@ -164,7 +186,10 @@
      (do
        (std.foundation.coroutine/await (socket/close client))
        (failure-response "shutdown-directional-connect" connected))
-     (let [receiving (socket/receive client "*l")
+     (let [receiving
+           (start-operation
+            (fn []
+              (socket/receive client "*l")))
            sent
            (std.foundation.coroutine/await
             (socket/send client "directional-shutdown\n"))
@@ -202,8 +227,14 @@
      (do
        (std.foundation.coroutine/await (socket/close client))
        (failure-response "close-pending-connect" connected))
-     (let [receiving (socket/receive client "*l")
-           writing (socket/send client (write-payload))
+     (let [receiving
+           (start-operation
+            (fn []
+              (socket/receive client "*l")))
+           writing
+           (start-operation
+            (fn []
+              (socket/send client (write-payload))))
            closed
            (std.foundation.coroutine/await
             (socket/close client))
@@ -242,8 +273,14 @@
         buffered
         (std.foundation.coroutine/await
          (socket/setoption client "sndbuf" 4096))
-        receiving (socket/receive client "*l")
-        writing (socket/send client (write-payload))
+        receiving
+        (start-operation
+         (fn []
+           (socket/receive client "*l")))
+        writing
+        (start-operation
+         (fn []
+           (socket/send client (write-payload))))
         results
         (std.foundation.coroutine/await
          (std.foundation.promise/all [receiving writing]))]
