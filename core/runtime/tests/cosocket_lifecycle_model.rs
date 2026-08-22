@@ -204,14 +204,10 @@ impl Model {
         self.next_id += 1;
         let socket = Socket::new(self.next_id, transport);
         self.resources.insert(Resource::Cleanup(socket.id));
-        if slot == self.sockets.len() {
-            self.sockets.push(Some(socket));
-        } else if slot < self.sockets.len() {
-            self.sockets[slot] = Some(socket);
-        } else {
-            self.sockets.resize_with(slot, || None);
-            self.sockets.push(Some(socket));
+        if slot >= self.sockets.len() {
+            self.sockets.resize_with(slot + 1, || None);
         }
+        self.sockets[slot] = Some(socket);
         Outcome::ACCEPTED
     }
 
@@ -587,7 +583,7 @@ impl Model {
                 expected.insert(Resource::Promise(socket.id, Direction::Write));
                 expected.insert(Resource::Timer(socket.id, Direction::Write));
             }
-            if socket.connect_pending() || matches!(socket.state, SocketState::Backlog) {
+            if socket.connect_pending() {
                 expected.insert(Resource::Promise(socket.id, Direction::Connect));
                 expected.insert(Resource::Timer(socket.id, Direction::Connect));
             }
