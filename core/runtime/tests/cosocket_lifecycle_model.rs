@@ -639,7 +639,7 @@ struct Generator {
 
 impl Generator {
     fn new(seed: u64) -> Self {
-        Self { state: seed.max(1) }
+        Self { state: seed }
     }
 
     fn next(&mut self) -> u64 {
