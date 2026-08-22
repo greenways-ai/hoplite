@@ -460,10 +460,10 @@ impl Model {
 
     fn worker_shutdown(&mut self) {
         for slot in 0..self.sockets.len() {
-            if let Some(socket) = self.socket(slot).cloned()
-                && !matches!(socket.state, SocketState::Retired)
-            {
-                self.retire(slot, &socket);
+            if let Some(socket) = self.socket(slot).cloned() {
+                if !matches!(socket.state, SocketState::Retired) {
+                    self.retire(slot, &socket);
+                }
             }
         }
     }
