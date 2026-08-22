@@ -78,9 +78,10 @@ jobs:
       - name: Test the complete Hoplite core workspace
         run: cargo test --manifest-path hoplite/core/Cargo.toml --workspace --locked
       - name: Test the deterministic cosocket lifecycle corpus
+        working-directory: hoplite
         run: |
           cargo test \
-            --manifest-path hoplite/core/runtime/Cargo.toml \
+            --manifest-path core/runtime/Cargo.toml \
             --test cosocket_lifecycle_model --locked -- --nocapture
       - name: Verify the default product boundary
         run: bash hoplite/packaging/scripts/verify-default-product.sh

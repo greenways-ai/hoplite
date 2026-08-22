@@ -7,6 +7,7 @@ const DEFAULT_STEPS: usize = 256;
 const MAX_SOCKETS: usize = 8;
 const POOL_CAPACITY: usize = 2;
 const BACKLOG_CAPACITY: usize = 2;
+const OPERATION_COUNT: u64 = 26;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SocketState {
@@ -309,11 +310,7 @@ impl Model {
         if socket.read_pending {
             return Outcome::ordinary("socket busy reading");
         }
-        if !matches!(
-            socket.state,
-            SocketState::Established | SocketState::IdlePool
-        ) || matches!(socket.state, SocketState::IdlePool)
-        {
+        if !matches!(socket.state, SocketState::Established) {
             return Outcome::programming("read on non-established socket");
         }
         let id = socket.id;
@@ -660,7 +657,7 @@ impl Generator {
 
     fn operation(&mut self) -> Operation {
         let slot = (self.next() as usize) % MAX_SOCKETS;
-        match self.next() % 26 {
+        match self.next() % OPERATION_COUNT {
             0 => Operation::Allocate(slot, Transport::Tcp),
             1 => Operation::Allocate(slot, Transport::Unix),
             2 => Operation::ResolveStart(slot),
@@ -686,7 +683,8 @@ impl Generator {
             22 => Operation::StaleCallback(slot),
             23 => Operation::UseForeign(slot),
             24 => Operation::ClientAbort,
-            _ => Operation::WorkerReload,
+            25 => Operation::WorkerReload,
+            _ => unreachable!("operation count is exhaustive"),
         }
     }
 }
