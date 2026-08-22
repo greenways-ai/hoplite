@@ -147,7 +147,10 @@ impl Socket {
     }
 
     fn connect_pending(&self) -> bool {
-        matches!(self.state, SocketState::Resolving | SocketState::Connecting)
+        matches!(
+            self.state,
+            SocketState::Resolving | SocketState::Connecting | SocketState::Backlog
+        )
     }
 }
 
@@ -173,9 +176,10 @@ impl Model {
         if slot >= MAX_SOCKETS {
             return Outcome::programming("invalid socket slot");
         }
-        if self.socket(slot).is_some_and(|socket| {
-            !matches!(socket.state, SocketState::Retired)
-        }) {
+        if self
+            .socket(slot)
+            .is_some_and(|socket| !matches!(socket.state, SocketState::Retired))
+        {
             return Outcome::programming("socket slot is occupied");
         }
         self.next_id += 1;
@@ -209,7 +213,8 @@ impl Model {
         }
         self.resources
             .insert(Resource::Promise(id, Direction::Connect));
-        self.resources.insert(Resource::Timer(id, Direction::Connect));
+        self.resources
+            .insert(Resource::Timer(id, Direction::Connect));
         Outcome::ACCEPTED
     }
 
@@ -257,8 +262,10 @@ impl Model {
         self.socket_mut(slot).unwrap().state = SocketState::Backlog;
         self.backlog_count += 1;
         self.resources.insert(Resource::Backlog(id));
-        self.resources.insert(Resource::Promise(id, Direction::Connect));
-        self.resources.insert(Resource::Timer(id, Direction::Connect));
+        self.resources
+            .insert(Resource::Promise(id, Direction::Connect));
+        self.resources
+            .insert(Resource::Timer(id, Direction::Connect));
         Outcome::ACCEPTED
     }
 
@@ -315,7 +322,8 @@ impl Model {
         self.resources
             .insert(Resource::Promise(id, Direction::Write));
         self.resources.insert(Resource::Timer(id, Direction::Write));
-        self.resources.insert(Resource::Buffer(id, Direction::Write));
+        self.resources
+            .insert(Resource::Buffer(id, Direction::Write));
         Outcome::ACCEPTED
     }
 
@@ -592,8 +600,7 @@ impl Model {
             "seed {seed:#x} has an unowned or multiply-owned cleanup resource"
         );
         assert!(
-            self.idle_count <= POOL_CAPACITY
-                && self.backlog_count <= BACKLOG_CAPACITY,
+            self.idle_count <= POOL_CAPACITY && self.backlog_count <= BACKLOG_CAPACITY,
             "seed {seed:#x} exceeded bounded pool or backlog capacity"
         );
     }
@@ -657,10 +664,7 @@ fn parse_seeds() -> Vec<(String, u64)> {
                 return None;
             }
             let (name, value) = line.split_once('=')?;
-            let value = value
-                .trim()
-                .strip_prefix("0x")
-                .unwrap_or(value.trim());
+            let value = value.trim().strip_prefix("0x").unwrap_or(value.trim());
             Some((
                 name.trim().to_owned(),
                 u64::from_str_radix(value, 16).expect("valid lifecycle seed"),
