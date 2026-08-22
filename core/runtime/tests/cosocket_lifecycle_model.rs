@@ -740,7 +740,7 @@ fn regression_seed(name: &str) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
     for byte in name.bytes() {
         hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x1000_0000_01b3);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
     hash | 1
 }
@@ -942,6 +942,9 @@ fn opt_in_lifecycle_stress_corpus() {
         .and_then(|value| value.parse().ok())
         .unwrap_or(4096);
     for index in 0..seeds {
-        run_seed(0x9E37_79B9_7F4A_7C15u64.wrapping_add(index), steps);
+        run_seed(
+            0x9E37_79B9_7F4A_7C15u64.wrapping_add(index as u64),
+            steps,
+        );
     }
 }
