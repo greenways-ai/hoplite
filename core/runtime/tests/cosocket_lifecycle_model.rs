@@ -420,7 +420,7 @@ impl Model {
         if matches!(socket.state, SocketState::Retired) {
             return Outcome::ordinary(detail);
         }
-        self.retire(slot, &socket);
+        self.retire(slot);
         if accepted {
             Outcome::ACCEPTED
         } else {
@@ -428,7 +428,10 @@ impl Model {
         }
     }
 
-    fn retire(&mut self, slot: usize, socket: &Socket) {
+    fn retire(&mut self, slot: usize) {
+        let Some(socket) = self.socket(slot).cloned() else {
+            return;
+        };
         let id = socket.id;
         if socket.read_pending {
             self.clear_direction_resources(id, Direction::Read);
@@ -469,7 +472,7 @@ impl Model {
         }
         let pool_index = socket.transport.pool_index();
         if self.idle_by_transport[pool_index] >= POOL_CAPACITY {
-            self.retire(slot, &socket);
+            self.retire(slot);
             return Outcome::ordinary("keepalive pool full");
         }
         self.socket_mut(slot).unwrap().state = SocketState::IdlePool;
@@ -497,7 +500,7 @@ impl Model {
         for slot in 0..self.sockets.len() {
             if let Some(socket) = self.socket(slot).cloned() {
                 if !matches!(socket.state, SocketState::Retired) {
-                    self.retire(slot, &socket);
+                    self.retire(slot);
                 }
             }
         }
@@ -643,6 +646,7 @@ struct Generator {
 
 impl Generator {
     fn new(seed: u64) -> Self {
+        assert_ne!(seed, 0, "lifecycle seeds must be non-zero");
         Self { state: seed }
     }
 
@@ -728,9 +732,17 @@ fn run_trace(seed: u64, operations: impl IntoIterator<Item = Operation>) -> Vec<
 }
 
 fn run_seed(seed: u64, steps: usize) {
-    assert_ne!(seed, 0, "lifecycle seeds must be non-zero");
     let mut generator = Generator::new(seed);
     run_trace(seed, (0..steps).map(|_| generator.operation()));
+}
+
+fn regression_seed(name: &str) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in name.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x1000_0000_01b3);
+    }
+    hash | 1
 }
 
 #[test]
@@ -885,8 +897,8 @@ fn required_lifecycle_regressions_preserve_cleanup_invariants() {
             ],
         ),
     ];
-    for (index, (name, operations)) in cases.into_iter().enumerate() {
-        let outcomes = run_trace(index as u64 + 1, operations);
+    for (name, operations) in cases {
+        let outcomes = run_trace(regression_seed(name), operations);
         assert!(
             outcomes
                 .iter()
