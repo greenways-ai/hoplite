@@ -331,6 +331,28 @@ hoplite_cosocket_pool_connection_clean(ngx_connection_t *connection)
     return 0;
 }
 
+static ngx_int_t
+hoplite_cosocket_pool_disable_write_event(ngx_connection_t *connection)
+{
+    ngx_event_t *event;
+
+    if (connection == NULL || connection->write == NULL) {
+        return NGX_ERROR;
+    }
+    event = connection->write;
+    if (event->timer_set) {
+        ngx_del_timer(event);
+    }
+    event->timedout = 0;
+    if (event->active
+        && ngx_del_event(event, NGX_WRITE_EVENT, 0) != NGX_OK)
+    {
+        return NGX_ERROR;
+    }
+    event->ready = 0;
+    return NGX_OK;
+}
+
 static void
 hoplite_cosocket_pool_idle_write_handler(ngx_event_t *event)
 {
@@ -344,6 +366,9 @@ hoplite_cosocket_pool_idle_handler(ngx_event_t *event)
     hoplite_cosocket_pool_idle_t *entry =
         connection == NULL ? NULL : connection->data;
 
+    if (connection != NULL && event != connection->read) {
+        return;
+    }
     if (entry == NULL || entry->connection != connection) {
         return;
     }
@@ -690,6 +715,8 @@ hoplite_cosocket_pool_checkout(const hoplite_host_call_v1_t *call,
     socket->pending_call = 0;
     connection->data = socket;
     connection->idle = 0;
+    connection->read->ready = 0;
+    connection->write->ready = 0;
     connection->read->handler = hoplite_cosocket_pool_read_handler;
     connection->write->handler = hoplite_cosocket_pool_write_handler;
     connection->read->log = socket->log;
@@ -1186,7 +1213,7 @@ hoplite_cosocket_pool_setkeepalive(const hoplite_host_call_v1_t *call,
     ngx_pool_t *replacement;
     ngx_msec_t timeout = HOPLITE_COSOCKET_POOL_DEFAULT_TIMEOUT;
     ngx_uint_t size;
-    int64_t handle, number;
+    int64_t handle, number = 0;
     size_t count;
     ngx_int_t rc;
 
@@ -1268,6 +1295,13 @@ hoplite_cosocket_pool_setkeepalive(const hoplite_host_call_v1_t *call,
     }
     ngx_memzero(entry, sizeof(*entry));
     connection = socket->connection;
+    if (hoplite_cosocket_pool_disable_write_event(connection) != NGX_OK) {
+        ngx_destroy_pool(replacement);
+        ngx_free(entry);
+        return hoplite_cosocket_complete_ordinary_call(
+            call, 0, 0, "could not disable idle write event");
+    }
+    connection->read->ready = 0;
     hoplite_cosocket_clear_timer(socket);
     hoplite_cosocket_clear_io(socket);
     hoplite_cosocket_clear_leftover(socket);
