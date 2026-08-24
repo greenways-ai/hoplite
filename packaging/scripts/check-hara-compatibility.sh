@@ -60,12 +60,14 @@ cargo check \
 run_focused_test() {
   local manifest="$1"
   local filter="$2"
+  shift 2
+  local -a target_args=("$@")
   local listing
   local -a matches=()
 
   listing="$(cargo test \
     --manifest-path "$manifest" \
-    --locked --lib "$filter" -- --list)"
+    --locked "${target_args[@]}" "$filter" -- --list)"
   mapfile -t matches < <(
     printf '%s\n' "$listing" | sed -n 's/: test$//p'
   )
@@ -80,17 +82,20 @@ run_focused_test() {
   printf 'hara-compatibility: running %s\n' "${matches[0]}"
   cargo test \
     --manifest-path "$manifest" \
-    --locked --lib "${matches[0]}" -- --exact
+    --locked "${target_args[@]}" "${matches[0]}" -- --exact
 }
 
 run_focused_test \
   core/Cargo.toml \
-  app_sources_evaluate_and_preserve_handler_vars
+  app_sources_evaluate_and_preserve_handler_vars \
+  --bin hoplite
 run_focused_test \
   core/runtime/Cargo.toml \
-  request_adapter_retains_and_pulls_hara_stream_bodies
+  request_adapter_retains_and_pulls_hara_stream_bodies \
+  --lib
 run_focused_test \
   core/runtime/Cargo.toml \
-  request_v3_body_survives_async_work_and_closes_with_request_scope
+  request_v3_body_survives_async_work_and_closes_with_request_scope \
+  --lib
 
 printf 'hara-compatibility: focused embedding boundary passed\n'
