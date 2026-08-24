@@ -26,12 +26,15 @@ grep -F 'pub const HARA_BUNDLE_MAGIC: &[u8; 4] = b"HBX0";' \
 grep -F 'pub const RUNTIME_ABI_VERSION: u32 = 5;' \
   core/application-bundle/src/lib.rs >/dev/null
 
-test "$(tr -d '[:space:]' < packaging/hara-revision)" = \
-  '4e19805cd6cdb62cca834914818bbe1a6275894b'
-grep -F 'HARA_REF: 4e19805cd6cdb62cca834914818bbe1a6275894b' \
-  .github/workflows/ci.yml >/dev/null
-grep -F 'HARA_REF: 4e19805cd6cdb62cca834914818bbe1a6275894b' \
-  .github/workflows/cosocket.yml >/dev/null
+hara_revision="$(bash packaging/scripts/hara-revision.sh)"
+test "${#hara_revision}" -eq 40
+for workflow in .github/workflows/ci.yml .github/workflows/cosocket.yml; do
+  grep -F 'packaging/scripts/hara-revision.sh' "$workflow" >/dev/null
+  if grep -F 'HARA_REF:' "$workflow" >/dev/null; then
+    echo "$workflow duplicates the authoritative Hara revision" >&2
+    exit 1
+  fi
+done
 
 grep -F 'docs/versioning.md' README.md >/dev/null
 grep -F 'hoplite.application-bundle/0-alpha' docs/application-bundle.md >/dev/null
