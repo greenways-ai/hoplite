@@ -10,7 +10,7 @@ The default branch has four permanent workflows:
 
 | Workflow | Purpose | Merge gate |
 | --- | --- | --- |
-| `CI` | Library, native boundary, production integration, and docs | Yes |
+| `CI` | Hara compatibility, library, native boundary, production integration, and docs | Yes |
 | `HTTP and footprint benchmarks` | Reproducible performance and memory reports | No |
 | `Release` | Tag-driven binaries, formula, image, and release assets | Release only |
 | `pages` | Documentation deployment | No |
@@ -20,11 +20,46 @@ They are never part of the steady-state gate set.
 
 ## Required CI
 
+### Hara compatibility preflight
+
+The Hara compatibility job is the first executable dependency of both the
+library and integration jobs. It reads the reviewed SHA only from
+`packaging/hara-revision`, checks out that exact sibling repository, and reports
+both the Hoplite and Hara commit identities before compilation.
+
+The preflight protects the narrow embedding boundary before Docker/Nginx work:
+
+- the revision file contains exactly one complete lowercase commit SHA;
+- the sibling Hara checkout is present at that exact revision;
+- the public `hara-wasm` dependency graph resolves under `--locked`;
+- the complete Hoplite workspace still compiles against the reviewed Hara
+  embedding facade;
+- a Hoplite HAL application resource evaluates and preserves its prepared
+  handler Var;
+- a request adapter can retain and pull a Hara Stream body; and
+- a suspended Hoplite host call retains its request-scoped body authority and
+  resumes through the owning work.
+
+The implementation is
+`packaging/scripts/check-hara-compatibility.sh`. Contributors reproduce the
+focused gate from a Hoplite checkout with the reviewed Hara checkout at
+`../hara`:
+
+```sh
+bash packaging/scripts/check-hara-compatibility.sh
+```
+
+Use `--verify-only` when a later job needs to prove that its already checked-out
+Hara tree still matches the authoritative pin without repeating compilation.
+The small `packaging/scripts/hara-revision.sh` reader validates the pin before
+placing it in a GitHub Actions output. Workflows must not copy the SHA into an
+environment constant.
+
 ### Library
 
-The library job protects Hoplite-owned source and public boundaries:
+The library job depends on the Hara compatibility preflight and protects
+Hoplite-owned source and public boundaries:
 
-- the reviewed Hara revision matches `packaging/hara-revision`;
 - the alpha version policy matches code, documentation, and the Hara pin and
   rejects stale stable-looking application-contract identifiers;
 - the worker-reload fixture's phase-tagged bounded failure-report path passes a
@@ -37,7 +72,7 @@ The library job protects Hoplite-owned source and public boundaries:
   header declarations exactly match the native symbol inventory;
 - public C headers compile as C11;
 - the fixed-capacity host registry, exported provider interface, and bounded
-  response-source pump pass their native fixtures.
+  response-source pump pass their native fixtures; and
 - runtime measurement and comparison schemas pass deterministic self-tests.
 
 The alpha policy is implemented by
@@ -52,7 +87,8 @@ regenerating dependencies implicitly.
 
 ### Integration
 
-The integration job protects the actual generic production path:
+The integration job also depends on the Hara compatibility preflight and
+protects the actual generic production path:
 
 - the provider-neutral production image builds from reviewed source;
 - two independently forced application compilations produce byte-identical,
@@ -66,7 +102,7 @@ The integration job protects the actual generic production path:
   preserving the master process, immutable HAB0/manifest/configuration bytes,
   and repeated dispatch;
 - removing the serving process and starting a fresh container recreates the
-  application from the same immutable source-free image;
+  application from the same immutable source-free image; and
 - a three-module application proves aliases, referred Vars, namespace-local
   Vars, dependency order, and repeated prepared-handler dispatch.
 
@@ -96,9 +132,11 @@ request that changes them.
 ## Retired compatibility workflow
 
 The former Compatibility workflow existed only for historical provider,
-storage, and migration products. It is removed with their 0.2.0 retirement.
-Generic host, data-plane, request-body, response-source, and embedding
-conformance now runs directly in `CI / library` or `CI / integration`.
+storage, and migration products. It remains retired. The focused Hara
+compatibility preflight is a job inside required `CI`, not a restored product
+compatibility workflow. Generic host, data-plane, request-body,
+response-source, and embedding conformance continues to run directly in
+`CI / library` or `CI / integration`.
 
 ## Benchmark evidence
 
@@ -106,7 +144,7 @@ Benchmarks run manually, on a schedule, and for release tags. They publish:
 
 - HTTP throughput and latency with machine and concurrency metadata;
 - executable and image sizes;
-- one-worker and marginal multi-worker memory;
+- one-worker and marginal multi-worker memory; and
 - source compilation, bytecode decoding, and application-bundle startup costs.
 
 Noisy wall-clock measurements do not block ordinary pull requests. A benchmark
@@ -146,7 +184,7 @@ A pull request that adds or promotes a gate must document:
 - the public surface it protects;
 - the failure class it detects that existing jobs miss;
 - expected runtime and external dependencies;
-- why path filtering or scheduled evidence is insufficient;
+- why path filtering or scheduled evidence is insufficient; and
 - how a contributor reproduces the check locally.
 
 A gate that repeatedly fails for unrelated infrastructure reasons is demoted or

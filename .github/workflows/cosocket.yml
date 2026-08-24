@@ -1,8 +1,5 @@
 name: Nginx programmability
 
-env:
-  HARA_REF: 4e19805cd6cdb62cca834914818bbe1a6275894b
-
 on:
   push:
     branches:
@@ -26,15 +23,19 @@ jobs:
       - uses: actions/checkout@v5
         with:
           path: hoplite
-      - name: Verify the reviewed Hara revision
+      - name: Resolve the reviewed Hara revision
+        id: hara
         working-directory: hoplite
-        run: test "$(tr -d '[:space:]' < packaging/hara-revision)" = "$HARA_REF"
+        run: echo "revision=$(bash packaging/scripts/hara-revision.sh)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
-          ref: ${{ env.HARA_REF }}
+          ref: ${{ steps.hara.outputs.revision }}
           path: hara
           submodules: recursive
+      - name: Verify the Hara compatibility checkout
+        working-directory: hoplite
+        run: bash packaging/scripts/check-hara-compatibility.sh --verify-only
       - name: Validate the fixture harness
         run: bash -n hoplite/packaging/scripts/smoke-cosocket-tcp.sh
       - name: Build the source-free TCP cosocket application
@@ -65,15 +66,19 @@ jobs:
       - uses: actions/checkout@v5
         with:
           path: hoplite
-      - name: Verify the reviewed Hara revision
+      - name: Resolve the reviewed Hara revision
+        id: hara
         working-directory: hoplite
-        run: test "$(tr -d '[:space:]' < packaging/hara-revision)" = "$HARA_REF"
+        run: echo "revision=$(bash packaging/scripts/hara-revision.sh)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
-          ref: ${{ env.HARA_REF }}
+          ref: ${{ steps.hara.outputs.revision }}
           path: hara
           submodules: recursive
+      - name: Verify the Hara compatibility checkout
+        working-directory: hoplite
+        run: bash packaging/scripts/check-hara-compatibility.sh --verify-only
       - name: Validate the directional fixture harness
         run: bash -n hoplite/packaging/scripts/smoke-cosocket-directional.sh
       - name: Build the source-free directional cosocket application

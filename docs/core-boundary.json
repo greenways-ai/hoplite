@@ -51,6 +51,8 @@
   "packaging_scripts": [
     {"path":"packaging/scripts/assert-production-image.sh","status":"distribution","summary":"Proves final image composition."},
     {"path":"packaging/scripts/benchmark-http.sh","status":"internal-evidence","summary":"Collects scheduled HTTP samples."},
+    {"path":"packaging/scripts/check-hara-compatibility.sh","status":"reference-conformance","summary":"Proves the exact reviewed Hara checkout, public embedding facade, HAL resource loading, stream bodies, and suspended request ownership before broad integration."},
+    {"path":"packaging/scripts/hara-revision.sh","status":"distribution","summary":"Reads and validates the sole committed Hara revision used by build, test, Nginx, and release workflows."},
     {"path":"packaging/scripts/install.sh","status":"distribution","summary":"Installs Hoplite distribution artifacts."},
     {"path":"packaging/scripts/measure-stack-footprints.sh","status":"internal-evidence","summary":"Collects reproducible footprint samples."},
     {"path":"packaging/scripts/new-app.sh","status":"distribution","summary":"Creates a starter application."},

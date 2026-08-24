@@ -5,6 +5,7 @@ scope="${1:?usage: scripts/connector/run-code <runtime|contracts|website>}"
 
 case "$scope" in
   runtime)
+    bash packaging/scripts/check-hara-compatibility.sh --verify-only
     cargo fmt --manifest-path core/Cargo.toml -- --check
     cargo metadata --manifest-path core/Cargo.toml --locked --no-deps >/dev/null
     cargo test --manifest-path core/Cargo.toml --workspace --locked
@@ -12,6 +13,10 @@ case "$scope" in
     ;;
   contracts)
     test -s packaging/hara-revision
+    bash -n \
+      packaging/scripts/hara-revision.sh \
+      packaging/scripts/check-hara-compatibility.sh
+    bash packaging/scripts/hara-revision.sh >/dev/null
     bash packaging/scripts/verify-alpha-versioning.sh
     node packaging/scripts/validate-runtime-measurement.mjs --self-test
     set +e

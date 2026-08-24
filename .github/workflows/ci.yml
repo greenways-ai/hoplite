@@ -1,9 +1,6 @@
 name: CI
 
 env:
-  # Hoplite consumes one reviewed Hara source revision until the embedding
-  # runtime is available as a published dependency.
-  HARA_REF: 4e19805cd6cdb62cca834914818bbe1a6275894b
   # Cargo is invoked from the parent of the hoplite checkout, so repository
   # .cargo configuration is not discovered by CI. Match the normal Linux
   # process stack used by the builder and worker for evaluator-heavy tests.
@@ -24,17 +21,42 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  library:
-    name: library
+  hara-compatibility:
+    name: Hara compatibility
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
         with:
           path: hoplite
-      - name: Verify the reviewed Hara revision
+      - name: Resolve the reviewed Hara revision
+        id: hara
         working-directory: hoplite
-        run: test "$(tr -d '[:space:]' < packaging/hara-revision)" = "$HARA_REF"
+        run: echo "revision=$(bash packaging/scripts/hara-revision.sh)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ steps.hara.outputs.revision }}
+          path: hara
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Prove the focused Hara embedding boundary
+        working-directory: hoplite
+        run: bash packaging/scripts/check-hara-compatibility.sh
+
+  library:
+    name: library
+    needs: hara-compatibility
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+      - name: Resolve the reviewed Hara revision
+        id: hara
+        working-directory: hoplite
+        run: echo "revision=$(bash packaging/scripts/hara-revision.sh)" >> "$GITHUB_OUTPUT"
       - name: Verify the alpha version policy
         working-directory: hoplite
         run: bash packaging/scripts/verify-alpha-versioning.sh
@@ -61,12 +83,15 @@ jobs:
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
-          ref: ${{ env.HARA_REF }}
+          ref: ${{ steps.hara.outputs.revision }}
           path: hara
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+      - name: Verify the Hara compatibility checkout
+        working-directory: hoplite
+        run: bash packaging/scripts/check-hara-compatibility.sh --verify-only
       - name: Check Rust formatting
         working-directory: hoplite
         run: cargo fmt --manifest-path core/Cargo.toml -- --check
@@ -89,7 +114,7 @@ jobs:
         run: bash hoplite/packaging/scripts/smoke-embedding.sh
       - name: Compile the public data-plane header
         run: |
-          cat > /tmp/hoplite-public-header.c <<'EOF'
+          cat > /tmp/hoplite-public-header.c <<'HEADER'
           #include "hoplite_data_plane.h"
 
           static int32_t read_body(
@@ -129,7 +154,7 @@ jobs:
                      ? 0
                      : 1;
           }
-          EOF
+          HEADER
           cc -std=c11 -Wall -Wextra -Werror \
             -I hoplite/core/abi/data-plane-ffi/include \
             /tmp/hoplite-public-header.c \
@@ -160,6 +185,7 @@ jobs:
 
   integration:
     name: integration
+    needs: hara-compatibility
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -169,13 +195,16 @@ jobs:
       - name: Resolve the reviewed Hara revision
         id: hara
         working-directory: hoplite
-        run: echo "revision=$(tr -d '[:space:]' < packaging/hara-revision)" >> "$GITHUB_OUTPUT"
+        run: echo "revision=$(bash packaging/scripts/hara-revision.sh)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
           ref: ${{ steps.hara.outputs.revision }}
           path: hara
           submodules: recursive
+      - name: Verify the Hara compatibility checkout
+        working-directory: hoplite
+        run: bash packaging/scripts/check-hara-compatibility.sh --verify-only
       - name: Build the generic production image
         run: docker build -f hoplite/packaging/docker/Dockerfile -t hoplite-ci .
       - name: Prove reproducible source-free application output
