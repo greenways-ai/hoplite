@@ -23,7 +23,7 @@
 
 (defn start-operation
   [operation]
-  (std.foundation.promise/run operation))
+  (std.foundation.promise/delay 0 operation))
 
 (defn ^:async concurrent-read-write
   [request]
