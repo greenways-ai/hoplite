@@ -1,5 +1,6 @@
 (ns hoplite.socket
-  (:config {}))
+  (:config {})
+  (:require [std.foundation :refer :all]))
 
 (def protocol
   "hoplite.socket/0-alpha")

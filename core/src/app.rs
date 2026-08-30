@@ -1541,10 +1541,14 @@ mod tests {
     fn socket_hal_contract_evaluates_from_the_production_registry() {
         let mut runtime = source_runtime();
         register_resources(&mut runtime);
-        assert_eq!(
-            runtime.eval_native_value(SOCKET_TEST_SOURCE).unwrap(),
-            Value::Bool(true)
-        );
+        let value = runtime.eval_native_value(SOCKET_TEST_SOURCE).unwrap();
+        let Value::Vector(results) = value else {
+            panic!("socket contract must return native test results")
+        };
+        assert_eq!(results.len(), 4, "socket contract test count");
+        assert!(results
+            .iter()
+            .all(|result| { matches!(result, Value::Result(result) if result.is_success()) }));
     }
 
     #[test]

@@ -309,6 +309,24 @@ jobs:
         run: bash hoplite/packaging/scripts/assert-production-image.sh hoplite-multi-module
       - name: Prove aliases, referred Vars and ordered namespaces through Nginx
         run: bash hoplite/packaging/scripts/smoke-multi-module.sh hoplite-multi-module
+      - name: Build the TCP cosocket production fixture
+        run: |
+          docker build \
+            -f hoplite/packaging/docker/Dockerfile \
+            --build-arg HOPLITE_APP=packaging/fixtures/cosocket-tcp \
+            -t hoplite-cosocket-tcp \
+            .
+      - name: Exercise stable TCP cosocket errors through Nginx
+        run: bash hoplite/packaging/scripts/smoke-cosocket-tcp.sh hoplite-cosocket-tcp
+      - name: Build the directional cosocket production fixture
+        run: |
+          docker build \
+            -f hoplite/packaging/docker/Dockerfile \
+            --build-arg HOPLITE_APP=packaging/fixtures/cosocket-directional \
+            -t hoplite-cosocket-directional \
+            .
+      - name: Exercise directional cosocket lifecycle cleanup through Nginx
+        run: bash hoplite/packaging/scripts/smoke-cosocket-directional.sh hoplite-cosocket-directional
 
   docs:
     name: docs

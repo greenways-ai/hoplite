@@ -49,6 +49,7 @@ struct hoplite_cosocket_s {
     ngx_flag_t connected;
     ngx_flag_t closed;
     ngx_flag_t released;
+    hoplite_cosocket_lifecycle_t lifecycle;
     hoplite_cosocket_pending_t pending;
     uint64_t pending_call;
     hoplite_host_completer_v1_t completer;
@@ -94,6 +95,7 @@ static void hoplite_cosocket_cancel(void *request_context);
 static void hoplite_cosocket_request_cleanup(void *data);
 static void hoplite_cosocket_read_handler(ngx_event_t *event);
 static void hoplite_cosocket_write_handler(ngx_event_t *event);
+static const char *hoplite_cosocket_public_error(const char *error);
 
 static const hoplite_host_provider_v1_t hoplite_cosocket_provider = {
     HOPLITE_HOST_PROVIDER_ABI_VERSION,
@@ -286,7 +288,10 @@ hoplite_cosocket_complete_ordinary_call(const hoplite_host_call_v1_t *call,
                                         const char *error)
 {
     hoplite_cosocket_writer_t writer = {NULL, 0, 0};
-    size_t error_len = error == NULL ? 0 : ngx_strlen(error);
+    size_t error_len;
+
+    error = hoplite_cosocket_public_error(error);
+    error_len = error == NULL ? 0 : ngx_strlen(error);
 
     if (error_len > (size_t) -1 - 64
         || hoplite_cosocket_writer_init(&writer, error_len + 64,
@@ -514,7 +519,10 @@ hoplite_cosocket_complete_ordinary(hoplite_cosocket_t *socket,
                                    const char *error)
 {
     hoplite_cosocket_writer_t writer = {NULL, 0, 0};
-    size_t error_len = error == NULL ? 0 : ngx_strlen(error);
+    size_t error_len;
+
+    error = hoplite_cosocket_public_error(error);
+    error_len = error == NULL ? 0 : ngx_strlen(error);
 
     if (hoplite_cosocket_result_writer(&writer, error_len, socket->log) != NGX_OK
         || hoplite_cosocket_write_u32(&writer, 2) != NGX_OK
@@ -542,9 +550,12 @@ hoplite_cosocket_complete_receive(hoplite_cosocket_t *socket,
                                   const char *error)
 {
     hoplite_cosocket_writer_t writer = {NULL, 0, 0};
-    size_t error_len = error == NULL ? 0 : ngx_strlen(error);
+    size_t error_len;
     size_t data_len = socket->receive_len;
     u_char *data = socket->receive_data;
+
+    error = hoplite_cosocket_public_error(error);
+    error_len = error == NULL ? 0 : ngx_strlen(error);
 
     if (data_len > (size_t) -1 - error_len
         || hoplite_cosocket_result_writer(&writer,
@@ -598,38 +609,230 @@ hoplite_cosocket_complete_receive_done(hoplite_cosocket_t *socket)
 }
 
 static const char *
-hoplite_cosocket_error_text
-(ngx_err_t error, const char *fallback)
+hoplite_cosocket_error_text(hoplite_cosocket_error_t error)
+{
+    switch (error) {
+    case HOPLITE_COSOCKET_ERROR_TIMEOUT:
+        return "timeout";
+    case HOPLITE_COSOCKET_ERROR_CLOSED:
+        return "closed";
+    case HOPLITE_COSOCKET_ERROR_CONNECTION_REFUSED:
+        return "connection refused";
+    case HOPLITE_COSOCKET_ERROR_CONNECTION_RESET:
+        return "connection reset by peer";
+    case HOPLITE_COSOCKET_ERROR_NETWORK_UNREACHABLE:
+        return "network unreachable";
+    case HOPLITE_COSOCKET_ERROR_HOST_UNREACHABLE:
+        return "host unreachable";
+    case HOPLITE_COSOCKET_ERROR_SOCKET_ERROR:
+        return "socket error";
+    case HOPLITE_COSOCKET_ERROR_CONNECT_FAILED:
+        return "connect failed";
+    case HOPLITE_COSOCKET_ERROR_SEND_FAILED:
+        return "send failed";
+    case HOPLITE_COSOCKET_ERROR_RECEIVE_FAILED:
+        return "receive failed";
+    case HOPLITE_COSOCKET_ERROR_SHUTDOWN_FAILED:
+        return "shutdown failed";
+    case HOPLITE_COSOCKET_ERROR_SOCKET_OPTION_FAILED:
+        return "socket option failed";
+    case HOPLITE_COSOCKET_ERROR_HOST_NOT_FOUND:
+        return "host not found";
+    case HOPLITE_COSOCKET_ERROR_RESOLVER_NOT_CONFIGURED:
+        return "resolver not configured";
+    case HOPLITE_COSOCKET_ERROR_RESOLVER_UNAVAILABLE:
+        return "resolver unavailable";
+    case HOPLITE_COSOCKET_ERROR_RESOLVER_REFUSED:
+        return "resolver refused";
+    case HOPLITE_COSOCKET_ERROR_RESOLVER_FAILURE:
+        return "resolver failure";
+    case HOPLITE_COSOCKET_ERROR_NAME_RESOLUTION_FAILED:
+        return "name resolution failed";
+    case HOPLITE_COSOCKET_ERROR_SOCKET_BUSY_READING:
+        return "socket busy reading";
+    case HOPLITE_COSOCKET_ERROR_SOCKET_BUSY_WRITING:
+        return "socket busy writing";
+    case HOPLITE_COSOCKET_ERROR_POOL_CAPACITY_UNAVAILABLE:
+        return "pool capacity unavailable";
+    case HOPLITE_COSOCKET_ERROR_POOL_BACKLOG_OVERFLOW:
+        return "pool backlog overflow";
+    case HOPLITE_COSOCKET_ERROR_POOL_WAIT_TIMEOUT:
+        return "pool wait timeout";
+    case HOPLITE_COSOCKET_ERROR_CONNECTION_DUBIOUS:
+        return "connection in dubious state";
+    case HOPLITE_COSOCKET_ERROR_ALREADY_CONNECTED:
+        return "already connected";
+    case HOPLITE_COSOCKET_ERROR_CONNECTION_HAS_NO_POOL_IDENTITY:
+        return "connection has no pool identity";
+    case HOPLITE_COSOCKET_ERROR_SOCKET_OPTIONS_PREVENT_SAFE_POOLING:
+        return "socket options prevent safe pooling";
+    }
+    return "socket error";
+}
+
+static const char *
+hoplite_cosocket_error_from_errno(ngx_err_t error,
+                                  hoplite_cosocket_error_t fallback)
 {
     if (error == NGX_ETIMEDOUT) {
-        return "timeout";
+        return hoplite_cosocket_error_text(HOPLITE_COSOCKET_ERROR_TIMEOUT);
     }
 #ifdef NGX_ECONNREFUSED
     if (error == NGX_ECONNREFUSED) {
-        return "connection refused";
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_CONNECTION_REFUSED);
     }
 #endif
 #ifdef NGX_ECONNRESET
     if (error == NGX_ECONNRESET) {
-        return "connection reset by peer";
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_CONNECTION_RESET);
     }
 #endif
 #ifdef NGX_EPIPE
     if (error == NGX_EPIPE) {
-        return "closed";
+        return hoplite_cosocket_error_text(HOPLITE_COSOCKET_ERROR_CLOSED);
     }
 #endif
 #ifdef NGX_ENETUNREACH
     if (error == NGX_ENETUNREACH) {
-        return "network unreachable";
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_NETWORK_UNREACHABLE);
     }
 #endif
 #ifdef NGX_EHOSTUNREACH
     if (error == NGX_EHOSTUNREACH) {
-        return "host unreachable";
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_HOST_UNREACHABLE);
     }
 #endif
-    return fallback;
+    return hoplite_cosocket_error_text(fallback);
+}
+
+static const char *
+hoplite_cosocket_public_error(const char *error)
+{
+    if (error == NULL) {
+        return NULL;
+    }
+    if (ngx_strcmp(error, "timeout") == 0) {
+        return hoplite_cosocket_error_text(HOPLITE_COSOCKET_ERROR_TIMEOUT);
+    }
+    if (ngx_strcmp(error, "closed") == 0) {
+        return hoplite_cosocket_error_text(HOPLITE_COSOCKET_ERROR_CLOSED);
+    }
+    if (ngx_strcmp(error, "connection refused") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_CONNECTION_REFUSED);
+    }
+    if (ngx_strcmp(error, "connection reset by peer") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_CONNECTION_RESET);
+    }
+    if (ngx_strcmp(error, "network unreachable") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_NETWORK_UNREACHABLE);
+    }
+    if (ngx_strcmp(error, "host unreachable") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_HOST_UNREACHABLE);
+    }
+    if (ngx_strcmp(error, "connection pool full") == 0
+        || ngx_strcmp(error, "keepalive pool full") == 0)
+    {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_POOL_CAPACITY_UNAVAILABLE);
+    }
+    if (ngx_strcmp(error, "too many waiting connect operations") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_POOL_BACKLOG_OVERFLOW);
+    }
+    if (ngx_strcmp(error, "pool capacity unavailable") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_POOL_CAPACITY_UNAVAILABLE);
+    }
+    if (ngx_strcmp(error, "pool backlog overflow") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_POOL_BACKLOG_OVERFLOW);
+    }
+    if (ngx_strcmp(error, "pool wait timeout") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_POOL_WAIT_TIMEOUT);
+    }
+    if (ngx_strcmp(error, "buffer too small") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_RECEIVE_FAILED);
+    }
+    if (ngx_strcmp(error, "connect failed") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_CONNECT_FAILED);
+    }
+    if (ngx_strcmp(error, "send failed") == 0) {
+        return hoplite_cosocket_error_text(HOPLITE_COSOCKET_ERROR_SEND_FAILED);
+    }
+    if (ngx_strcmp(error, "receive failed") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_RECEIVE_FAILED);
+    }
+    if (ngx_strcmp(error, "shutdown failed") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_SHUTDOWN_FAILED);
+    }
+    if (ngx_strcmp(error, "setsockopt failed") == 0
+        || ngx_strcmp(error, "socket option failed") == 0)
+    {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_SOCKET_OPTION_FAILED);
+    }
+    if (ngx_strcmp(error, "host not found") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_HOST_NOT_FOUND);
+    }
+    if (ngx_strcmp(error, "resolver not configured") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_RESOLVER_NOT_CONFIGURED);
+    }
+    if (ngx_strcmp(error, "resolver unavailable") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_RESOLVER_UNAVAILABLE);
+    }
+    if (ngx_strcmp(error, "resolver refused") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_RESOLVER_REFUSED);
+    }
+    if (ngx_strcmp(error, "resolver failure") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_RESOLVER_FAILURE);
+    }
+    if (ngx_strcmp(error, "name resolution failed") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_NAME_RESOLUTION_FAILED);
+    }
+    if (ngx_strcmp(error, "socket busy reading") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_SOCKET_BUSY_READING);
+    }
+    if (ngx_strcmp(error, "socket busy writing") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_SOCKET_BUSY_WRITING);
+    }
+    if (ngx_strcmp(error, "connection in dubious state") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_CONNECTION_DUBIOUS);
+    }
+    if (ngx_strcmp(error, "already connected") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_ALREADY_CONNECTED);
+    }
+    if (ngx_strcmp(error, "connection has no pool identity") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_CONNECTION_HAS_NO_POOL_IDENTITY);
+    }
+    if (ngx_strcmp(error, "socket options prevent safe pooling") == 0) {
+        return hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_SOCKET_OPTIONS_PREVENT_SAFE_POOLING);
+    }
+    return hoplite_cosocket_error_text(HOPLITE_COSOCKET_ERROR_SOCKET_ERROR);
 }
 
 static ngx_int_t
@@ -800,7 +1003,8 @@ hoplite_cosocket_receive_return(hoplite_cosocket_t *socket,
     {
         hoplite_cosocket_reset_connection(socket);
         return hoplite_cosocket_complete_receive(
-            socket, 0, "buffer too small");
+            socket, 0, hoplite_cosocket_error_text(
+                HOPLITE_COSOCKET_ERROR_RECEIVE_FAILED));
     }
     socket->receive_len = result_len;
     if (done && socket->receive_reader != NULL) {
@@ -840,7 +1044,8 @@ hoplite_cosocket_receive_until_ready(hoplite_cosocket_t *socket)
             {
                 hoplite_cosocket_reset_connection(socket);
                 return hoplite_cosocket_complete_receive(
-                    socket, 0, "buffer too small");
+                    socket, 0, hoplite_cosocket_error_text(
+                        HOPLITE_COSOCKET_ERROR_RECEIVE_FAILED));
             }
             socket->receive_len = 0;
             return hoplite_cosocket_complete_receive_done(socket);
@@ -902,8 +1107,8 @@ hoplite_cosocket_connect_check(hoplite_cosocket_t *socket)
         error = ngx_socket_errno;
     }
     if (error != 0) {
-        const char *message = hoplite_cosocket_error_text(
-            (ngx_err_t) error, "connect failed");
+        const char *message = hoplite_cosocket_error_from_errno(
+            (ngx_err_t) error, HOPLITE_COSOCKET_ERROR_CONNECT_FAILED);
         hoplite_cosocket_reset_connection(socket);
         return hoplite_cosocket_complete_ordinary(socket, 0, 0, message);
     }
@@ -931,13 +1136,14 @@ hoplite_cosocket_send_drive(hoplite_cosocket_t *socket)
             {
                 hoplite_cosocket_reset_connection(socket);
                 return hoplite_cosocket_complete_ordinary(
-                    socket, 0, 0, "send failed");
+                    socket, 0, 0, hoplite_cosocket_error_text(
+                        HOPLITE_COSOCKET_ERROR_SEND_FAILED));
             }
             return NGX_AGAIN;
         }
         {
-            const char *message = hoplite_cosocket_error_text(
-                ngx_socket_errno, "send failed");
+            const char *message = hoplite_cosocket_error_from_errno(
+                ngx_socket_errno, HOPLITE_COSOCKET_ERROR_SEND_FAILED);
             hoplite_cosocket_reset_connection(socket);
             return hoplite_cosocket_complete_ordinary(
                 socket, 0, 0, message);
@@ -1175,8 +1381,8 @@ hoplite_cosocket_receive_drive(hoplite_cosocket_t *socket)
                 socket, all, all ? NULL : "closed");
         }
         {
-            const char *message = hoplite_cosocket_error_text(
-                ngx_socket_errno, "receive failed");
+            const char *message = hoplite_cosocket_error_from_errno(
+                ngx_socket_errno, HOPLITE_COSOCKET_ERROR_RECEIVE_FAILED);
             hoplite_cosocket_reset_connection(socket);
             return hoplite_cosocket_complete_receive(socket, 0, message);
         }
@@ -1906,6 +2112,10 @@ hoplite_cosocket_cancel(void *request_context)
          socket = socket->next)
     {
         if (socket->owner == request_context && !socket->released) {
+            socket->lifecycle = hoplite_host_request_client_aborted_v1(
+                request_context)
+                ? HOPLITE_COSOCKET_LIFECYCLE_CLIENT_ABORTED
+                : HOPLITE_COSOCKET_LIFECYCLE_CANCELLED;
             hoplite_cosocket_close_state(socket);
         }
     }
