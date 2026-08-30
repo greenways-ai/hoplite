@@ -159,8 +159,12 @@ and demonstrated low variance.
 ## Release and deployment
 
 - Normal branch and main pushes never create GitHub releases.
-- `Release` runs only for version tags or an explicit rebuild of an existing
-  tag.
+- `Release preflight` runs for protected `main → release` promotion and owns
+  the required `release ready` check; it validates the release contract and
+  invokes the existing CI workflow without publishing.
+- `Release promotion` is a manual dispatch from the current `release` branch
+  head. It creates or resumes only the matching draft release intent, then
+  publishes and reads back Hoplite’s verified artifacts.
 - A pre-1.0 package tag does not promote an alpha portable contract to a stable
   major version.
 - Provider or downstream product artifacts are not published by Hoplite core

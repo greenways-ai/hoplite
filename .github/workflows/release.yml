@@ -1,165 +1,153 @@
-name: Release
+name: Release promotion
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
-    inputs:
-      tag:
-        description: Existing release tag to rebuild, for example v0.1.0
-        required: true
-        type: string
-      hara_revision:
-        description: Optional complete Hara commit SHA for rebuilding a legacy tag
-        required: false
-        type: string
 
 permissions:
-  checks: read
   contents: write
   packages: write
 
+concurrency:
+  group: hoplite-release-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
-  prepare:
-    runs-on: ubuntu-latest
+  release-ref:
+    name: release ref
+    runs-on: ubuntu-24.04
     outputs:
-      tag: ${{ steps.metadata.outputs.tag }}
-      version: ${{ steps.metadata.outputs.version }}
-      hoplite_revision: ${{ steps.metadata.outputs.hoplite_revision }}
-      hara_revision: ${{ steps.metadata.outputs.hara_revision }}
-      hara_native_revision: ${{ steps.metadata.outputs.hara_native_revision }}
-      license: ${{ steps.metadata.outputs.license }}
-      nginx_version: ${{ steps.metadata.outputs.nginx_version }}
-      nginx_sha256: ${{ steps.metadata.outputs.nginx_sha256 }}
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      commit: ${{ steps.release.outputs.commit }}
+      hara_revision: ${{ steps.release.outputs.hara_revision }}
+      hara_native_revision: ${{ steps.release.outputs.hara_native_revision }}
+      license: ${{ steps.release.outputs.license }}
+      nginx_version: ${{ steps.release.outputs.nginx_version }}
+      nginx_sha256: ${{ steps.release.outputs.nginx_sha256 }}
+      nchan_version: ${{ steps.release.outputs.nchan_version }}
+      nchan_sha256: ${{ steps.release.outputs.nchan_sha256 }}
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-          path: hoplite
-      - uses: actions/checkout@v5
-        with:
-          repository: hara-lang/hara
-          path: hara
-          submodules: recursive
           fetch-depth: 0
-      - uses: actions/checkout@v5
-        with:
-          repository: hara-lang/hara-native
-          path: hara-native
-          fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Resolve immutable release inputs
-        id: metadata
-        working-directory: hoplite
-        env:
-          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-          HARA_REVISION_OVERRIDE: ${{ github.event_name == 'workflow_dispatch' && inputs.hara_revision || '' }}
+      - id: release
+        name: Require the current release branch head
+        shell: bash
         run: |
-          case "$RELEASE_TAG" in
-            v*) ;;
-            *) echo "release tag must start with v: $RELEASE_TAG" >&2; exit 1 ;;
-          esac
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/release
+          git fetch origin main release --tags --force
+          test "$(git rev-parse origin/release)" = "$GITHUB_SHA"
 
-          version=${RELEASE_TAG#v}
-          crate_version=$(grep -m1 '^version = ' core/Cargo.toml | cut -d'"' -f2)
-          test "$version" = "$crate_version"
-
-          if test -n "$HARA_REVISION_OVERRIDE"; then
-            hara_revision=$HARA_REVISION_OVERRIDE
-            echo "Using explicitly requested Hara revision ${hara_revision}"
-          elif test -s packaging/hara-revision; then
-            hara_revision=$(tr -d '[:space:]' < packaging/hara-revision)
-          elif hara_revision=$(git -C ../hara rev-parse -q --verify "refs/tags/${RELEASE_TAG}^{commit}"); then
-            echo "Using matching Hara tag ${RELEASE_TAG} for this legacy release"
+          parents="$(git show -s --format=%P "$GITHUB_SHA")"
+          read -r -a parent_list <<<"$parents"
+          if test "${#parent_list[@]}" = 1; then
+            test "$GITHUB_SHA" = "$(git rev-parse origin/main)"
           else
-            hara_revision=$(git -C ../hara rev-parse HEAD)
-            echo "::warning::No pinned or matching-tag Hara revision; using ${hara_revision}"
+            test "${#parent_list[@]}" = 2
+            main_parent=false
+            for parent in "${parent_list[@]}"; do
+              if git merge-base --is-ancestor "$parent" origin/main; then
+                main_parent=true
+              fi
+            done
+            test "$main_parent" = true
           fi
 
-          case "$hara_revision" in
-            ''|*[!0-9a-f]*) echo "invalid Hara revision: $hara_revision" >&2; exit 1 ;;
-          esac
-          test "${#hara_revision}" -eq 40
-          git -C ../hara cat-file -e "${hara_revision}^{commit}"
-          git -C ../hara checkout --detach "$hara_revision"
+          test "$(jq -r '.format' release/version.json)" = hoplite/release-version-v1
+          version="$(jq -er '.version' release/version.json)"
+          crate_version="$(grep -m1 '^version = ' core/Cargo.toml | cut -d'"' -f2)"
+          test "$version" = "$crate_version"
 
-          hara_native_revision=$(bash packaging/scripts/hara-native-revision.sh)
-          git -C ../hara-native cat-file -e "${hara_native_revision}^{commit}"
-          git -C ../hara-native checkout --detach "$hara_native_revision"
+          hara_revision="$(bash packaging/scripts/hara-revision.sh)"
+          hara_native_revision="$(bash packaging/scripts/hara-native-revision.sh)"
+          license="$(grep -m1 '^license = ' core/Cargo.toml | cut -d'"' -f2)"
+          nginx_version="$(sed -n 's/^NGINX_VERSION := //p' core/Makefile)"
+          nginx_sha256="$(sed -n 's/^NGINX_SHA256 := //p' core/Makefile)"
+          nchan_version="$(sed -n 's/^NCHAN_VERSION := //p' core/Makefile)"
+          nchan_sha256="$(sed -n 's/^NCHAN_SHA256 := //p' core/Makefile)"
 
-          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "hoplite_revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          echo "hara_revision=$(git -C ../hara rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          echo "hara_native_revision=$(git -C ../hara-native rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          echo "license=$(grep -m1 '^license = ' core/Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
-          echo "nginx_version=$(sed -n 's/^NGINX_VERSION := //p' core/Makefile)" >> "$GITHUB_OUTPUT"
-          echo "nginx_sha256=$(sed -n 's/^NGINX_SHA256 := //p' core/Makefile)" >> "$GITHUB_OUTPUT"
-      - name: Verify alpha contracts and the committed dependency graph
-        working-directory: hoplite
-        run: |
-          bash packaging/scripts/verify-alpha-versioning.sh
-          cargo metadata \
-            --manifest-path core/Cargo.toml \
-            --locked --no-deps >/dev/null
-          jq -e \
-            '.format == "hoplite.public-surfaces/0-alpha"' \
-            docs/public-surfaces.json >/dev/null
-          jq -e \
-            '.format == "hoplite.core-boundary/0-alpha"' \
-            docs/core-boundary.json >/dev/null
-      - name: Require successful permanent CI on the tag commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-          HOPLITE_REVISION: ${{ steps.metadata.outputs.hoplite_revision }}
-        run: |
-          checks=$(gh api \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "repos/$GITHUB_REPOSITORY/commits/$HOPLITE_REVISION/check-runs?per_page=100")
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'tag=v%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'commit=%s\n' "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          printf 'hara_revision=%s\n' "$hara_revision" >> "$GITHUB_OUTPUT"
+          printf 'hara_native_revision=%s\n' "$hara_native_revision" >> "$GITHUB_OUTPUT"
+          printf 'license=%s\n' "$license" >> "$GITHUB_OUTPUT"
+          printf 'nginx_version=%s\n' "$nginx_version" >> "$GITHUB_OUTPUT"
+          printf 'nginx_sha256=%s\n' "$nginx_sha256" >> "$GITHUB_OUTPUT"
+          printf 'nchan_version=%s\n' "$nchan_version" >> "$GITHUB_OUTPUT"
+          printf 'nchan_sha256=%s\n' "$nchan_sha256" >> "$GITHUB_OUTPUT"
 
-          for required in library integration docs; do
-            if ! jq -e \
-              --arg name "$required" \
-              --arg sha "$HOPLITE_REVISION" \
-              '[.check_runs[]
-                | select(.name == $name)
-                | select(.head_sha == $sha)
-                | select(.status == "completed")
-                | select(.conclusion == "success")]
-               | length >= 1' <<<"$checks" >/dev/null; then
-              echo "tag commit lacks successful required check: $required" >&2
-              exit 1
-            fi
-          done
+  preflight:
+    needs: release-ref
+    uses: ./.github/workflows/release-preflight.yml
 
-  harp:
-    needs: prepare
-    runs-on: ubuntu-latest
+  release-intent:
+    name: release intent
+    needs: [release-ref, preflight]
+    runs-on: ubuntu-24.04
+    outputs:
+      resuming: ${{ steps.intent.outputs.resuming }}
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ needs.prepare.outputs.tag }}
+          fetch-depth: 0
+      - id: intent
+        name: Create or verify the immutable release intent
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-ref.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.release-ref.outputs.version }}
+          RELEASE_COMMIT: ${{ needs.release-ref.outputs.commit }}
+        run: |
+          set -euo pipefail
+          git fetch origin release --tags --force
+          test "$(git rev-parse origin/release)" = "$RELEASE_COMMIT"
+          if ! git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null; then
+            git tag "$RELEASE_TAG" "$RELEASE_COMMIT"
+            git push origin "refs/tags/${RELEASE_TAG}"
+            git fetch origin --tags --force
+          fi
+          test "$(git rev-list -n 1 "$RELEASE_TAG")" = "$RELEASE_COMMIT"
+          if gh release view "$RELEASE_TAG" --json isDraft >/dev/null 2>&1; then
+            test "$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')" = true
+            printf 'resuming=true\n' >> "$GITHUB_OUTPUT"
+          else
+            gh release create "$RELEASE_TAG" --draft --verify-tag \
+              --title "Hoplite ${RELEASE_VERSION}" \
+              --notes "Release publication in progress for ${RELEASE_COMMIT}."
+            printf 'resuming=false\n' >> "$GITHUB_OUTPUT"
+          fi
+
+  harp:
+    needs: [release-ref, release-intent, preflight]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.release-ref.outputs.commit }}
           path: hoplite
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
-          ref: ${{ needs.prepare.outputs.hara_revision }}
+          ref: ${{ needs.release-ref.outputs.hara_revision }}
           path: hara
           submodules: recursive
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara-native
-          ref: ${{ needs.prepare.outputs.hara_native_revision }}
+          ref: ${{ needs.release-ref.outputs.hara_native_revision }}
           path: hara-native
       - uses: dtolnay/rust-toolchain@stable
-      - name: Build deterministic HARP
+      - name: Build and inspect the deterministic HARP package
+        shell: bash
         run: |
-          version=${{ needs.prepare.outputs.version }}
-          cargo run --manifest-path hara/core/rust/Cargo.toml --bin hara -- \
+          set -euo pipefail
+          version='${{ needs.release-ref.outputs.version }}'
+          cargo run --locked --manifest-path hara/core/rust/Cargo.toml --bin hara -- \
             package build hoplite/core --output "hoplite-${version}.harp"
-          cargo run --manifest-path hara/core/rust/Cargo.toml --bin hara -- \
+          cargo run --locked --manifest-path hara/core/rust/Cargo.toml --bin hara -- \
             package inspect "hoplite-${version}.harp"
           sha256sum "hoplite-${version}.harp"
       - uses: actions/upload-artifact@v4
@@ -168,194 +156,344 @@ jobs:
           path: hoplite-*.harp
           if-no-files-found: error
 
-  container:
-    needs: prepare
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.prepare.outputs.tag }}
-          path: hoplite
-      - uses: actions/checkout@v5
-        with:
-          repository: hara-lang/hara
-          ref: ${{ needs.prepare.outputs.hara_revision }}
-          path: hara
-          submodules: recursive
-      - uses: actions/checkout@v5
-        with:
-          repository: hara-lang/hara-native
-          ref: ${{ needs.prepare.outputs.hara_native_revision }}
-          path: hara-native
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/metadata-action@v5
-        id: metadata
-        with:
-          images: ghcr.io/greenways-ai/hoplite
-          tags: |
-            type=semver,pattern={{version}},value=${{ needs.prepare.outputs.tag }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ needs.prepare.outputs.tag }}
-            type=raw,value=latest
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: hoplite/packaging/docker/Dockerfile
-          push: true
-          tags: ${{ steps.metadata.outputs.tags }}
-          labels: ${{ steps.metadata.outputs.labels }}
-
-  macos:
-    needs: prepare
+  platform-binaries:
+    needs: [release-ref, release-intent, preflight]
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: macos-14
             target: aarch64-apple-darwin
+            make_target: macos
           - runner: macos-15-intel
             target: x86_64-apple-darwin
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.prepare.outputs.tag }}
-          path: hoplite
-      - uses: actions/checkout@v5
-        with:
-          repository: hara-lang/hara
-          ref: ${{ needs.prepare.outputs.hara_revision }}
-          path: hara
-          submodules: recursive
-      - uses: actions/checkout@v5
-        with:
-          repository: hara-lang/hara-native
-          ref: ${{ needs.prepare.outputs.hara_native_revision }}
-          path: hara-native
-      - uses: dtolnay/rust-toolchain@stable
-      - run: brew install openssl@3 pcre2
-      - name: Build and smoke-test standalone executable
-        working-directory: hoplite/core
-        run: |
-          make macos
-          artifact="target/dist/hoplite-v${{ needs.prepare.outputs.version }}-${{ matrix.target }}"
-          test "$("$artifact" eval '(+ 19 23)')" = "42"
-          "$artifact" version
-      - uses: actions/upload-artifact@v4
-        with:
-          name: hoplite-${{ matrix.target }}
-          path: hoplite/core/target/dist/hoplite-*-${{ matrix.target }}
-          if-no-files-found: error
-
-  linux:
-    needs: prepare
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
+            make_target: macos
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
+            make_target: embedded-cli
           - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
+            make_target: embedded-cli
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ needs.prepare.outputs.tag }}
+          ref: ${{ needs.release-ref.outputs.commit }}
           path: hoplite
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
-          ref: ${{ needs.prepare.outputs.hara_revision }}
+          ref: ${{ needs.release-ref.outputs.hara_revision }}
           path: hara
           submodules: recursive
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara-native
-          ref: ${{ needs.prepare.outputs.hara_native_revision }}
+          ref: ${{ needs.release-ref.outputs.hara_native_revision }}
           path: hara-native
       - uses: dtolnay/rust-toolchain@stable
       - name: Install native build dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
             build-essential ca-certificates curl libpcre2-dev libssl-dev zlib1g-dev
-      - name: Build and smoke-test standalone executable
+      - name: Install native build dependencies
+        if: runner.os == 'macOS'
+        run: brew install openssl@3 pcre2
+      - name: Build and smoke-test both standalone executables
         working-directory: hoplite/core
+        shell: bash
         run: |
-          make embedded-cli
-          artifact="target/dist/hoplite-v${{ needs.prepare.outputs.version }}-${{ matrix.target }}"
-          mkdir -p target/dist
-          install -m 755 target/release/hoplite "$artifact"
-          test "$("$artifact" eval '(+ 19 23)')" = "42"
-          "$artifact" version
-          sha256sum "$artifact"
+          set -euo pipefail
+          make '${{ matrix.make_target }}'
+          git diff --exit-code -- Cargo.lock
+          version='${{ needs.release-ref.outputs.version }}'
+          cli="target/dist/hoplite-v${version}-${{ matrix.target }}"
+          server="target/dist/hoplite-server-v${version}-${{ matrix.target }}"
+          test "$("$cli" eval '(+ 19 23)')" = 42
+          "$cli" version | grep -Fx "Hoplite ${version}"
+          "$server" version | grep -Fx "Hoplite server ${version}"
+          sha256sum "$cli" "$server"
       - uses: actions/upload-artifact@v4
         with:
           name: hoplite-${{ matrix.target }}
-          path: hoplite/core/target/dist/hoplite-*-${{ matrix.target }}
+          path: hoplite/core/target/dist/hoplite*-v${{ needs.release-ref.outputs.version }}-${{ matrix.target }}
           if-no-files-found: error
 
-  publish:
-    needs: [prepare, harp, container, macos, linux]
-    runs-on: ubuntu-latest
-    env:
-      TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+  container:
+    needs: [release-ref, release-intent, preflight]
+    runs-on: ubuntu-24.04
+    environment: packages
+    outputs:
+      image: ${{ steps.image.outputs.name }}
+      digest: ${{ steps.record.outputs.digest }}
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || needs.prepare.outputs.tag }}
-          path: release-automation
-      - uses: actions/download-artifact@v4
+          ref: ${{ needs.release-ref.outputs.commit }}
+          path: hoplite
+      - uses: actions/checkout@v5
         with:
-          path: artifacts
-          merge-multiple: true
-      - name: Publish GitHub release
+          repository: hara-lang/hara
+          ref: ${{ needs.release-ref.outputs.hara_revision }}
+          path: hara
+          submodules: recursive
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara-native
+          ref: ${{ needs.release-ref.outputs.hara_native_revision }}
+          path: hara-native
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: image
+        name: Select immutable image identity
+        shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.release-ref.outputs.version }}
         run: |
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" artifacts/* \
-              --repo "$GITHUB_REPOSITORY" --clobber
+          printf 'name=ghcr.io/%s\n' "${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          printf 'version=%s\n' "$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+      - id: existing
+        name: Detect an existing image tag
+        shell: bash
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          VERSION: ${{ steps.image.outputs.version }}
+          RESUMING: ${{ needs.release-intent.outputs.resuming }}
+        run: |
+          set -euo pipefail
+          if docker buildx imagetools inspect "${IMAGE}:${VERSION}" >/dev/null 2>&1; then
+            test "$RESUMING" = true
+            digest="$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" | awk '/Digest:/ {print $2; exit}')"
+            test -n "$digest"
+            printf 'exists=true\n' >> "$GITHUB_OUTPUT"
+            printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
           else
-            gh release create "$RELEASE_TAG" artifacts/* \
-              --repo "$GITHUB_REPOSITORY" --generate-notes --verify-tag
+            printf 'exists=false\n' >> "$GITHUB_OUTPUT"
           fi
-      - name: Render formula
+      - id: build
+        if: steps.existing.outputs.exists != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: hoplite/packaging/docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}
+            ${{ steps.image.outputs.name }}:latest
+      - id: record
+        name: Record the immutable image digest
+        shell: bash
         run: |
+          set -euo pipefail
+          digest='${{ steps.existing.outputs.digest || steps.build.outputs.digest }}'
+          test -n "$digest"
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+
+  verify-container:
+    needs: [release-ref, container]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull and exercise the exact OCI release
+        shell: bash
+        env:
+          IMAGE: ${{ needs.container.outputs.image }}
+          DIGEST: ${{ needs.container.outputs.digest }}
+          RELEASE_VERSION: ${{ needs.release-ref.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker pull "${IMAGE}@${DIGEST}"
+          test "$(docker run --rm "${IMAGE}@${DIGEST}" version)" = "Hoplite server ${RELEASE_VERSION}"
+
+  homebrew-formula:
+    needs: [release-ref, release-intent, preflight]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.release-ref.outputs.commit }}
+          path: hoplite
+      - name: Render and syntax-check the immutable formula
+        shell: bash
+        run: |
+          set -euo pipefail
           mkdir -p rendered/Formula
-          VERSION="${{ needs.prepare.outputs.version }}" \
-          HOPLITE_REVISION="${{ needs.prepare.outputs.hoplite_revision }}" \
-          HARA_REVISION="${{ needs.prepare.outputs.hara_revision }}" \
-          HARA_NATIVE_REVISION="${{ needs.prepare.outputs.hara_native_revision }}" \
-          LICENSE="${{ needs.prepare.outputs.license }}" \
-          NGINX_VERSION="${{ needs.prepare.outputs.nginx_version }}" \
-          NGINX_SHA256="${{ needs.prepare.outputs.nginx_sha256 }}" \
-            release-automation/packaging/scripts/render-homebrew-formula > rendered/Formula/hoplite.rb
+          make -C hoplite/packaging/homebrew formula \
+            FORMULA="$GITHUB_WORKSPACE/rendered/Formula/hoplite.rb" \
+            VERSION='${{ needs.release-ref.outputs.version }}' \
+            HOPLITE_REVISION='${{ needs.release-ref.outputs.commit }}' \
+            HARA_REVISION='${{ needs.release-ref.outputs.hara_revision }}' \
+            HARA_NATIVE_REVISION='${{ needs.release-ref.outputs.hara_native_revision }}' \
+            LICENSE='${{ needs.release-ref.outputs.license }}' \
+            NGINX_VERSION='${{ needs.release-ref.outputs.nginx_version }}' \
+            NGINX_SHA256='${{ needs.release-ref.outputs.nginx_sha256 }}' \
+            NCHAN_VERSION='${{ needs.release-ref.outputs.nchan_version }}' \
+            NCHAN_SHA256='${{ needs.release-ref.outputs.nchan_sha256 }}'
           ruby -c rendered/Formula/hoplite.rb
       - uses: actions/upload-artifact@v4
         with:
           name: homebrew-formula
           path: rendered/Formula/hoplite.rb
-      - name: Update central Homebrew tap
-        if: ${{ env.TAP_TOKEN != '' }}
+          if-no-files-found: error
+
+  finalize-release:
+    name: finalize release
+    needs: [release-ref, release-intent, harp, platform-binaries, container, verify-container, homebrew-formula]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Verify payloads and write the release manifest
+        shell: bash
         env:
-          GH_TOKEN: ${{ env.TAP_TOKEN }}
+          RELEASE_TAG: ${{ needs.release-ref.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.release-ref.outputs.version }}
+          RELEASE_COMMIT: ${{ needs.release-ref.outputs.commit }}
+          HARA_REVISION: ${{ needs.release-ref.outputs.hara_revision }}
+          HARA_NATIVE_REVISION: ${{ needs.release-ref.outputs.hara_native_revision }}
+          NGINX_VERSION: ${{ needs.release-ref.outputs.nginx_version }}
+          NGINX_SHA256: ${{ needs.release-ref.outputs.nginx_sha256 }}
+          NCHAN_VERSION: ${{ needs.release-ref.outputs.nchan_version }}
+          NCHAN_SHA256: ${{ needs.release-ref.outputs.nchan_sha256 }}
+          OCI_IMAGE: ${{ needs.container.outputs.image }}
+          OCI_DIGEST: ${{ needs.container.outputs.digest }}
         run: |
+          set -euo pipefail
+          expected=(
+            "hoplite-${RELEASE_VERSION}.harp"
+            "hoplite-v${RELEASE_VERSION}-aarch64-apple-darwin"
+            "hoplite-server-v${RELEASE_VERSION}-aarch64-apple-darwin"
+            "hoplite-v${RELEASE_VERSION}-x86_64-apple-darwin"
+            "hoplite-server-v${RELEASE_VERSION}-x86_64-apple-darwin"
+            "hoplite-v${RELEASE_VERSION}-x86_64-unknown-linux-gnu"
+            "hoplite-server-v${RELEASE_VERSION}-x86_64-unknown-linux-gnu"
+            "hoplite-v${RELEASE_VERSION}-aarch64-unknown-linux-gnu"
+            "hoplite-server-v${RELEASE_VERSION}-aarch64-unknown-linux-gnu"
+            hoplite.rb
+          )
+          for asset in "${expected[@]}"; do
+            test -s "dist/${asset}"
+          done
+          test "$(find dist -maxdepth 1 -type f | wc -l | tr -d '[:space:]')" = "${#expected[@]}"
+          (
+            cd dist
+            sha256sum * > SHA256SUMS
+          )
+          assets="$({
+            while read -r checksum name; do
+              size="$(wc -c < "dist/$name")"
+              jq -n --arg name "$name" --arg sha256 "sha256:$checksum" --argjson size "$size" \
+                '{name: $name, sha256: $sha256, size: $size}'
+            done < dist/SHA256SUMS
+          } | jq -s .)"
+          jq -n \
+            --arg format hoplite/release-manifest-v1 \
+            --arg tag "$RELEASE_TAG" \
+            --arg version "$RELEASE_VERSION" \
+            --arg commit "$RELEASE_COMMIT" \
+            --arg hara "$HARA_REVISION" \
+            --arg hara_native "$HARA_NATIVE_REVISION" \
+            --arg nginx_version "$NGINX_VERSION" \
+            --arg nginx_sha256 "sha256:$NGINX_SHA256" \
+            --arg nchan_version "$NCHAN_VERSION" \
+            --arg nchan_sha256 "sha256:$NCHAN_SHA256" \
+            --arg image "$OCI_IMAGE" \
+            --arg digest "$OCI_DIGEST" \
+            --argjson artifacts "$assets" \
+            '{format: $format, releaseTag: $tag, version: $version, commit: $commit,
+              sources: {hoplite: $commit, hara: $hara, haraNative: $hara_native,
+                        nginx: {version: $nginx_version, sha256: $nginx_sha256},
+                        nchan: {version: $nchan_version, sha256: $nchan_sha256}},
+              registries: {oci: {image: $image, digest: $digest}}, artifacts: $artifacts}' \
+            > dist/release-manifest.json
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.release-ref.outputs.tag }}
+          draft: false
+          generate_release_notes: true
+          files: dist/*
+
+  verify-release:
+    name: verify published release
+    needs: [release-ref, finalize-release]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Read back the GitHub release and verify every asset
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-ref.outputs.tag }}
+          RELEASE_COMMIT: ${{ needs.release-ref.outputs.commit }}
+          RELEASE_VERSION: ${{ needs.release-ref.outputs.version }}
+        run: |
+          set -euo pipefail
+          release="$(gh release view "$RELEASE_TAG" --json isDraft,targetCommitish,assets)"
+          test "$(jq -r '.isDraft' <<<"$release")" = false
+          test "$(jq -r '.targetCommitish' <<<"$release")" = "$RELEASE_COMMIT"
+          expected=(
+            "hoplite-${RELEASE_VERSION}.harp"
+            "hoplite-v${RELEASE_VERSION}-aarch64-apple-darwin"
+            "hoplite-server-v${RELEASE_VERSION}-aarch64-apple-darwin"
+            "hoplite-v${RELEASE_VERSION}-x86_64-apple-darwin"
+            "hoplite-server-v${RELEASE_VERSION}-x86_64-apple-darwin"
+            "hoplite-v${RELEASE_VERSION}-x86_64-unknown-linux-gnu"
+            "hoplite-server-v${RELEASE_VERSION}-x86_64-unknown-linux-gnu"
+            "hoplite-v${RELEASE_VERSION}-aarch64-unknown-linux-gnu"
+            "hoplite-server-v${RELEASE_VERSION}-aarch64-unknown-linux-gnu"
+            hoplite.rb SHA256SUMS release-manifest.json
+          )
+          for asset in "${expected[@]}"; do
+            jq -e --arg name "$asset" '.assets[] | select(.name == $name)' <<<"$release" >/dev/null
+          done
+          gh release download "$RELEASE_TAG" --dir downloaded
+          (
+            cd downloaded
+            sha256sum --check SHA256SUMS
+          )
+
+  update-homebrew-tap:
+    needs: [release-ref, verify-release, homebrew-formula]
+    if: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
+    runs-on: ubuntu-24.04
+    environment: packages
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: homebrew-formula
+          path: rendered/Formula
+      - name: Update and verify the central Homebrew tap
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          RELEASE_TAG: ${{ needs.release-ref.outputs.tag }}
+        run: |
+          set -euo pipefail
           git clone "https://x-access-token:${GH_TOKEN}@github.com/greenways-ai/homebrew-tap.git" tap
           mkdir -p tap/Formula
           cp rendered/Formula/hoplite.rb tap/Formula/hoplite.rb
           git -C tap diff --check
           if test -z "$(git -C tap status --porcelain -- Formula/hoplite.rb)"; then
-            echo "Central tap already contains ${{ needs.prepare.outputs.tag }}"
+            echo "Central tap already contains ${RELEASE_TAG}"
             exit 0
           fi
           git -C tap config user.name github-actions[bot]
           git -C tap config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git -C tap add Formula/hoplite.rb
-          git -C tap commit -m "hoplite ${{ needs.prepare.outputs.tag }}"
+          git -C tap commit -m "hoplite ${RELEASE_TAG}"
           git -C tap push
+          git -C tap fetch origin main
+          test "$(git -C tap rev-parse HEAD)" = "$(git -C tap rev-parse origin/main)"

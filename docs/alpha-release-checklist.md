@@ -1,122 +1,75 @@
 # Hoplite alpha release checklist
 
-A Hoplite alpha release is cut only from one reviewed tag commit. The tag binds
-one Hoplite source revision, one reviewed Hara source revision, one reviewed
-Hara Native revision, one committed Cargo lock, one public-surface inventory,
-one core-boundary inventory, and one set of successful permanent CI checks.
+A Hoplite alpha release is promoted from one reviewed `main` commit to the
+protected `release` branch. The promotion binds one Hoplite revision, one Hara
+source revision, one Hara Native revision, one locked dependency graph, and the
+current public-surface/core-boundary inventories.
 
-The release workflow enforces the mechanical parts of this checklist in its
-`prepare` job before building or publishing any artifact.
+## 1. Promote a reviewed release candidate
 
-## 1. Immutable release inputs
+1. Make the release change on `main`, including the canonical version in
+   `release/version.json`. It must exactly equal `core/Cargo.toml`.
+2. Open a same-repository pull request from `main` to `release`; merge it with a
+   merge commit. The release preflight runs full CI, verifies immutable inputs,
+   builds and inspects the HARP package, checks the production container, and
+   renders the Homebrew formula without publishing anything.
+3. After the `release ready` check succeeds, dispatch **Release promotion** on
+   the current `release` branch. It rejects every other ref, retests that exact
+   commit, creates `v<version>` plus a draft release intent, and serializes
+   promotion runs for the branch.
 
-- The release tag starts with `v` and its version exactly matches
-  `core/Cargo.toml`.
-- The workflow resolves the full Hoplite commit SHA from the tag.
-- `packaging/hara-revision` and `packaging/hara-native-revision` each contain
-  one full 40-character reviewed commit SHA; both checkouts are detached at
-  those exact revisions.
-- `core/Cargo.lock` resolves without mutation through `cargo metadata --locked`.
-- The repository alpha-version policy passes at the tagged source revision.
+The `release` branch initially points at the intended `main` commit. Every
+later promotion is an ordinary merge of `main` into `release`; the workflow
+accepts that recurring topology rather than requiring `release` to remain an
+ancestor of `main`.
 
-A manually dispatched rebuild may supply a Hara revision only to reproduce a
-legacy tag whose source did not yet contain `packaging/hara-revision`. It must
-still be a complete existing commit SHA.
+## 2. Immutable release contract
 
-## 2. Required evidence on the tag commit
+- `release/version.json` uses `hoplite/release-version-v1` and contains valid
+  SemVer matching the Hoplite Cargo package version.
+- `packaging/hara-revision` and `packaging/hara-native-revision` contain full
+  reviewed commit SHAs; every release job checks out those exact revisions.
+- `core/Cargo.lock` resolves with `--locked`; alpha versioning and the public
+  surface/core-boundary inventories pass their established checks.
+- Nginx and Nchan versions and checksums are read from `core/Makefile` and
+  recorded in the release manifest.
 
-The exact Hoplite commit referenced by the tag must already have successful
-GitHub check runs named:
+An existing tag or image may be reused only while resuming the same draft
+release for the same `release` commit and version. Source or version changes
+require a new release candidate; tags and public artifacts are never retagged
+or overwritten with different bytes.
 
-- `library`;
-- `integration`;
-- `docs`.
+## 3. Published artifacts and verification
 
-The release workflow queries the check runs for the immutable commit SHA. A
-missing, queued, cancelled, neutral, skipped, timed-out, stale, or failed check
-blocks publication. A similarly named check on another commit does not count.
+One successful promotion produces from the same immutable inputs:
 
-These checks jointly prove:
+- inspected HARP package;
+- `hoplite` and `hoplite-server` binaries for Apple Silicon, Intel macOS,
+  x86-64 Linux, and ARM64 Linux;
+- multi-platform `ghcr.io/greenways-ai/hoplite` image;
+- source Homebrew formula; and
+- GitHub release `SHA256SUMS` and `hoplite/release-manifest-v1` metadata.
 
-- alpha contract and reviewed Hara pin policy;
-- locked Rust workspace tests;
-- complete public-surface and core-boundary inventories;
-- the exact default binary and dependency boundary;
-- native C/header/provider/response-source conformance;
-- source-free final-image composition;
-- real Nginx request handling and multi-module dispatch;
-- documentation buildability.
+Each executable evaluates `(+ 19 23)` and reports the release version before
+upload. The promotion pulls the published OCI digest and exercises
+`hoplite-server version`. It then reads the finalized GitHub release back,
+checks the target commit and complete asset list, downloads every asset, and
+verifies `SHA256SUMS`.
 
-When executable embedding conformance is part of `CI / library`, the same gate
-also proves the public Rust/C runtime lifecycle and exact native symbol set.
+The central Homebrew tap update runs only after GitHub-release verification and
+only when the protected `packages` environment exposes `HOMEBREW_TAP_TOKEN`.
+It pushes and reads back the tap’s `main` SHA.
 
-## 3. Contract inventories
+## 4. Administrator bootstrap
 
-Before artifact construction, both machine-readable registries must parse as
-JSON and carry their current alpha identities:
+Before the first promotion, repository administrators must:
 
-- `docs/public-surfaces.json` — `hoplite.public-surfaces/0-alpha`;
-- `docs/core-boundary.json` — `hoplite.core-boundary/0-alpha`.
+1. create `release` from the reviewed `main` head;
+2. require pull requests and the **Release preflight / release ready** check on
+   `release`, permitting merge commits for `main → release` promotion; and
+3. create a `packages` environment restricted to the `release` branch and move
+   `HOMEBREW_TAP_TOKEN` into that environment.
 
-Every public or experimental surface changed since the previous tag needs:
-
-- updated compatibility documentation;
-- focused behavioural evidence;
-- an explicit version decision when the change is incompatible;
-- a migration note when an existing public surface is deprecated or removed.
-
-The 0.2.0 retirement decision requires provider and migration product
-inventories to remain empty. Historical database, authentication, storage, and
-provider products must not re-enter the default executable set, dependency
-boundary, production image, or public-surface promise.
-
-## 4. Release artifacts
-
-One successful release workflow produces all artifacts from the same prepared
-revision triple:
-
-- deterministic HARP package plus inspection and SHA-256 evidence;
-- source-free production container;
-- standalone macOS binaries for Apple Silicon and Intel;
-- standalone Linux binaries for x86-64 and ARM64;
-- GitHub release assets;
-- a syntactically validated Homebrew formula;
-- an optional central tap update when the repository secret is configured.
-
-Each platform binary must execute a real Hara evaluation and report its version
-before upload. The release workflow must not rebuild an artifact from a moving
-branch or an unreviewed Hara checkout.
-
-## 5. Human release review
-
-Automation cannot decide release intent. The reviewer confirms:
-
-- release notes identify user-visible application, runtime, CLI, ABI, document,
-  diagnostic, and performance changes;
-- known limitations and migration requirements are explicit;
-- no credentials, native pointers, build paths, provider internals, or private
-  request data appear in public diagnostics or evidence;
-- benchmark claims point to retained measurement data and environment metadata;
-- the starter application and primary README describe the current alpha command
-  and artifact names;
-- the tag is intentional and should be published.
-
-## 6. Publication and post-release verification
-
-The publish job runs only after every required artifact job succeeds. It creates
-or updates the GitHub release for the existing verified tag, uploads all assets,
-then renders the Homebrew formula from the immutable release metadata.
-
-After publication, verify that:
-
-- all expected assets and checksums are present;
-- the container tag resolves and runs `hoplite-server version`;
-- both `hoplite` and `hoplite-server` binaries report the released version;
-- the Homebrew formula points to the same Hoplite/Hara source/Hara Native
-  revisions and Nginx
-  source checksum;
-- documentation references the released alpha contract epoch.
-
-A failed post-release verification is handled by correcting automation and
-rebuilding the same tag only when the artifacts are reproducible from the exact
-recorded inputs. Source changes require a new version and tag.
+The manual promotion workflow is the only workflow that can publish a tag,
+GitHub release, OCI image, or tap update. Normal branch pushes, main pushes,
+and release-preflight checks do not publish artifacts.
