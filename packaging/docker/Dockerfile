@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /src
 COPY hoplite hoplite
 COPY hara hara
+COPY hara-native hara-native
 RUN make -C hoplite/core embedded-cli server-cli
 ARG HOPLITE_APP=core/examples
 ARG HOPLITE_REPRODUCIBILITY_NONCE=default
@@ -20,7 +21,7 @@ RUN test -n "$HOPLITE_REPRODUCIBILITY_NONCE" \
 
 # Export only the generated source-free application directory. Tests can build
 # this target with distinct nonces to force independent application compilation
-# while reusing the reviewed Rust, Hara and Nginx toolchain layers.
+# while reusing the reviewed Rust, Hara source, Hara Native and Nginx toolchain layers.
 FROM scratch AS application-artifacts
 COPY --from=builder /app/.hoplite/ /
 

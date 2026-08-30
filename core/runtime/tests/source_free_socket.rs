@@ -1,12 +1,11 @@
-use hara_wasm::core::Value;
-use hara_wasm::kernel::{parse_forms, Form};
-use hara_wasm::vm::{self, BytecodeBundleModule};
-use hara_wasm::{hta, Runtime as CompilerRuntime};
+use hara_native::core::Value;
+use hara_native::kernel::{parse_forms, Form};
+use hara_native::vm::{self, BytecodeBundleModule};
+use hara_native::{hta, Runtime as CompilerRuntime};
 use hoplite_runtime::{
-    hoplite_bootstrap_bytecode, hoplite_buffer_free, hoplite_call_resolve,
-    hoplite_handler_prepare, hoplite_runtime_free, hoplite_runtime_new, hoplite_work_call,
-    hoplite_work_close, hoplite_work_next_event, hoplite_work_poll, HopliteBuffer,
-    HopliteRuntime,
+    hoplite_bootstrap_bytecode, hoplite_buffer_free, hoplite_call_resolve, hoplite_handler_prepare,
+    hoplite_runtime_free, hoplite_runtime_new, hoplite_work_call, hoplite_work_close,
+    hoplite_work_next_event, hoplite_work_poll, HopliteBuffer, HopliteRuntime,
 };
 use std::ptr;
 use std::slice;
@@ -158,7 +157,7 @@ fn compile_module(
 }
 
 fn source_free_bundle() -> Vec<u8> {
-    let mut compiler = CompilerRuntime::new();
+    let mut compiler = hoplite::hara_source::compiler_runtime().unwrap();
     compiler.register_resource("hoplite.socket", SOCKET_SOURCE);
     compiler.register_resource("example.socket-application", APPLICATION_SOURCE);
     let socket = compile_module(&mut compiler, "hoplite.socket", SOCKET_SOURCE, Vec::new());
@@ -173,7 +172,10 @@ fn source_free_bundle() -> Vec<u8> {
 
 fn next_event(runtime: *mut HopliteRuntime) -> Value {
     unsafe {
-        assert!(hoplite_work_poll(runtime) > 0, "runtime has a pending event");
+        assert!(
+            hoplite_work_poll(runtime) > 0,
+            "runtime has a pending event"
+        );
         let mut output = HopliteBuffer {
             data: ptr::null_mut(),
             len: 0,
@@ -233,9 +235,8 @@ fn source_free_socket_coroutine_continues_after_synchronous_completions() {
     );
 
     let handler_name = b"example.socket-application/show";
-    let handler = unsafe {
-        hoplite_handler_prepare(runtime.0, handler_name.as_ptr(), handler_name.len())
-    };
+    let handler =
+        unsafe { hoplite_handler_prepare(runtime.0, handler_name.as_ptr(), handler_name.len()) };
     assert_ne!(handler, 0, "handler prepares");
 
     let input = hta::encode(&Value::Map(Default::default())).expect("request input encodes");
@@ -275,25 +276,19 @@ fn source_free_socket_coroutine_continues_after_synchronous_completions() {
     resolve(
         runtime.0,
         receiveany_call,
-        Value::Vector(
-            vec![Value::Bytes(b"part".to_vec()), Value::Nil, Value::Nil].into(),
-        ),
+        Value::Vector(vec![Value::Bytes(b"part".to_vec()), Value::Nil, Value::Nil].into()),
     );
 
     let receiveuntil = next_event(runtime.0);
-    let receiveuntil_call =
-        host_call(&receiveuntil, "hoplite.socket", "receiveuntil");
+    let receiveuntil_call = host_call(&receiveuntil, "hoplite.socket", "receiveuntil");
     resolve(runtime.0, receiveuntil_call, Value::Number(2));
 
     let reader = next_event(runtime.0);
-    let reader_call =
-        host_call(&reader, "hoplite.socket", "receiveuntil-read");
+    let reader_call = host_call(&reader, "hoplite.socket", "receiveuntil-read");
     resolve(
         runtime.0,
         reader_call,
-        Value::Vector(
-            vec![Value::Bytes(b"part".to_vec()), Value::Nil, Value::Nil].into(),
-        ),
+        Value::Vector(vec![Value::Bytes(b"part".to_vec()), Value::Nil, Value::Nil].into()),
     );
 
     let shutdown = next_event(runtime.0);
@@ -346,7 +341,10 @@ fn source_free_socket_coroutine_continues_after_synchronous_completions() {
 
     let completed = next_event(runtime.0);
     let Value::Vector(values) = &completed else {
-        panic!("expected completion vector, received {}", completed.display())
+        panic!(
+            "expected completion vector, received {}",
+            completed.display()
+        )
     };
     assert!(
         matches!(values.get(0), Some(Value::Number(0))),

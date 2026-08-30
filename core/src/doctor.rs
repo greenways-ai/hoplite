@@ -1,4 +1,4 @@
-use hara_wasm::project::{self, Project};
+use hara_native::project::{self, Project};
 use serde_json::{json, Value as JsonValue};
 use std::env;
 use std::fmt::Write as _;

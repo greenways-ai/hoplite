@@ -23,16 +23,25 @@ jobs:
       - uses: actions/checkout@v5
         with:
           path: hoplite
-      - name: Resolve the reviewed Hara revision
-        id: hara
+      - name: Resolve the reviewed Hara source revision
+        id: hara_source
         working-directory: hoplite
         run: echo "revision=$(bash packaging/scripts/hara-revision.sh)" >> "$GITHUB_OUTPUT"
+      - name: Resolve the reviewed Hara Native revision
+        id: hara_native
+        working-directory: hoplite
+        run: echo "revision=$(bash packaging/scripts/hara-native-revision.sh)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
-          ref: ${{ steps.hara.outputs.revision }}
+          ref: ${{ steps.hara_source.outputs.revision }}
           path: hara
           submodules: recursive
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara-native
+          ref: ${{ steps.hara_native.outputs.revision }}
+          path: hara-native
       - name: Verify the Hara compatibility checkout
         working-directory: hoplite
         run: bash packaging/scripts/check-hara-compatibility.sh --verify-only
@@ -66,16 +75,25 @@ jobs:
       - uses: actions/checkout@v5
         with:
           path: hoplite
-      - name: Resolve the reviewed Hara revision
-        id: hara
+      - name: Resolve the reviewed Hara source revision
+        id: hara_source
         working-directory: hoplite
         run: echo "revision=$(bash packaging/scripts/hara-revision.sh)" >> "$GITHUB_OUTPUT"
+      - name: Resolve the reviewed Hara Native revision
+        id: hara_native
+        working-directory: hoplite
+        run: echo "revision=$(bash packaging/scripts/hara-native-revision.sh)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v5
         with:
           repository: hara-lang/hara
-          ref: ${{ steps.hara.outputs.revision }}
+          ref: ${{ steps.hara_source.outputs.revision }}
           path: hara
           submodules: recursive
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara-native
+          ref: ${{ steps.hara_native.outputs.revision }}
+          path: hara-native
       - name: Verify the Hara compatibility checkout
         working-directory: hoplite
         run: bash packaging/scripts/check-hara-compatibility.sh --verify-only

@@ -1,4 +1,4 @@
-use hara_wasm::kernel::{parse, Form};
+use hara_native::kernel::{parse, Form};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LockedPackage {

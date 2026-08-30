@@ -1,15 +1,15 @@
 # Reproducible application builds
 
 Hoplite production startup consumes generated, source-free application output.
-For the same Hoplite revision, reviewed Hara revision, project source, project
-configuration, build mode, and dependency inputs, the generated `.hoplite`
-directory must be byte-identical.
+For the same Hoplite revision, reviewed Hara source revision, reviewed Hara
+Native revision, project source, project configuration, build mode, and
+dependency inputs, the generated `.hoplite` directory must be byte-identical.
 
 The permanent integration gate proves this by compiling the multi-module fixture
 twice. Each compilation receives a distinct cache nonce at the application-build
 layer, so Docker cannot reuse the previous generated application. The expensive
-reviewed Rust, Hara, and Nginx toolchain layers remain cacheable and are not the
-subject of the comparison.
+reviewed Rust, Hara source, Hara Native, and Nginx toolchain layers remain
+cacheable and are not the subject of the comparison.
 
 ## Exported evidence target
 
@@ -54,7 +54,9 @@ byte changes therefore fail the required `CI / integration` job.
 ## Scope
 
 This proves application-output reproducibility within one Linux builder image
-and one immutable Hoplite/Hara source pair. It does not yet prove that different
+and one immutable Hoplite/Hara source/Hara Native revision triple. Hara source
+is mounted only to compile the application; the final server receives the
+resulting HBX0 and has no source checkout. It does not yet prove that different
 operating systems or compiler toolchains produce identical artifacts. Cross-host
 reproducibility, retained build provenance, and independently repeated tagged
 release builds remain separate release-quality work.

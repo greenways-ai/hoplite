@@ -3,8 +3,8 @@ use super::protocol::{
     failure, map_get, map_value, read_hta_frame, string_value, success, write_hta_frame,
     CommandSet, ConsoleGrant, ConsoleLimits, REQUEST_PROTOCOL,
 };
-use hara_wasm::core::{self, Value};
-use hara_wasm::hta;
+use hara_native::core::{self, Value};
+use hara_native::hta;
 use std::fs::{self, File};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};

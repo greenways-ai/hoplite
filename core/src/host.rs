@@ -1,12 +1,12 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-use hara_wasm::{core::Value, hta};
+use hara_native::{core::Value, hta};
 use p256::ecdsa::{Signature as P256Signature, VerifyingKey as P256VerifyingKey};
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(all(test, feature = "cli-host"))]
-use hara_wasm::Runtime;
+use hara_native::Runtime;
 #[cfg(all(test, feature = "cli-host"))]
 use std::rc::Rc;
 
@@ -263,14 +263,14 @@ fn fixed_bytes<const N: usize>(
 mod tests {
     use super::{dispatch, install};
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-    use hara_wasm::core::Value;
-    use hara_wasm::Runtime;
+    use hara_native::core::Value;
+    use hoplite::hara_source;
     use p256::ecdsa::{signature::Signer, Signature, SigningKey};
     use sha2::{Digest, Sha256};
 
     #[test]
     fn hal_host_capabilities_use_the_native_boundary() {
-        let mut runtime = Runtime::new();
+        let mut runtime = hara_source::compiler_runtime().unwrap();
         install(&mut runtime);
         let value = runtime
             .eval_native_value(
@@ -297,7 +297,7 @@ mod tests {
         );
         let expected = format!(
             "sha256:{:x}",
-            Sha256::digest(hara_wasm::hta::encode(&value).expect("fixture encodes"))
+            Sha256::digest(hara_native::hta::encode(&value).expect("fixture encodes"))
         );
         assert_eq!(
             dispatch(
@@ -318,7 +318,7 @@ mod tests {
 
     #[test]
     fn secret_access_is_closed_without_a_provider() {
-        let mut runtime = Runtime::new();
+        let mut runtime = hara_source::compiler_runtime().unwrap();
         install(&mut runtime);
         let error = runtime
             .eval_native("(ns host-secret (:require [hoplite.host :as hoplite-host])) (hoplite-host/secret \"auth/signing-key\")")

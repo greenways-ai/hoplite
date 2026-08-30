@@ -1,5 +1,5 @@
-use hara_wasm::core::{self, Value};
-use hara_wasm::hta;
+use hara_native::core::{self, Value};
+use hara_native::hta;
 use hoplite_application_bundle as application_bundle;
 use serde_json::{json, Value as JsonValue};
 use sha2::{Digest, Sha256};

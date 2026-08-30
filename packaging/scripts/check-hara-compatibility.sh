@@ -13,29 +13,79 @@ case "$mode" in
     ;;
 esac
 
-expected="$(bash packaging/scripts/hara-revision.sh)"
+expected_hara="$(bash packaging/scripts/hara-revision.sh)"
+expected_hara_native="$(bash packaging/scripts/hara-native-revision.sh)"
 hara_root="${HARA_ROOT:-../hara}"
+hara_native_root="${HARA_NATIVE_ROOT:-../hara-native}"
+allow_dirty_hara_native="${HOPLITE_ALLOW_DIRTY_HARA_NATIVE:-0}"
+
+if [[ "$allow_dirty_hara_native" != "0" && "$allow_dirty_hara_native" != "1" ]]; then
+  printf 'hara-compatibility: HOPLITE_ALLOW_DIRTY_HARA_NATIVE must be 0 or 1\n' >&2
+  exit 64
+fi
+
+if [[ "$allow_dirty_hara_native" == "1" && ("${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true") ]]; then
+  printf 'hara-compatibility: CI and release builds require a clean Hara Native checkout\n' >&2
+  exit 65
+fi
 
 if ! git -C "$hara_root" rev-parse --git-dir >/dev/null 2>&1; then
   printf 'hara-compatibility: Hara checkout is unavailable at %s\n' "$hara_root" >&2
-  printf 'hara-compatibility: expected=%s\n' "$expected" >&2
+  printf 'hara-compatibility: expected-hara=%s\n' "$expected_hara" >&2
   exit 66
 fi
 
-actual="$(git -C "$hara_root" rev-parse HEAD)"
+if ! git -C "$hara_native_root" rev-parse --git-dir >/dev/null 2>&1; then
+  printf 'hara-compatibility: Hara Native checkout is unavailable at %s\n' "$hara_native_root" >&2
+  printf 'hara-compatibility: expected-hara-native=%s\n' "$expected_hara_native" >&2
+  exit 66
+fi
+
+actual_hara="$(git -C "$hara_root" rev-parse HEAD)"
+actual_hara_native="$(git -C "$hara_native_root" rev-parse HEAD)"
 hoplite="$(git rev-parse HEAD 2>/dev/null || printf 'unknown')"
 printf 'hara-compatibility: hoplite=%s\n' "$hoplite"
-printf 'hara-compatibility: expected-hara=%s\n' "$expected"
-printf 'hara-compatibility: actual-hara=%s\n' "$actual"
+printf 'hara-compatibility: expected-hara=%s\n' "$expected_hara"
+printf 'hara-compatibility: actual-hara=%s\n' "$actual_hara"
+printf 'hara-compatibility: expected-hara-native=%s\n' "$expected_hara_native"
+printf 'hara-compatibility: actual-hara-native=%s\n' "$actual_hara_native"
 
-if [[ "$actual" != "$expected" ]]; then
+if [[ "$actual_hara" != "$expected_hara" ]]; then
   printf 'hara-compatibility: checked-out Hara revision does not match packaging/hara-revision\n' >&2
   exit 65
 fi
 
+if [[ "$actual_hara_native" != "$expected_hara_native" ]]; then
+  printf 'hara-compatibility: checked-out Hara Native revision does not match packaging/hara-native-revision\n' >&2
+  exit 65
+fi
+
+if [[ -n "$(git -C "$hara_root" status --porcelain)" ]]; then
+  printf 'hara-compatibility: Hara source checkout is dirty; build and release inputs must be committed\n' >&2
+  exit 65
+fi
+
+if [[ -n "$(git -C "$hara_native_root" status --porcelain)" ]]; then
+  if [[ "$allow_dirty_hara_native" != "1" ]]; then
+    printf 'hara-compatibility: Hara Native checkout is dirty; set HOPLITE_ALLOW_DIRTY_HARA_NATIVE=1 only for local development\n' >&2
+    exit 65
+  fi
+  printf 'hara-compatibility: allowing a dirty local Hara Native checkout\n'
+fi
+
+if [[ -f "$hara_root/core/rust/hal-src/std/foundation.hal" ]]; then
+  hara_foundation_source="$hara_root/core/rust/hal-src/std/foundation.hal"
+elif [[ -f "$hara_root/core/lib/src/std/foundation.hal" ]]; then
+  hara_foundation_source="$hara_root/core/lib/src/std/foundation.hal"
+else
+  printf 'hara-compatibility: Hara source checkout has no std/foundation.hal input\n' >&2
+  exit 66
+fi
+
 for required in \
-  "$hara_root/core/rust/Cargo.toml" \
-  "$hara_root/core/rust/src/lib.rs" \
+  "$hara_foundation_source" \
+  "$hara_native_root/core/rust/Cargo.toml" \
+  "$hara_native_root/core/rust/src/lib.rs" \
   core/Cargo.toml \
   core/runtime/Cargo.toml; do
   if [[ ! -f "$required" ]]; then

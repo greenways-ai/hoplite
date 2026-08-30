@@ -5,7 +5,7 @@ mod host_intrinsics;
 #[path = "../../src/rtc.rs"]
 mod rtc;
 
-use hara_wasm::{core, hta, kernel, vm};
+use hara_native::{core, hta, kernel, vm};
 use hoplite_application_bundle as application_bundle;
 use hoplite_data_plane_abi::{BodyLimits, ResourceHandle};
 use hoplite_data_plane_ffi::HopliteRequestBodyV1;
@@ -22,6 +22,18 @@ use std::{ffi::c_void, slice, str};
 const ABI_VERSION: u32 = application_bundle::RUNTIME_ABI_VERSION;
 const MAX_CHILD_DRIVE_PASSES: usize = 64;
 type HostCall = (u64, Promise, String, String, Vec<Value>);
+
+#[cfg(feature = "source-evaluation")]
+const SOURCE_EVALUATION_HOPLITE_MODULES: &[&str] = &[
+    include_str!("../../lib/src/hoplite/core.hal"),
+    include_str!("../../lib/src/hoplite/host.hal"),
+    include_str!("../../lib/src/hoplite/internal.hal"),
+    include_str!("../../lib/src/hoplite/nchan.hal"),
+    include_str!("../../lib/src/hoplite/raw.hal"),
+    include_str!("../../lib/src/hoplite/response_source.hal"),
+    include_str!("../../lib/src/hoplite/socket.hal"),
+    include_str!("../../lib/src/hoplite/rtc.hal"),
+];
 
 pub type HopliteStartupDiagnostic =
     unsafe extern "C" fn(context: *mut c_void, diagnostic: *const u8, diagnostic_len: usize);
@@ -340,6 +352,8 @@ pub struct HopliteBuffer {
 pub struct HopliteRuntime {
     namespaces: kernel::NamespaceRegistry<Value>,
     protocols: core::ProtocolRegistry,
+    #[cfg(feature = "source-evaluation")]
+    source_evaluation_enabled: bool,
     next_handler: HandlerId,
     next_work: WorkId,
     next_call: u64,
@@ -580,11 +594,7 @@ fn extension_entries(
             .map(|(key, value)| (Value::String(key), Value::String(value)))
             .collect());
     }
-    request_entries(
-        requests,
-        receiver.handle,
-        receiver.type_name == "exchange",
-    )
+    request_entries(requests, receiver.handle, receiver.type_name == "exchange")
 }
 
 fn response_headers(value: Option<&Value>) -> Result<Vec<(String, String)>, String> {
@@ -732,9 +742,12 @@ fn install_request_protocols(
         protocols.register_extension(
             "hoplite.route",
             type_name,
-            "std.protocol.ilookup/ILookup",
+            "std.protocol.ilookup.ILookup",
             "lookup",
             move |arguments| match arguments {
+                [Value::Extension(receiver), key] if receiver.provider == "hoplite.route" => {
+                    Ok(request_lookup(&store, receiver, key)?.unwrap_or(Value::Nil))
+                }
                 [Value::Extension(receiver), key, default]
                     if receiver.provider == "hoplite.route" =>
                 {
@@ -748,7 +761,7 @@ fn install_request_protocols(
         protocols.register_extension(
             "hoplite.route",
             type_name,
-            "std.protocol.icount/ICount",
+            "std.protocol.icount.ICount",
             "count",
             move |arguments| match arguments {
                 [Value::Extension(receiver)] if receiver.provider == "hoplite.route" => {
@@ -763,7 +776,7 @@ fn install_request_protocols(
         protocols.register_extension(
             "hoplite.route",
             type_name,
-            "std.protocol.iiter/IIter",
+            "std.protocol.iiter.IIter",
             "iter",
             move |arguments| match arguments {
                 [Value::Extension(receiver)] if receiver.provider == "hoplite.route" => {
@@ -782,7 +795,7 @@ fn install_request_protocols(
         protocols.register_extension(
             "hoplite.route",
             type_name,
-            "std.protocol.ifind/IFind",
+            "std.protocol.ifind.IFind",
             "find",
             move |arguments| match arguments {
                 [Value::Extension(receiver), key] if receiver.provider == "hoplite.route" => {
@@ -798,7 +811,7 @@ fn install_request_protocols(
         protocols.register_extension(
             "hoplite.route",
             type_name,
-            "std.protocol.iassoc/IAssoc",
+            "std.protocol.iassoc.IAssoc",
             "assoc",
             move |arguments| match arguments {
                 [Value::Extension(receiver), key, replacement]
@@ -817,7 +830,7 @@ fn install_request_protocols(
         protocols.register_extension(
             "hoplite.route",
             type_name,
-            "std.protocol.idissoc/IDissoc",
+            "std.protocol.idissoc.IDissoc",
             "dissoc",
             move |arguments| match arguments {
                 [Value::Extension(receiver), key] if receiver.provider == "hoplite.route" => {
@@ -832,7 +845,7 @@ fn install_request_protocols(
         protocols.register_extension(
             "hoplite.route",
             type_name,
-            "std.protocol.iempty/IEmpty",
+            "std.protocol.iempty.IEmpty",
             "empty",
             |_| Ok(Value::Map(Default::default())),
         );
@@ -941,7 +954,7 @@ fn install_raw_namespace(
 
 impl HopliteRuntime {
     fn new() -> Self {
-        let namespaces = hara_wasm::embedding_namespace_registry();
+        let namespaces = hara_native::embedding_namespace_registry();
         let requests = Rc::new(RefCell::new(HashMap::new()));
         let resources = Rc::new(RefCell::new(ResourceRegistry::new()));
         let raw_builders = Rc::new(RefCell::new(HashMap::new()));
@@ -968,6 +981,8 @@ impl HopliteRuntime {
         Self {
             namespaces,
             protocols,
+            #[cfg(feature = "source-evaluation")]
+            source_evaluation_enabled: false,
             next_handler: 1,
             next_work: 1,
             next_call: 1,
@@ -1397,6 +1412,29 @@ impl HopliteRuntime {
     }
 
     #[cfg(feature = "source-evaluation")]
+    fn enable_source_evaluation(&mut self) -> Result<(), String> {
+        if self.source_evaluation_enabled {
+            return Ok(());
+        }
+        if !self.pristine_for_application_bootstrap() {
+            return Err(
+                "hoplite/source-evaluation-stateful-runtime: start source evaluation from a fresh runtime"
+                    .into(),
+            );
+        }
+
+        let foundation = hoplite::hara_source::foundation_bytecode_bundle()?;
+        self.bootstrap_bytecode(&foundation)?;
+        let duplex = hoplite::hara_source::standard_library_source("std.stream.duplex")?;
+        self.bootstrap_modules_loaded(&duplex)?;
+        for source in SOURCE_EVALUATION_HOPLITE_MODULES {
+            self.bootstrap_modules_loaded(source)?;
+        }
+        self.source_evaluation_enabled = true;
+        Ok(())
+    }
+
+    #[cfg(feature = "source-evaluation")]
     fn start_program(&mut self, program: Rc<vm::Program>) -> WorkId {
         let work = self.open_work();
         let (handler, pending, next) = self.host_handler(work);
@@ -1414,10 +1452,12 @@ impl HopliteRuntime {
 
     #[cfg(feature = "source-evaluation")]
     fn work_start(&mut self, source: &str, binding: Option<Value>) -> WorkId {
-        let program = prepare_vm_source(source, &self.namespaces).and_then(|source| {
-            vm::compile_source_with(&source, &self.namespaces)
-                .map(Rc::new)
-                .map_err(|error| error.to_string())
+        let program = self.enable_source_evaluation().and_then(|()| {
+            prepare_vm_source(source, &self.namespaces).and_then(|source| {
+                vm::compile_source_with(&source, &self.namespaces)
+                    .map(Rc::new)
+                    .map_err(|error| error.to_string())
+            })
         });
         match program {
             Ok(program) => {
@@ -1442,6 +1482,12 @@ impl HopliteRuntime {
 
     #[cfg(feature = "source-evaluation")]
     fn bootstrap_modules(&mut self, source: &str) -> Result<(), String> {
+        self.enable_source_evaluation()?;
+        self.bootstrap_modules_loaded(source)
+    }
+
+    #[cfg(feature = "source-evaluation")]
+    fn bootstrap_modules_loaded(&mut self, source: &str) -> Result<(), String> {
         let forms = kernel::parse_forms(source)?;
         let mut modules = Vec::<Vec<kernel::Form>>::new();
         for form in forms {
@@ -3146,11 +3192,14 @@ pub unsafe extern "C" fn hoplite_work_close(runtime: *mut HopliteRuntime, work: 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hara_wasm::lang::IPeekFirst;
-    use hara_wasm::vm::BytecodeBundleModule;
+    #[cfg(feature = "source-evaluation")]
+    use hara_native::lang::IPeekFirst;
+    #[cfg(feature = "source-evaluation")]
+    use hara_native::vm::BytecodeBundleModule;
 
+    #[cfg(feature = "source-evaluation")]
     fn bytecode_module(
-        compiler: &mut hara_wasm::Runtime,
+        compiler: &mut hara_native::Runtime,
         namespace: &str,
         body: &str,
     ) -> BytecodeBundleModule {
@@ -3166,6 +3215,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "source-evaluation")]
     unsafe extern "C" fn collect_startup_diagnostic(
         context: *mut c_void,
         diagnostic: *const u8,
@@ -3176,9 +3226,10 @@ mod tests {
         output.push(str::from_utf8(bytes).unwrap().to_owned());
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn bytecode_bootstrap_uses_hara_hbx0_and_is_transactional() {
-        let mut compiler = hara_wasm::Runtime::new();
+        let mut compiler = hoplite::hara_source::compiler_runtime().unwrap();
         let successful = bytecode_module(&mut compiler, "example.bytecode", "(defn answer [] 42)");
         let bundle = vm::encode_bytecode_bundle(&[successful]).unwrap();
         assert_eq!(&bundle[..4], b"HBX0");
@@ -3200,9 +3251,10 @@ mod tests {
         assert!(runtime.namespaces.find("example.failure").is_none());
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn application_bundle_binds_manifest_and_rolls_back_route_failure() {
-        let mut compiler = hara_wasm::Runtime::new();
+        let mut compiler = hoplite::hara_source::compiler_runtime().unwrap();
         let module = bytecode_module(
             &mut compiler,
             "example.application",
@@ -3243,9 +3295,10 @@ mod tests {
         assert!(rolled_back.handlers.is_empty());
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn application_bootstrap_reports_ordered_path_free_stages() {
-        let mut compiler = hara_wasm::Runtime::new();
+        let mut compiler = hoplite::hara_source::compiler_runtime().unwrap();
         let module = bytecode_module(
             &mut compiler,
             "example.diagnostic",
@@ -3293,12 +3346,10 @@ mod tests {
         assert_eq!(diagnostic["sequence"], 2);
         assert_eq!(diagnostic["stage"], "bundle");
         assert_eq!(diagnostic["status"], "failed");
-        assert_eq!(
-            diagnostic["class"],
-            "application-bundle-checksum-mismatch"
-        );
+        assert_eq!(diagnostic["class"], "application-bundle-checksum-mismatch");
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn bootstrap_compiles_namespaces_independently_in_dependency_order() {
         let mut runtime = HopliteRuntime::new();
@@ -3326,6 +3377,7 @@ mod tests {
             .any(|(name, _)| name.as_str() == "answer"));
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn independently_compiled_async_namespaces_drive_inner_host_calls() {
         let mut runtime = HopliteRuntime::new();
@@ -3400,10 +3452,12 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "source-evaluation")]
     struct TestRawRequest {
         fields: Vec<(u32, &'static str)>,
     }
 
+    #[cfg(feature = "source-evaluation")]
     unsafe extern "C" fn test_raw_field(
         context: *mut c_void,
         field: u32,
@@ -3424,10 +3478,8 @@ mod tests {
         RAW_FIELD_OK
     }
 
-    fn test_request_v4(
-        request: HopliteRequestV2,
-        raw: &HopliteRawRequestV1,
-    ) -> HopliteRequestV4 {
+    #[cfg(feature = "source-evaluation")]
+    fn test_request_v4(request: HopliteRequestV2, raw: &HopliteRawRequestV1) -> HopliteRequestV4 {
         HopliteRequestV4 {
             request: HopliteRequestV3 {
                 request,
@@ -3492,6 +3544,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "source-evaluation")]
     fn manifest_v2(handler: &str, adapter: &str) -> Value {
         Value::Map(
             vec![
@@ -3543,6 +3596,7 @@ mod tests {
         )
     }
 
+    #[cfg(feature = "source-evaluation")]
     fn manifest_v2_with_console(
         route_handler: &str,
         adapter: &str,
@@ -3602,12 +3656,14 @@ mod tests {
         )
     }
 
+    #[cfg(feature = "source-evaluation")]
     fn take_event(runtime: &mut HopliteRuntime) -> Value {
         runtime.drain_ready();
         let bytes = runtime.events.borrow_mut().pop_front().unwrap();
         hta::decode(&bytes).unwrap()
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn synchronous_handler_returns_response_map() {
         let mut runtime = HopliteRuntime::new();
@@ -3621,6 +3677,7 @@ mod tests {
         assert!(matches!(event.get(0), Some(Value::Number(0))));
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn example_application_bootstraps() {
         let mut runtime = HopliteRuntime::new();
@@ -3636,6 +3693,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn prepared_handler_program_is_reused_across_requests() {
         let mut runtime = HopliteRuntime::new();
@@ -3660,6 +3718,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn manifest_routes_requests_through_prepared_handlers() {
         let mut runtime = HopliteRuntime::new();
@@ -3733,6 +3792,7 @@ mod tests {
         assert_eq!(runtime.handlers.len(), 1);
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn application_console_uses_only_the_manifest_selected_handler() {
         let mut runtime = HopliteRuntime::new();
@@ -3773,9 +3833,8 @@ mod tests {
         );
         let encoded = hta::encode(&input).unwrap();
         let runtime_ptr = &mut runtime as *mut HopliteRuntime;
-        let work = unsafe {
-            hoplite_app_console_call(runtime_ptr, 1, encoded.as_ptr(), encoded.len())
-        };
+        let work =
+            unsafe { hoplite_app_console_call(runtime_ptr, 1, encoded.as_ptr(), encoded.len()) };
         assert_ne!(work, 0);
         let Value::Vector(event) = take_event(&mut runtime) else {
             panic!("console completion event")
@@ -3789,6 +3848,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn host_call_suspends_and_resumes_the_fiber() {
         let mut runtime = HopliteRuntime::new();
@@ -3817,6 +3877,7 @@ mod tests {
         assert!(matches!(done.get(1), Some(Value::Number(value)) if *value == work as i64));
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn trusted_hoplite_host_intrinsics_complete_synchronously() {
         let mut runtime = HopliteRuntime::new();
@@ -3833,6 +3894,7 @@ mod tests {
         assert!(matches!(done.get(2), Some(Value::String(value)) if value == "hello"));
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn one_work_owns_multiple_sequential_host_calls() {
         let mut runtime = HopliteRuntime::new();
@@ -3865,6 +3927,7 @@ mod tests {
         assert!(matches!(done.get(1), Some(Value::Number(value)) if *value == work as i64));
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn nested_async_service_exposes_its_first_host_call() {
         let mut runtime = HopliteRuntime::new();
@@ -3893,6 +3956,7 @@ mod tests {
         assert!(matches!(call.get(6), Some(Value::String(method)) if method == "commit"));
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn request_adapter_completes_without_work_or_hta_events() {
         let mut runtime = HopliteRuntime::new();
@@ -3927,6 +3991,7 @@ mod tests {
         assert!(runtime.requests.borrow().is_empty());
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn request_adapter_retains_and_pulls_hara_stream_bodies() {
         let mut runtime = HopliteRuntime::new();
@@ -4015,6 +4080,7 @@ mod tests {
             .contains("hoplite/stream-invalid"));
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn raw_adapter_uses_the_exchange_response_api() {
         let mut runtime = HopliteRuntime::new();
@@ -4041,6 +4107,7 @@ mod tests {
         assert_eq!(runtime.works.len(), works_before);
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn request_v4_projects_bounded_raw_fields_into_raw_exchanges() {
         let mut runtime = HopliteRuntime::new();
@@ -4064,10 +4131,7 @@ mod tests {
             context: (&mut raw_context as *mut TestRawRequest).cast(),
             field: Some(test_raw_field),
         };
-        let request = test_request_v4(
-            test_request(&mut request_context, "/raw-fields"),
-            &raw,
-        );
+        let request = test_request_v4(test_request(&mut request_context, "/raw-fields"), &raw);
         let mut outcome = HopliteOutcomeV2 { kind: 9, id: 9 };
         assert_eq!(
             unsafe { hoplite_app_invoke_v4(&mut runtime, 1, &request, &mut outcome) },
@@ -4085,6 +4149,7 @@ mod tests {
         assert!(runtime.requests.borrow().is_empty());
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn request_v4_keeps_raw_fields_out_of_request_adapter_values() {
         let mut runtime = HopliteRuntime::new();
@@ -4105,10 +4170,7 @@ mod tests {
             context: (&mut raw_context as *mut TestRawRequest).cast(),
             field: Some(test_raw_field),
         };
-        let request = test_request_v4(
-            test_request(&mut request_context, "/request-fields"),
-            &raw,
-        );
+        let request = test_request_v4(test_request(&mut request_context, "/request-fields"), &raw);
         let mut outcome = HopliteOutcomeV2 { kind: 9, id: 9 };
         assert_eq!(
             unsafe { hoplite_app_invoke_v4(&mut runtime, 1, &request, &mut outcome) },
@@ -4124,6 +4186,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn request_v3_projects_only_an_opaque_body_handle() {
         let mut runtime = HopliteRuntime::new();
@@ -4155,6 +4218,7 @@ mod tests {
         assert_eq!(body_context.close_count, 1);
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn request_v3_body_survives_async_work_and_closes_with_request_scope() {
         let mut runtime = HopliteRuntime::new();
@@ -4305,6 +4369,7 @@ mod tests {
         assert!(runtime.resources.borrow().is_empty());
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn request_v3_rejects_portable_adapter_and_closes_body() {
         let mut runtime = HopliteRuntime::new();
@@ -4352,6 +4417,7 @@ mod tests {
         assert!(runtime.resources.borrow().is_empty());
     }
 
+    #[cfg(feature = "source-evaluation")]
     #[test]
     fn request_handler_yields_without_async_metadata() {
         let mut runtime = HopliteRuntime::new();

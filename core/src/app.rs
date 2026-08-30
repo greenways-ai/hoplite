@@ -1,7 +1,8 @@
-use hara_wasm::core::{self, Value};
-use hara_wasm::kernel::{parse_forms, Form};
-use hara_wasm::project::Project;
-use hara_wasm::Runtime;
+use hara_native::core::{self, Value};
+use hara_native::kernel::{parse_forms, Form};
+use hara_native::project::Project;
+use hara_native::Runtime;
+use hoplite::hara_source;
 use serde_json::{json, Map as JsonMap, Value as JsonValue};
 use std::collections::{BTreeSet, VecDeque};
 use std::ffi::OsStr;
@@ -313,7 +314,7 @@ pub fn load(project: &Project, profile: Option<&str>, production: bool) -> Resul
         .split_once('/')
         .map(|(namespace, _)| namespace)
         .ok_or("Hoplite profile main must be a qualified app var such as app.core/app")?;
-    let mut runtime = Runtime::new();
+    let mut runtime = hara_source::compiler_runtime()?;
     register_resources(&mut runtime);
     register_project_sources(project, &mut runtime)?;
     let source = format!(
@@ -1082,7 +1083,7 @@ pub fn manifest(config: &Config) -> Result<Vec<u8>, String> {
             map_value(fields)
         })
         .collect();
-    hara_wasm::hta::encode(&map_value(vec![
+    hara_native::hta::encode(&map_value(vec![
         (keyword("format"), Value::Number(format)),
         (keyword("apps"), Value::Vector(apps)),
     ]))
@@ -1219,22 +1220,22 @@ fn join_path(parent: &str, child: &str) -> String {
     format!("{}{}", parent.trim_end_matches('/'), child)
 }
 
-fn option_port(options: &hara_wasm::kernel::Form) -> Result<Option<u16>, String> {
+fn option_port(options: &hara_native::kernel::Form) -> Result<Option<u16>, String> {
     option_number(options, "port")?.map(valid_port).transpose()
 }
 
-fn option_workers(options: &hara_wasm::kernel::Form) -> Result<Option<usize>, String> {
+fn option_workers(options: &hara_native::kernel::Form) -> Result<Option<usize>, String> {
     option_number(options, "workers")?
         .map(|value| usize::try_from(value).map_err(|_| "profile :workers must be positive".into()))
         .transpose()
 }
 
-fn option_number(options: &hara_wasm::kernel::Form, name: &str) -> Result<Option<i64>, String> {
-    let hara_wasm::kernel::Form::Map(entries) = options else {
+fn option_number(options: &hara_native::kernel::Form, name: &str) -> Result<Option<i64>, String> {
+    let hara_native::kernel::Form::Map(entries) = options else {
         return Err("profile options must be a map".into());
     };
     Ok(entries.iter().find_map(|(key, value)| match (key, value) {
-        (hara_wasm::kernel::Form::Keyword(key), hara_wasm::kernel::Form::Number(value))
+        (hara_native::kernel::Form::Keyword(key), hara_native::kernel::Form::Number(value))
             if key == name =>
         {
             Some(*value)
@@ -1267,6 +1268,10 @@ fn map_value(entries: Vec<(Value, Value)>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn source_runtime() -> Runtime {
+        hara_source::compiler_runtime().unwrap()
+    }
 
     fn temp_project(name: &str) -> PathBuf {
         let unique = std::time::SystemTime::now()
@@ -1311,7 +1316,7 @@ mod tests {
 
     #[test]
     fn app_sources_evaluate_and_preserve_handler_vars() {
-        let mut runtime = Runtime::new();
+        let mut runtime = source_runtime();
         runtime.register_resource("hoplite.core", CORE_SOURCE);
         let value = runtime.eval_native_value("(ns sample (:require [hoplite.core :as h])) (defn get-user [request] request) (h/app {:name :sample :resources [[\"/users/:id\" {:get {:name :users/get :summary \"Get user\" :handler #'get-user}}]]})").unwrap();
         let resources = sequence_field(&value, "resources").expect("resources");
@@ -1329,7 +1334,7 @@ mod tests {
 
     #[test]
     fn app_console_is_fixed_in_the_manifest() {
-        let mut runtime = Runtime::new();
+        let mut runtime = source_runtime();
         runtime.register_resource("hoplite.core", CORE_SOURCE);
         let value = runtime
             .eval_native_value(
@@ -1349,7 +1354,7 @@ mod tests {
             apps: vec![app],
         })
         .unwrap();
-        let decoded = hara_wasm::hta::decode(&encoded).unwrap();
+        let decoded = hara_native::hta::decode(&encoded).unwrap();
         let apps = sequence_field(&decoded, "apps").unwrap();
         assert_eq!(
             text_field(&apps[0], "console").as_deref(),
@@ -1359,7 +1364,7 @@ mod tests {
 
     #[test]
     fn semantic_route_authorization_belongs_to_the_hal_handler() {
-        let mut runtime = Runtime::new();
+        let mut runtime = source_runtime();
         runtime.register_resource("hoplite.core", CORE_SOURCE);
         let value = runtime.eval_native_value("(ns sample (:require [hoplite.core :as h])) (defn submit [request] request) (h/app {:name :sample :resources [[\"/objects\" {:post {:handler #'submit :route/auth {:application \"example\"}}}]]})").unwrap();
         let error = parse_app(value, 1, 8080, vec![], false).unwrap_err();
@@ -1369,7 +1374,7 @@ mod tests {
 
     #[test]
     fn parses_fixed_https_and_loopback_proxy_prefixes() {
-        let mut runtime = Runtime::new();
+        let mut runtime = source_runtime();
         runtime.register_resource("hoplite.core", CORE_SOURCE);
         let value = runtime
             .eval_native_value(
@@ -1388,7 +1393,7 @@ mod tests {
 
     #[test]
     fn parses_closed_nchan_channel_declarations() {
-        let mut runtime = Runtime::new();
+        let mut runtime = source_runtime();
         runtime.register_resource("hoplite.core", CORE_SOURCE);
         let value = runtime
             .eval_native_value(
@@ -1471,7 +1476,7 @@ mod tests {
 
     #[test]
     fn public_hal_contract_evaluates_from_disk() {
-        let mut runtime = Runtime::new();
+        let mut runtime = source_runtime();
         runtime.register_resource("hoplite.core", CORE_SOURCE);
         runtime.register_resource("hoplite.internal", INTERNAL_SOURCE);
         assert_eq!(
@@ -1482,7 +1487,7 @@ mod tests {
 
     #[test]
     fn raw_hal_accessors_evaluate_from_disk() {
-        let mut runtime = Runtime::new();
+        let mut runtime = source_runtime();
         runtime.register_resource("hoplite.raw", RAW_SOURCE);
         assert_eq!(
             runtime
@@ -1516,7 +1521,7 @@ mod tests {
             "every non-development Hoplite HAL namespace must be available to application builds"
         );
 
-        let mut runtime = Runtime::new();
+        let mut runtime = source_runtime();
         register_resources(&mut runtime);
         for (index, namespace) in registered.iter().enumerate() {
             let probe = format!(
@@ -1534,7 +1539,7 @@ mod tests {
 
     #[test]
     fn socket_hal_contract_evaluates_from_the_production_registry() {
-        let mut runtime = Runtime::new();
+        let mut runtime = source_runtime();
         register_resources(&mut runtime);
         assert_eq!(
             runtime.eval_native_value(SOCKET_TEST_SOURCE).unwrap(),
@@ -1544,7 +1549,7 @@ mod tests {
 
     #[test]
     fn resources_exclude_the_retired_value_contract() {
-        let mut runtime = Runtime::new();
+        let mut runtime = source_runtime();
         register_resources(&mut runtime);
         assert!(runtime
             .eval_native_value("(ns sample.value (:require [hoplite.value :as value])) true",)
@@ -1553,7 +1558,7 @@ mod tests {
 
     #[test]
     fn response_source_boundary_contract_evaluates_from_hoplite() {
-        let mut runtime = Runtime::new();
+        let mut runtime = source_runtime();
         runtime.register_resource("hoplite.response-source", RESPONSE_SOURCE);
         runtime
             .eval_native_value(RESPONSE_SOURCE_TEST_SOURCE)
@@ -1572,7 +1577,7 @@ mod tests {
         )
         .unwrap();
 
-        let project = hara_wasm::project::read(&root).unwrap();
+        let project = hara_native::project::read(&root).unwrap();
         let sources = application_source_files(&project).unwrap();
         assert_eq!(sources, vec![root.join("app.hal").canonicalize().unwrap()]);
         fs::remove_dir_all(root).unwrap();
@@ -1586,7 +1591,7 @@ mod tests {
         fs::write(root.join("app.hal"), "(ns demo.app)").unwrap();
         fs::write(root.join("src/helper.hal"), "(ns demo.helper)").unwrap();
 
-        let project = hara_wasm::project::read(&root).unwrap();
+        let project = hara_native::project::read(&root).unwrap();
         let sources = application_source_files(&project).unwrap();
         let mut expected = vec![
             root.join("app.hal").canonicalize().unwrap(),
@@ -1604,7 +1609,7 @@ mod tests {
         fs::create_dir_all(root.join(".hoplite")).unwrap();
         fs::write(root.join(".hoplite/app.hal"), "(ns demo.app)").unwrap();
 
-        let project = hara_wasm::project::read(&root).unwrap();
+        let project = hara_native::project::read(&root).unwrap();
         let error = application_source_files(&project).unwrap_err();
         assert!(error.contains("inside generated output"), "{error}");
         fs::remove_dir_all(root).unwrap();
@@ -1621,7 +1626,7 @@ mod tests {
         fs::write(root.join("src/real/app.hal"), "(ns demo.app)").unwrap();
         symlink(root.join("src/real"), root.join("src/link")).unwrap();
 
-        let project = hara_wasm::project::read(&root).unwrap();
+        let project = hara_native::project::read(&root).unwrap();
         let error = application_source_files(&project).unwrap_err();
         assert!(error.contains("does not follow symlinks"), "{error}");
         fs::remove_dir_all(root).unwrap();
@@ -1638,7 +1643,7 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         fs::write(directory.join("deep.hal"), "(ns demo.deep)").unwrap();
 
-        let project = hara_wasm::project::read(&root).unwrap();
+        let project = hara_native::project::read(&root).unwrap();
         let sources = application_source_files(&project).unwrap();
         assert_eq!(
             sources,
@@ -1653,7 +1658,7 @@ mod tests {
         write_project(&root, r#""src""#);
         write_minimal_app(&root.join("src/demo/app.hal"));
 
-        let project = hara_wasm::project::read(&root).unwrap();
+        let project = hara_native::project::read(&root).unwrap();
         let config = load(&project, None, true).unwrap();
         assert_eq!(config.apps[0].name, "demo");
         fs::remove_dir_all(root).unwrap();

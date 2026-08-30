@@ -33,7 +33,7 @@ classify_paths() {
       .github/CHATGPT_PROJECT_WORKFLOW.md|scripts/connector/detect-code-scope|AGENTS.md)
         known=true
         ;;
-      packaging/hara-revision|packaging/scripts/hara-revision.sh|packaging/scripts/check-hara-compatibility.sh)
+      packaging/hara-revision|packaging/hara-native-revision|packaging/scripts/hara-revision.sh|packaging/scripts/hara-native-revision.sh|packaging/scripts/check-hara-compatibility.sh)
         mark "runtime"; mark "contracts"; known=true
         ;;
       core/*|.cargo/*|Cargo.toml|Cargo.lock|rust-toolchain|rust-toolchain.toml)
@@ -73,6 +73,8 @@ self_test() {
   reset_scopes; classify_paths "packaging/scripts/verify-default-product.sh"
   expect_scope runtime false; expect_scope contracts true; expect_scope website false
   reset_scopes; classify_paths "packaging/scripts/check-hara-compatibility.sh"
+  expect_scope runtime true; expect_scope contracts true; expect_scope website false
+  reset_scopes; classify_paths "packaging/hara-native-revision"
   expect_scope runtime true; expect_scope contracts true; expect_scope website false
   reset_scopes; classify_paths "website/src/pages/index.astro"
   expect_scope runtime false; expect_scope contracts false; expect_scope website true

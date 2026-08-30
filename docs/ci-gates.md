@@ -24,14 +24,16 @@ They are never part of the steady-state gate set.
 
 The Hara compatibility job is the first executable dependency of both the
 library and integration jobs. It reads the reviewed SHA only from
-`packaging/hara-revision`, checks out that exact sibling repository, and reports
-both the Hoplite and Hara commit identities before compilation.
+`packaging/hara-revision` and `packaging/hara-native-revision`, checks out
+those exact sibling repositories, and reports all three commit identities
+before compilation.
 
 The preflight protects the narrow embedding boundary before Docker/Nginx work:
 
 - the revision file contains exactly one complete lowercase commit SHA;
-- the sibling Hara checkout is present at that exact revision;
-- the public `hara-wasm` dependency graph resolves under `--locked`;
+- the Hara source and Hara Native sibling checkouts are both at their exact
+  committed revisions;
+- the public `hara-native` dependency graph resolves under `--locked`;
 - the complete Hoplite workspace still compiles against the reviewed Hara
   embedding facade;
 - a Hoplite HAL application resource evaluates and preserves its prepared
@@ -42,18 +44,21 @@ The preflight protects the narrow embedding boundary before Docker/Nginx work:
 
 The implementation is
 `packaging/scripts/check-hara-compatibility.sh`. Contributors reproduce the
-focused gate from a Hoplite checkout with the reviewed Hara checkout at
-`../hara`:
+focused gate from a Hoplite checkout with reviewed source and host checkouts at
+`../hara` and `../hara-native`:
 
 ```sh
 bash packaging/scripts/check-hara-compatibility.sh
 ```
 
 Use `--verify-only` when a later job needs to prove that its already checked-out
-Hara tree still matches the authoritative pin without repeating compilation.
-The small `packaging/scripts/hara-revision.sh` reader validates the pin before
-placing it in a GitHub Actions output. Workflows must not copy the SHA into an
-environment constant.
+source and host trees still match the authoritative pins without repeating
+compilation. The small `packaging/scripts/hara-revision.sh` and
+`packaging/scripts/hara-native-revision.sh` readers validate the pins before
+placing them in GitHub Actions outputs. Workflows must not copy either SHA into
+an environment constant. Local development may temporarily set
+`HOPLITE_ALLOW_DIRTY_HARA_NATIVE=1` when the native checkout remains at the
+committed SHA; CI and release jobs reject that override.
 
 ### Library
 

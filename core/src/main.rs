@@ -1,8 +1,10 @@
-use hara_wasm::hta;
-use hara_wasm::kernel::{parse_forms, Form};
-use hara_wasm::project::{self, Project};
-use hara_wasm::vm::{self, BytecodeBundleModule};
-use hara_wasm::Runtime;
+use hara_native::hta;
+use hara_native::kernel::{parse_forms, Form};
+use hara_native::project::{self, Project};
+use hara_native::vm::{self, BytecodeBundleModule};
+#[cfg(test)]
+use hara_native::Runtime;
+use hoplite::hara_source;
 use hoplite_application_bundle as application_bundle;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -63,12 +65,12 @@ fn run(arguments: Vec<String>) -> Result<(), String> {
             if source.is_empty() {
                 return Err("eval requires a Hara expression".into());
             }
-            println!("{}", Runtime::new().eval_native(&source)?);
+            println!("{}", hara_source::compiler_runtime()?.eval_native(&source)?);
         }
         Some("run") => {
             let path = arguments.get(1).ok_or("run requires a .hal file")?;
             let source = fs::read_to_string(path).map_err(io)?;
-            println!("{}", Runtime::new().eval_native(&source)?);
+            println!("{}", hara_source::compiler_runtime()?.eval_native(&source)?);
         }
         Some("repl") | None => repl::run()?,
         Some("help" | "--help" | "-h") => usage(),
@@ -735,7 +737,7 @@ struct ApplicationModule {
 fn namespace_declaration(forms: &[Form]) -> Result<(&Form, String, Vec<String>), String> {
     let form = forms
         .iter()
-        .find(|form| matches!(form, Form::List(items) if matches!(items.first(), Some(Form::Symbol(operator)) if operator == "ns")))
+        .find(|form| matches!(form, Form::List(items) if matches!(items.first(), Some(Form::Symbol(operator)) if operator == "ns" || operator == "ns+")))
         .ok_or("HAL module is missing ns form")?;
     let Form::List(items) = form else {
         unreachable!()
@@ -854,7 +856,7 @@ fn runtime_application_module(module: &ApplicationModule) -> Result<String, Stri
     let forms = parse_forms(&module.source)?;
     Ok(forms
         .into_iter()
-        .filter(|form| !application_definition(form))
+        .filter(|form| !runtime_only_definition(form))
         .map(|form| render_form(&form))
         .collect::<Vec<_>>()
         .join("\n"))
@@ -869,9 +871,10 @@ fn runtime_application_modules(modules: &[ApplicationModule]) -> Result<String, 
 }
 
 fn compile_application_modules(modules: &[ApplicationModule]) -> Result<Vec<u8>, String> {
-    let mut runtime = Runtime::new();
+    let modules = source_free_modules(modules)?;
+    let mut runtime = hara_source::compiler_runtime()?;
     app::register_resources(&mut runtime);
-    for module in modules {
+    for module in &modules {
         runtime.register_resource(&module.namespace, &module.source);
     }
     runtime.eval_native(
@@ -882,7 +885,7 @@ fn compile_application_modules(modules: &[ApplicationModule]) -> Result<Vec<u8>,
          (defn finish [_exchange] nil)",
     )?;
     let mut artifacts = Vec::with_capacity(modules.len());
-    for module in modules {
+    for module in &modules {
         let source = runtime_application_module(module)?;
         let forms = parse_forms(&source)?;
         let (declaration, namespace, _) = namespace_declaration(&forms)?;
@@ -892,7 +895,7 @@ fn compile_application_modules(modules: &[ApplicationModule]) -> Result<Vec<u8>,
             .map_err(|error| format!("{namespace}: cannot load namespace: {error}"))?;
         let body = forms
             .into_iter()
-            .filter(|form| !matches!(form, Form::List(items) if matches!(items.first(), Some(Form::Symbol(operator)) if operator == "ns")))
+            .filter(|form| !matches!(form, Form::List(items) if matches!(items.first(), Some(Form::Symbol(operator)) if operator == "ns" || operator == "ns+")))
             .map(|form| render_form(&form))
             .collect::<Vec<_>>()
             .join("\n");
@@ -916,6 +919,82 @@ fn compile_application_modules(modules: &[ApplicationModule]) -> Result<Vec<u8>,
     vm::encode_bytecode_bundle(&artifacts)
 }
 
+fn source_free_modules(modules: &[ApplicationModule]) -> Result<Vec<ApplicationModule>, String> {
+    let mut standard_modules = HashMap::new();
+    for (namespace, source) in hara_source::standard_library_sources()? {
+        let module = application_module(&source)
+            .map_err(|error| format!("standard library {namespace}: {error}"))?;
+        if module.namespace != namespace {
+            return Err(format!(
+                "standard library source namespace mismatch: expected {namespace}, found {}",
+                module.namespace
+            ));
+        }
+        standard_modules.insert(namespace, module);
+    }
+
+    let mut by_namespace = standard_modules.clone();
+    for module in modules {
+        if let Some(existing) = by_namespace.insert(module.namespace.clone(), module.clone()) {
+            return Err(format!(
+                "application namespace {} conflicts with standard-library source ({} bytes)",
+                module.namespace,
+                existing.source.len()
+            ));
+        }
+    }
+
+    // Native Hara starts without an embedded source provider. HBX0 therefore
+    // carries the Foundation bootstrap family, then the transitive standard
+    // library closure selected by Hoplite and the application. Do not compile
+    // every Hara library: unrelated source packages are neither a product
+    // dependency nor necessarily part of this runtime's supported profile.
+    let mut pending = vec![
+        "std.foundation".to_owned(),
+        "std.foundation.bytes".to_owned(),
+        "std.foundation.coroutine".to_owned(),
+        "std.foundation.pretty".to_owned(),
+        "std.foundation.promise".to_owned(),
+        "std.foundation.string".to_owned(),
+    ];
+    pending.extend(modules.iter().map(|module| module.namespace.clone()));
+    let mut selected = HashSet::new();
+    while let Some(namespace) = pending.pop() {
+        if !selected.insert(namespace.clone()) {
+            continue;
+        }
+        let module = by_namespace.get(&namespace).ok_or_else(|| {
+            format!("source-free bundle is missing selected namespace {namespace}")
+        })?;
+        for dependency in &module.requires {
+            if standard_modules.contains_key(dependency) || by_namespace.contains_key(dependency) {
+                pending.push(dependency.clone());
+            }
+        }
+    }
+
+    let by_namespace = by_namespace
+        .into_iter()
+        .filter(|(namespace, _)| selected.contains(namespace))
+        .collect::<HashMap<_, _>>();
+
+    let mut namespaces = by_namespace.keys().cloned().collect::<Vec<_>>();
+    namespaces.sort();
+    let mut visiting = HashSet::new();
+    let mut visited = HashSet::new();
+    let mut ordered = Vec::with_capacity(by_namespace.len());
+    for namespace in namespaces {
+        visit_application_module(
+            &namespace,
+            &by_namespace,
+            &mut visiting,
+            &mut visited,
+            &mut ordered,
+        )?;
+    }
+    Ok(ordered)
+}
+
 fn application_definition(form: &Form) -> bool {
     let Form::List(definition) = form else {
         return false;
@@ -928,6 +1007,13 @@ fn application_definition(form: &Form) -> bool {
     };
     matches!(expression.first(), Some(Form::Symbol(operator))
         if matches!(operator.as_str(), "h/app" | "hoplite.core/app" | "internal/config" | "hoplite.internal/config"))
+}
+
+fn runtime_only_definition(form: &Form) -> bool {
+    application_definition(form)
+        || matches!(form,
+            Form::List(items)
+                if matches!(items.first(), Some(Form::Symbol(operator)) if operator == "defmacro" || operator == "defmacro-"))
 }
 
 fn render_form(form: &Form) -> String {
@@ -1174,6 +1260,20 @@ mod tests {
     }
 
     #[test]
+    fn runtime_module_source_excludes_compile_time_macro_definitions() {
+        let module = module(
+            "(ns example.runtime-macros) \
+             (defmacro helper [value] value) \
+             (defn answer [] 42)",
+        );
+
+        assert_eq!(
+            runtime_application_module(&module).unwrap(),
+            "(ns example.runtime-macros)\n(defn answer [] 42)"
+        );
+    }
+
+    #[test]
     fn registered_resource_dependency_survives_source_free_bundle_loading() {
         let mut modules = application_modules(&[]).unwrap();
         modules.push(module(
@@ -1192,8 +1292,29 @@ mod tests {
             runtime
                 .eval_native_value("(example.resource-application/dependency-loaded?)")
                 .unwrap(),
-            hara_wasm::core::Value::Bool(true)
+            hara_native::core::Value::Bool(true)
         );
+    }
+
+    #[test]
+    fn source_free_bundle_selects_required_standard_library_closure() {
+        let modules = [module(
+            "(ns example.duplex-application \
+             (:require [std.stream.duplex :as duplex])) \
+             (defn available? [] (duplex/duplex? nil))",
+        )];
+
+        let bundled = source_free_modules(&modules).unwrap();
+        let namespaces = bundled
+            .iter()
+            .map(|module| module.namespace.as_str())
+            .collect::<HashSet<_>>();
+
+        assert!(namespaces.contains("std.foundation"));
+        assert!(namespaces.contains("std.foundation.string"));
+        assert!(namespaces.contains("std.stream.duplex"));
+        assert!(namespaces.contains("example.duplex-application"));
+        assert!(!namespaces.contains("std.block.template"));
     }
 
     #[test]
@@ -1381,7 +1502,7 @@ mod tests {
         ));
         let output = root.join(".hoplite");
         std::fs::create_dir_all(&output).unwrap();
-        let manifest = hta::encode(&hara_wasm::core::Value::Map(Default::default())).unwrap();
+        let manifest = hta::encode(&hara_native::core::Value::Map(Default::default())).unwrap();
         let bundle = application_bundle::encode(&manifest, b"HBX0verification").unwrap();
         std::fs::write(output.join("app.hbx"), &bundle).unwrap();
         std::fs::write(output.join("apps.hta"), &manifest).unwrap();

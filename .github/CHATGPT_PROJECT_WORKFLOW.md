@@ -60,7 +60,9 @@ merge, release, deploy, or mutate an issue or pull request.
 
 The existing `CI` workflow remains the merge authority for `library`, `integration`, and `docs`, including production-image and serving-plane proofs.
 
-The connector workflow deliberately reuses the reviewed Hara revision from `packaging/hara-revision`; it never advances that pin.
+The connector workflow deliberately reuses the reviewed Hara source and Hara
+Native revisions from `packaging/hara-revision` and
+`packaging/hara-native-revision`; it never advances either pin.
 
 ## Evidence contract
 

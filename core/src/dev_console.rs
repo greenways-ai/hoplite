@@ -1,6 +1,8 @@
-use hara_wasm::core::{self, Value};
-use hara_wasm::project;
-use hara_wasm::Runtime;
+use hara_native::core::{self, Value};
+use hara_native::project;
+use hara_native::Runtime;
+#[cfg(test)]
+use hoplite::hara_source;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::env;
@@ -276,7 +278,7 @@ mod tests {
 
     #[test]
     fn dev_namespace_calls_the_native_console_service() {
-        let mut runtime = Runtime::new();
+        let mut runtime = hara_source::compiler_runtime().unwrap();
         install(&mut runtime);
         let value = runtime
             .eval_native_value("(ns console-test (:require [hoplite.dev :as dev])) (dev/list-all)")

@@ -1,7 +1,8 @@
-use hara_wasm::{
+use hara_native::{
     vm::{self, ModuleSource},
     Runtime,
 };
+use hoplite::hara_source;
 use std::hint::black_box;
 use std::rc::Rc;
 use std::time::Instant;
@@ -24,14 +25,14 @@ fn percentile(samples: &mut [u128], numerator: usize, denominator: usize) -> u12
 
 fn measure(name: &str, module_source: &str, iterations: usize) -> Result<(f64, f64), String> {
     let source = body(module_source);
-    let compiler = Runtime::new();
+    let compiler = hara_source::compiler_runtime()?;
     let artifact = compiler.compile_bytecode_artifact(&source)?;
     let bundle = vm::compile_bytecode_bundle(&[ModuleSource {
         resource: name,
         source: module_source,
     }])?;
     let decoded = Rc::new(vm::decode_program(&artifact)?);
-    let mut source_runtime = Runtime::new();
+    let mut source_runtime = hara_source::compiler_runtime()?;
     let mut artifact_runtime = Runtime::new();
     let mut decoded_runtime = Runtime::new();
     let mut source_samples = Vec::with_capacity(iterations);
@@ -65,7 +66,7 @@ fn measure(name: &str, module_source: &str, iterations: usize) -> Result<(f64, f
         decoded_samples.push(started.elapsed().as_nanos());
 
         let started = Instant::now();
-        let mut runtime = Runtime::new();
+        let mut runtime = hara_source::compiler_runtime()?;
         black_box(runtime.eval_native(module_source)?);
         source_module_samples.push(started.elapsed().as_nanos());
 

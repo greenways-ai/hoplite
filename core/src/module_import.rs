@@ -1,6 +1,6 @@
 use crate::app;
 use crate::platform::ResolvedModule;
-use hara_wasm::project::Project;
+use hara_native::project::Project;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};

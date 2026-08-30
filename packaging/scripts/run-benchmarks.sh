@@ -5,6 +5,7 @@ script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repository_root="$(cd "$script_root/../.." && pwd)"
 workspace_root="$(dirname "$repository_root")"
 hara_root="${HARA_ROOT:-$workspace_root/hara}"
+hara_native_root="${HARA_NATIVE_ROOT:-$workspace_root/hara-native}"
 output_argument="${1:-benchmark-output}"
 if [[ "$output_argument" = /* ]]; then
   output_root="$output_argument"
@@ -31,11 +32,31 @@ MESSAGE
   exit 1
 fi
 
+if [[ ! -f "$hara_native_root/core/rust/Cargo.toml" ]]; then
+  cat >&2 <<MESSAGE
+Hara Native is required as a sibling checkout at:
+  $hara_native_root
+
+Create or select a sibling Hara Native checkout with:
+  git clone https://github.com/hara-lang/hara-native.git "$hara_native_root"
+  git -C "$hara_native_root" checkout "$(bash "$repository_root/packaging/scripts/hara-native-revision.sh")"
+MESSAGE
+  exit 1
+fi
+
 expected_hara_revision="$(tr -d '[:space:]' < "$repository_root/packaging/hara-revision")"
 actual_hara_revision="$(git -C "$hara_root" rev-parse HEAD)"
 if [[ "$actual_hara_revision" != "$expected_hara_revision" ]]; then
   echo "Hara checkout is $actual_hara_revision; expected $expected_hara_revision" >&2
   echo "Run: git -C '$hara_root' checkout '$expected_hara_revision'" >&2
+  exit 1
+fi
+
+expected_hara_native_revision="$(bash "$repository_root/packaging/scripts/hara-native-revision.sh")"
+actual_hara_native_revision="$(git -C "$hara_native_root" rev-parse HEAD)"
+if [[ "$actual_hara_native_revision" != "$expected_hara_native_revision" ]]; then
+  echo "Hara Native checkout is $actual_hara_native_revision; expected $expected_hara_native_revision" >&2
+  echo "Run: git -C '$hara_native_root' checkout '$expected_hara_native_revision'" >&2
   exit 1
 fi
 
@@ -89,6 +110,7 @@ docker build -f "$repository_root/packaging/docker/footprints/lua/Dockerfile" -t
 export HOPLITE_REPOSITORY_ROOT="$repository_root"
 export HOPLITE_BENCHMARK_COMMIT="$hoplite_revision"
 export HOPLITE_REVISION="$expected_hara_revision"
+export HOPLITE_HARA_NATIVE_REVISION="$expected_hara_native_revision"
 export HOPLITE_NGINX_VERSION="$nginx_version"
 
 (

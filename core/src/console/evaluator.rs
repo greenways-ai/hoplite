@@ -4,10 +4,11 @@ use super::protocol::{
     write_hta_frame, ClientBundle, ConsoleLimits, BROKER_SERVICE, MAX_CLIENT_BUNDLE_BYTES,
     REQUEST_PROTOCOL,
 };
-use hara_wasm::core::{self, Value};
-use hara_wasm::hta;
-use hara_wasm::kernel::{parse_forms, Form};
-use hara_wasm::Runtime;
+use crate::hara_source;
+use hara_native::core::{self, Value};
+use hara_native::hta;
+use hara_native::kernel::{parse_forms, Form};
+use hara_native::Runtime;
 use std::cell::RefCell;
 use std::fs::File;
 use std::io::Read;
@@ -41,10 +42,10 @@ pub fn run_evaluator(config: EvaluatorConfig) -> Result<(), String> {
     }
     validate_declared_namespace(&bundle.source, &bundle.namespace)?;
 
-    // Runtime::new contains the immutable standard Hara bundle and no host
-    // capability provider. The only additional resource is the narrow client
-    // namespace from the pre-opened HCB0 bundle.
-    let mut runtime = Runtime::new();
+    // Foundation is mounted from the reviewed source checkout before the
+    // evaluator's OS sandbox is enabled. The production server never starts
+    // this source-side compiler/evaluator process.
+    let mut runtime = hara_source::compiler_runtime()?;
     runtime.register_resource(&bundle.namespace, &bundle.source);
     runtime
         .eval_native_value(&bundle.source)
@@ -275,7 +276,7 @@ mod tests {
 
     #[test]
     fn live_values_are_replaced_with_a_bounded_transfer_error() {
-        let live = success(Value::Promise(hara_wasm::core::Promise::new()));
+        let live = success(Value::Promise(hara_native::core::Promise::new()));
         let encoded = encode_bounded_response(live, 1024);
         let decoded = hta::decode(&encoded).unwrap();
         assert_eq!(map_get(&decoded, "ok"), Some(Value::Bool(false)));

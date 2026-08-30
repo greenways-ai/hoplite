@@ -1,6 +1,6 @@
-use hara_wasm::core::Value;
-use hara_wasm::kernel::{parse, Form};
-use hara_wasm::project::{self, Project};
+use hara_native::core::Value;
+use hara_native::kernel::{parse, Form};
+use hara_native::project::{self, Project};
 use semver::Version;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -245,7 +245,7 @@ fn valid_github_name(value: &str) -> bool {
 }
 
 pub fn manifest(config: &Config) -> Result<Vec<u8>, String> {
-    hara_wasm::hta::encode(&to_value(config)?)
+    hara_native::hta::encode(&to_value(config)?)
 }
 
 pub fn readable_manifest(config: &Config) -> String {
@@ -304,7 +304,6 @@ fn form_to_value(form: &Form) -> Result<Value, String> {
         Form::Number(value) => Ok(Value::Number(*value)),
         Form::Float(value) => Ok(Value::Float(*value)),
         Form::BigInteger(value) => Ok(Value::BigInteger(value.clone())),
-        Form::Decimal(value) => Ok(Value::Decimal(value.clone())),
         Form::Character(value) => Ok(Value::Character(*value)),
         Form::Regex(value) => Ok(Value::Regex(value.clone())),
         Form::String(value) => Ok(Value::String(value.clone())),
@@ -483,5 +482,11 @@ mod tests {
         assert!(parse_profile(&duplicate_alias, "server")
             .unwrap_err()
             .contains("alias"));
+    }
+
+    #[test]
+    fn decimal_literals_use_the_native_float_representation() {
+        let form = parse("1.5").unwrap();
+        assert_eq!(form_to_value(&form).unwrap(), Value::Float(1.5));
     }
 }

@@ -28,10 +28,17 @@ grep -F 'pub const RUNTIME_ABI_VERSION: u32 = 5;' \
 
 hara_revision="$(bash packaging/scripts/hara-revision.sh)"
 test "${#hara_revision}" -eq 40
+hara_native_revision="$(bash packaging/scripts/hara-native-revision.sh)"
+test "${#hara_native_revision}" -eq 40
 for workflow in .github/workflows/ci.yml .github/workflows/cosocket.yml; do
   grep -F 'packaging/scripts/hara-revision.sh' "$workflow" >/dev/null
+  grep -F 'packaging/scripts/hara-native-revision.sh' "$workflow" >/dev/null
   if grep -F 'HARA_REF:' "$workflow" >/dev/null; then
     echo "$workflow duplicates the authoritative Hara revision" >&2
+    exit 1
+  fi
+  if grep -F 'HARA_NATIVE_REF:' "$workflow" >/dev/null; then
+    echo "$workflow duplicates the authoritative Hara Native revision" >&2
     exit 1
   fi
 done

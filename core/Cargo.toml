@@ -22,9 +22,9 @@ resolver = "2"
 
 [features]
 default = ["bytecode-vm", "native-jit", "cli-host"]
-bytecode-vm = ["hara-wasm/bytecode-vm"]
-tracing-jit = ["bytecode-vm", "hara-wasm/tracing-jit"]
-native-jit = ["tracing-jit", "hara-wasm/native-jit"]
+bytecode-vm = ["hara-native/bytecode-vm"]
+tracing-jit = ["bytecode-vm", "hara-native/tracing-jit"]
+native-jit = ["tracing-jit", "hara-native/native-jit"]
 cli-host = []
 embedded-nginx = []
 internal-evidence = []
@@ -60,7 +60,7 @@ required-features = ["internal-evidence"]
 
 [dependencies]
 base64 = "0.22"
-hara-wasm = { path = "../../hara/core/rust", features = ["bytecode-vm"] }
+hara-native = { path = "../../hara-native/core/rust", features = ["bytecode-vm"] }
 hoplite-application-bundle = { path = "application-bundle" }
 rustyline = "14.0.0"
 home = "=0.5.9"
@@ -72,10 +72,11 @@ getrandom = "0.2"
 sha2 = "0.10"
 
 # hara-db-postgres is distributed from hara-extensions but implements the ABI
-# owned by the locally integrated Hara runtime. Cargo ignores patches declared
-# by dependencies, so the embedding workspace must unify this trait identity.
+# owned by the locally integrated Hara Native runtime. Cargo ignores patches
+# declared by dependencies, so the embedding workspace must unify this trait
+# identity.
 [patch."https://github.com/hara-lang/hara.git"]
-hara-abi = { path = "../../hara/core/rust/abi" }
+hara-abi = { path = "../../hara-native/core/rust/crates/abi" }
 
 [profile.release]
 lto = "fat"

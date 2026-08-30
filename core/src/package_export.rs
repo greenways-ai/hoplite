@@ -1,6 +1,6 @@
 use crate::package_catalog::LockedPackage;
-use hara_wasm::kernel::{parse, parse_forms, Form};
-use hara_wasm::project;
+use hara_native::kernel::{parse, parse_forms, Form};
+use hara_native::project;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};

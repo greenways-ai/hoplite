@@ -13,10 +13,13 @@ case "$scope" in
     ;;
   contracts)
     test -s packaging/hara-revision
+    test -s packaging/hara-native-revision
     bash -n \
       packaging/scripts/hara-revision.sh \
+      packaging/scripts/hara-native-revision.sh \
       packaging/scripts/check-hara-compatibility.sh
     bash packaging/scripts/hara-revision.sh >/dev/null
+    bash packaging/scripts/hara-native-revision.sh >/dev/null
     bash packaging/scripts/verify-alpha-versioning.sh
     node packaging/scripts/validate-runtime-measurement.mjs --self-test
     set +e

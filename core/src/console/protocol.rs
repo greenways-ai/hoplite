@@ -1,5 +1,5 @@
-use hara_wasm::core::{self, Value};
-use hara_wasm::hta;
+use hara_native::core::{self, Value};
+use hara_native::hta;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Write};

@@ -3,7 +3,7 @@ use super::os;
 use super::protocol::{
     failure, map_get, read_hta_frame, string_value, write_hta_frame, ConsoleLimits,
 };
-use hara_wasm::core::{self, Value};
+use hara_native::core::{self, Value};
 use std::fs;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -322,6 +322,6 @@ mod tests {
     #[test]
     fn bounded_failure_envelope_remains_transferable() {
         let value = success(map_value(vec![]));
-        assert!(hara_wasm::hta::encode(&value).is_ok());
+        assert!(hara_native::hta::encode(&value).is_ok());
     }
 }

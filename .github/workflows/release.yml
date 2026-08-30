@@ -28,6 +28,7 @@ jobs:
       version: ${{ steps.metadata.outputs.version }}
       hoplite_revision: ${{ steps.metadata.outputs.hoplite_revision }}
       hara_revision: ${{ steps.metadata.outputs.hara_revision }}
+      hara_native_revision: ${{ steps.metadata.outputs.hara_native_revision }}
       license: ${{ steps.metadata.outputs.license }}
       nginx_version: ${{ steps.metadata.outputs.nginx_version }}
       nginx_sha256: ${{ steps.metadata.outputs.nginx_sha256 }}
@@ -41,6 +42,11 @@ jobs:
           repository: hara-lang/hara
           path: hara
           submodules: recursive
+          fetch-depth: 0
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara-native
+          path: hara-native
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - name: Resolve immutable release inputs
@@ -78,10 +84,15 @@ jobs:
           git -C ../hara cat-file -e "${hara_revision}^{commit}"
           git -C ../hara checkout --detach "$hara_revision"
 
+          hara_native_revision=$(bash packaging/scripts/hara-native-revision.sh)
+          git -C ../hara-native cat-file -e "${hara_native_revision}^{commit}"
+          git -C ../hara-native checkout --detach "$hara_native_revision"
+
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "hoplite_revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "hara_revision=$(git -C ../hara rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "hara_native_revision=$(git -C ../hara-native rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "license=$(grep -m1 '^license = ' core/Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
           echo "nginx_version=$(sed -n 's/^NGINX_VERSION := //p' core/Makefile)" >> "$GITHUB_OUTPUT"
           echo "nginx_sha256=$(sed -n 's/^NGINX_SHA256 := //p' core/Makefile)" >> "$GITHUB_OUTPUT"
@@ -137,6 +148,11 @@ jobs:
           ref: ${{ needs.prepare.outputs.hara_revision }}
           path: hara
           submodules: recursive
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara-native
+          ref: ${{ needs.prepare.outputs.hara_native_revision }}
+          path: hara-native
       - uses: dtolnay/rust-toolchain@stable
       - name: Build deterministic HARP
         run: |
@@ -166,6 +182,11 @@ jobs:
           ref: ${{ needs.prepare.outputs.hara_revision }}
           path: hara
           submodules: recursive
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara-native
+          ref: ${{ needs.prepare.outputs.hara_native_revision }}
+          path: hara-native
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -209,6 +230,11 @@ jobs:
           ref: ${{ needs.prepare.outputs.hara_revision }}
           path: hara
           submodules: recursive
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara-native
+          ref: ${{ needs.prepare.outputs.hara_native_revision }}
+          path: hara-native
       - uses: dtolnay/rust-toolchain@stable
       - run: brew install openssl@3 pcre2
       - name: Build and smoke-test standalone executable
@@ -246,6 +272,11 @@ jobs:
           ref: ${{ needs.prepare.outputs.hara_revision }}
           path: hara
           submodules: recursive
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara-native
+          ref: ${{ needs.prepare.outputs.hara_native_revision }}
+          path: hara-native
       - uses: dtolnay/rust-toolchain@stable
       - name: Install native build dependencies
         run: |
@@ -300,6 +331,7 @@ jobs:
           VERSION="${{ needs.prepare.outputs.version }}" \
           HOPLITE_REVISION="${{ needs.prepare.outputs.hoplite_revision }}" \
           HARA_REVISION="${{ needs.prepare.outputs.hara_revision }}" \
+          HARA_NATIVE_REVISION="${{ needs.prepare.outputs.hara_native_revision }}" \
           LICENSE="${{ needs.prepare.outputs.license }}" \
           NGINX_VERSION="${{ needs.prepare.outputs.nginx_version }}" \
           NGINX_SHA256="${{ needs.prepare.outputs.nginx_sha256 }}" \

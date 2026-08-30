@@ -1,4 +1,4 @@
-use hara_wasm::Runtime;
+use hoplite::hara_source;
 use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;
 use rustyline::Editor;
@@ -16,7 +16,7 @@ const SPLASH: &str = r#"
 "#;
 
 pub(crate) fn run() -> Result<(), String> {
-    let mut runtime = Runtime::new();
+    let mut runtime = hara_source::compiler_runtime()?;
     super::dev_console::install(&mut runtime);
     let mut editor = Editor::<(), DefaultHistory>::new()
         .map_err(|error| format!("terminal initialization failed: {error}"))?;

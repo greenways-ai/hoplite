@@ -2,8 +2,8 @@ use super::protocol::{
     failure, map_get, map_value, read_hta_frame, string_value, success, write_hta_frame,
     CommandSet, ConsoleGrant, ConsoleLimits,
 };
-use hara_wasm::core::Value;
-use hara_wasm::hta;
+use hara_native::core::Value;
+use hara_native::hta;
 use std::io::{Read, Write};
 
 /// The one prepared HAL command function owned by an application worker.

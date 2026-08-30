@@ -1,9 +1,9 @@
 # Hoplite alpha release checklist
 
 A Hoplite alpha release is cut only from one reviewed tag commit. The tag binds
-one Hoplite source revision, one reviewed Hara revision, one committed Cargo
-lock, one public-surface inventory, one core-boundary inventory, and one set of
-successful permanent CI checks.
+one Hoplite source revision, one reviewed Hara source revision, one reviewed
+Hara Native revision, one committed Cargo lock, one public-surface inventory,
+one core-boundary inventory, and one set of successful permanent CI checks.
 
 The release workflow enforces the mechanical parts of this checklist in its
 `prepare` job before building or publishing any artifact.
@@ -13,8 +13,9 @@ The release workflow enforces the mechanical parts of this checklist in its
 - The release tag starts with `v` and its version exactly matches
   `core/Cargo.toml`.
 - The workflow resolves the full Hoplite commit SHA from the tag.
-- `packaging/hara-revision` contains one full 40-character reviewed Hara commit
-  SHA and the Hara checkout is detached at that exact revision.
+- `packaging/hara-revision` and `packaging/hara-native-revision` each contain
+  one full 40-character reviewed commit SHA; both checkouts are detached at
+  those exact revisions.
 - `core/Cargo.lock` resolves without mutation through `cargo metadata --locked`.
 - The repository alpha-version policy passes at the tagged source revision.
 
@@ -72,7 +73,7 @@ boundary, production image, or public-surface promise.
 ## 4. Release artifacts
 
 One successful release workflow produces all artifacts from the same prepared
-revision pair:
+revision triple:
 
 - deterministic HARP package plus inspection and SHA-256 evidence;
 - source-free production container;
@@ -111,7 +112,8 @@ After publication, verify that:
 - all expected assets and checksums are present;
 - the container tag resolves and runs `hoplite-server version`;
 - both `hoplite` and `hoplite-server` binaries report the released version;
-- the Homebrew formula points to the same Hoplite/Hara revisions and Nginx
+- the Homebrew formula points to the same Hoplite/Hara source/Hara Native
+  revisions and Nginx
   source checksum;
 - documentation references the released alpha contract epoch.
 

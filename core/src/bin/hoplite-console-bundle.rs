@@ -1,5 +1,5 @@
 #[cfg(unix)]
-use hara_wasm::kernel::{parse_forms, Form};
+use hara_native::kernel::{parse_forms, Form};
 #[cfg(unix)]
 use hoplite::console::protocol::ClientBundle;
 #[cfg(unix)]

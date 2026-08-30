@@ -1,4 +1,4 @@
-use hara_wasm::{core::Value, hta};
+use hara_native::{core::Value, hta};
 use hoplite_runtime::{
     hoplite_buffer_free, hoplite_handler_prepare, hoplite_runtime_free, hoplite_runtime_new,
     hoplite_work_call, hoplite_work_close, hoplite_work_next_event, hoplite_work_poll,

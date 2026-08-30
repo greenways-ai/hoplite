@@ -1,4 +1,4 @@
-use hara_wasm::kernel::{parse, Form};
+use hara_native::kernel::{parse, Form};
 use semver::Version;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -25,7 +25,7 @@ pub fn run(arguments: &[String]) -> Result<(), String> {
         );
         return Ok(());
     }
-    hara_wasm::package::run(arguments)
+    hara_native::package::run(arguments)
 }
 
 pub fn ensure_locked(package: &crate::package_catalog::LockedPackage) -> Result<PathBuf, String> {
@@ -62,7 +62,7 @@ pub fn ensure_locked(package: &crate::package_catalog::LockedPackage) -> Result<
             "downloaded package digest mismatch: expected sha256:{expected}, got sha256:{actual}"
         ));
     }
-    let installed = hara_wasm::package::install_path(&temporary);
+    let installed = hara_native::package::install_path(&temporary);
     let _ = fs::remove_file(&temporary);
     installed?;
     installed_root_locked(
@@ -211,7 +211,7 @@ fn installed_coordinate(coordinate: &str) -> Result<String, String> {
             return Ok(format!("gh:{owner}/{name}"));
         }
     }
-    hara_wasm::project::normalize_coordinate(coordinate)
+    hara_native::project::normalize_coordinate(coordinate)
 }
 
 fn verify_root(root: &Path, coordinate: &str, version: &Version) -> Result<(), String> {

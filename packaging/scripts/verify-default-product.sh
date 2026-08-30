@@ -67,7 +67,7 @@ for required in \
   base64 \
   ed25519-dalek \
   getrandom \
-  hara-wasm \
+  hara-native \
   hoplite-application-bundle \
   p256; do
   grep -Fxq "$required" <<<"$direct_packages" || {
