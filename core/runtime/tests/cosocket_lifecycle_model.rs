@@ -3,6 +3,7 @@ use std::env;
 use std::fmt;
 
 const SEEDS: &str = include_str!("fixtures/cosocket_lifecycle_seeds.txt");
+const COMPATIBILITY: &str = include_str!("../../../docs/openresty-cosocket-compatibility.json");
 const DEFAULT_STEPS: usize = 256;
 const MAX_SOCKETS: usize = 8;
 const POOL_CAPACITY: usize = 2;
@@ -60,6 +61,35 @@ enum OutcomeClass {
     Ordinary,
     Programming,
     Authority,
+    Cancelled,
+    ClientAborted,
+    StaleCallback,
+    WorkerReload,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OrdinaryError {
+    Timeout,
+    Closed,
+    PoolCapacityUnavailable,
+    PoolBacklogOverflow,
+    PoolWaitTimeout,
+    SocketBusyReading,
+    SocketBusyWriting,
+}
+
+impl OrdinaryError {
+    const fn text(self) -> &'static str {
+        match self {
+            Self::Timeout => "timeout",
+            Self::Closed => "closed",
+            Self::PoolCapacityUnavailable => "pool capacity unavailable",
+            Self::PoolBacklogOverflow => "pool backlog overflow",
+            Self::PoolWaitTimeout => "pool wait timeout",
+            Self::SocketBusyReading => "socket busy reading",
+            Self::SocketBusyWriting => "socket busy writing",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,10 +104,10 @@ impl Outcome {
         detail: "accepted",
     };
 
-    const fn ordinary(detail: &'static str) -> Self {
+    const fn ordinary(error: OrdinaryError) -> Self {
         Self {
             class: OutcomeClass::Ordinary,
-            detail,
+            detail: error.text(),
         }
     }
 
@@ -93,6 +123,44 @@ impl Outcome {
             class: OutcomeClass::Authority,
             detail,
         }
+    }
+
+    const fn cancelled() -> Self {
+        Self {
+            class: OutcomeClass::Cancelled,
+            detail: "cancelled",
+        }
+    }
+
+    const fn client_aborted() -> Self {
+        Self {
+            class: OutcomeClass::ClientAborted,
+            detail: "client aborted",
+        }
+    }
+
+    const fn stale_callback() -> Self {
+        Self {
+            class: OutcomeClass::StaleCallback,
+            detail: "stale callback ignored",
+        }
+    }
+
+    const fn worker_reload() -> Self {
+        Self {
+            class: OutcomeClass::WorkerReload,
+            detail: "worker reloaded",
+        }
+    }
+
+    const fn delivers_to_hara(self) -> bool {
+        matches!(
+            self.class,
+            OutcomeClass::Accepted
+                | OutcomeClass::Ordinary
+                | OutcomeClass::Programming
+                | OutcomeClass::Authority
+        )
     }
 }
 
@@ -271,7 +339,7 @@ impl Model {
             return Outcome::programming("backlog admission on non-new socket");
         }
         if self.backlog_count >= BACKLOG_CAPACITY {
-            return Outcome::ordinary("pool backlog full");
+            return Outcome::ordinary(OrdinaryError::PoolBacklogOverflow);
         }
         let id = socket.id;
         self.socket_mut(slot).unwrap().state = SocketState::Backlog;
@@ -304,7 +372,7 @@ impl Model {
             return Outcome::programming("unknown socket");
         };
         if socket.read_pending {
-            return Outcome::ordinary("socket busy reading");
+            return Outcome::ordinary(OrdinaryError::SocketBusyReading);
         }
         if !matches!(socket.state, SocketState::Established) {
             return Outcome::programming("read on non-established socket");
@@ -323,7 +391,7 @@ impl Model {
             return Outcome::programming("unknown socket");
         };
         if socket.write_pending {
-            return Outcome::ordinary("socket busy writing");
+            return Outcome::ordinary(OrdinaryError::SocketBusyWriting);
         }
         if !matches!(socket.state, SocketState::Established) || socket.send_shutdown {
             return Outcome::programming("write on closed send direction");
@@ -380,13 +448,13 @@ impl Model {
         self.resources.remove(&Resource::Buffer(id, direction));
     }
 
-    fn cancel(&mut self, slot: usize) -> Outcome {
+    fn cancel_resources(&mut self, slot: usize) -> Result<(), Outcome> {
         let Some(socket) = self.socket(slot).cloned() else {
-            return Outcome::programming("unknown socket");
+            return Err(Outcome::programming("unknown socket"));
         };
         let id = socket.id;
         if matches!(socket.state, SocketState::IdlePool | SocketState::Retired) {
-            return Outcome::programming("socket is not active");
+            return Err(Outcome::programming("socket is not active"));
         }
         match socket.state {
             SocketState::Resolving => {
@@ -416,21 +484,28 @@ impl Model {
                 }
             }
         }
-        Outcome::ACCEPTED
+        Ok(())
     }
 
-    fn close(&mut self, slot: usize, detail: &'static str, accepted: bool) -> Outcome {
+    fn cancel(&mut self, slot: usize) -> Outcome {
+        match self.cancel_resources(slot) {
+            Ok(()) => Outcome::cancelled(),
+            Err(outcome) => outcome,
+        }
+    }
+
+    fn close(&mut self, slot: usize, error: OrdinaryError, accepted: bool) -> Outcome {
         let Some(socket) = self.socket(slot).cloned() else {
             return Outcome::programming("unknown socket");
         };
         if matches!(socket.state, SocketState::Retired) {
-            return Outcome::ordinary(detail);
+            return Outcome::ordinary(error);
         }
         self.retire(slot);
         if accepted {
             Outcome::ACCEPTED
         } else {
-            Outcome::ordinary(detail)
+            Outcome::ordinary(error)
         }
     }
 
@@ -479,7 +554,7 @@ impl Model {
         let pool_index = socket.transport.pool_index();
         if self.idle_by_transport[pool_index] >= POOL_CAPACITY {
             self.retire(slot);
-            return Outcome::ordinary("keepalive pool full");
+            return Outcome::ordinary(OrdinaryError::PoolCapacityUnavailable);
         }
         self.socket_mut(slot).unwrap().state = SocketState::IdlePool;
         self.idle_by_transport[pool_index] += 1;
@@ -537,19 +612,19 @@ impl Model {
             Operation::TimeoutRead(slot) => self.cancel_direction(slot, Direction::Read),
             Operation::TimeoutWrite(slot) => self.cancel_direction(slot, Direction::Write),
             Operation::Cancel(slot) => self.cancel(slot),
-            Operation::Close(slot) => self.close(slot, "closed", true),
-            Operation::PeerClose(slot) => self.close(slot, "peer closed", false),
+            Operation::Close(slot) => self.close(slot, OrdinaryError::Closed, true),
+            Operation::PeerClose(slot) => self.close(slot, OrdinaryError::Closed, false),
             Operation::Keepalive(slot) => self.keepalive(slot),
             Operation::Checkout(slot) => self.checkout(slot),
-            Operation::StaleCallback(_) => Outcome::ordinary("stale callback ignored"),
+            Operation::StaleCallback(_) => Outcome::stale_callback(),
             Operation::UseForeign(_) => Outcome::authority("foreign socket owner"),
             Operation::ClientAbort => {
                 self.worker_shutdown();
-                Outcome::ordinary("client aborted")
+                Outcome::client_aborted()
             }
             Operation::WorkerReload => {
                 self.worker_shutdown();
-                Outcome::ordinary("worker reloaded")
+                Outcome::worker_reload()
             }
         }
     }
@@ -570,10 +645,20 @@ impl Model {
         match direction {
             Direction::Read => self.socket_mut(slot).unwrap().read_pending = false,
             Direction::Write => self.socket_mut(slot).unwrap().write_pending = false,
-            Direction::Connect => return self.cancel(slot),
+            Direction::Connect => {
+                let error = if matches!(socket.state, SocketState::Backlog) {
+                    OrdinaryError::PoolWaitTimeout
+                } else {
+                    OrdinaryError::Timeout
+                };
+                return match self.cancel_resources(slot) {
+                    Ok(()) => Outcome::ordinary(error),
+                    Err(outcome) => outcome,
+                };
+            }
         }
         self.clear_direction_resources(id, direction);
-        Outcome::ordinary("timeout")
+        Outcome::ordinary(OrdinaryError::Timeout)
     }
 
     fn expected_resources(&self) -> BTreeSet<Resource> {
@@ -764,6 +849,48 @@ fn checked_in_lifecycle_seed_corpus_is_reproducible() {
 }
 
 #[test]
+fn ordinary_error_model_is_covered_by_the_machine_readable_catalogue() {
+    let document: serde_json::Value =
+        serde_json::from_str(COMPATIBILITY).expect("valid cosocket compatibility JSON");
+    let entries = document["ordinaryErrors"]
+        .as_array()
+        .expect("ordinary error catalogue is an array");
+    let documented = entries
+        .iter()
+        .map(|entry| {
+            entry["text"]
+                .as_str()
+                .expect("ordinary error has stable text")
+        })
+        .collect::<BTreeSet<_>>();
+    let codes = entries
+        .iter()
+        .map(|entry| {
+            entry["code"]
+                .as_str()
+                .expect("ordinary error has a machine-readable code")
+        })
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(entries.len(), codes.len(), "ordinary error codes are unique");
+    for error in [
+        OrdinaryError::Timeout,
+        OrdinaryError::Closed,
+        OrdinaryError::PoolCapacityUnavailable,
+        OrdinaryError::PoolBacklogOverflow,
+        OrdinaryError::PoolWaitTimeout,
+        OrdinaryError::SocketBusyReading,
+        OrdinaryError::SocketBusyWriting,
+    ] {
+        assert!(
+            documented.contains(error.text()),
+            "model error {:?} is absent from the public catalogue",
+            error
+        );
+    }
+}
+
+#[test]
 fn required_lifecycle_regressions_preserve_cleanup_invariants() {
     let cases = [
         (
@@ -930,10 +1057,74 @@ fn directional_busy_and_authority_results_are_distinct() {
             Operation::StaleCallback(0),
         ],
     );
-    assert!(outcomes.contains(&Outcome::ordinary("socket busy reading")));
-    assert!(outcomes.contains(&Outcome::ordinary("socket busy writing")));
+    assert!(outcomes.contains(&Outcome::ordinary(OrdinaryError::SocketBusyReading)));
+    assert!(outcomes.contains(&Outcome::ordinary(OrdinaryError::SocketBusyWriting)));
     assert!(outcomes.contains(&Outcome::authority("foreign socket owner")));
-    assert!(outcomes.contains(&Outcome::ordinary("stale callback ignored")));
+    assert!(outcomes.contains(&Outcome::stale_callback()));
+}
+
+#[test]
+fn cancellation_and_client_abort_suppress_late_hara_results() {
+    let outcomes = run_trace(
+        0xCA11_CE11,
+        [
+            Operation::Allocate(0, Transport::Tcp),
+            Operation::ConnectStart(0),
+            Operation::Cancel(0),
+            Operation::StaleCallback(0),
+            Operation::Allocate(1, Transport::Unix),
+            Operation::ResolveStart(1),
+            Operation::ClientAbort,
+            Operation::StaleCallback(1),
+        ],
+    );
+    assert!(outcomes.contains(&Outcome::cancelled()));
+    assert!(outcomes.contains(&Outcome::client_aborted()));
+    assert!(outcomes.contains(&Outcome::stale_callback()));
+    assert!(outcomes
+        .iter()
+        .filter(|outcome| matches!(
+            outcome.class,
+            OutcomeClass::Cancelled
+                | OutcomeClass::ClientAborted
+                | OutcomeClass::StaleCallback
+        ))
+        .all(|outcome| !outcome.delivers_to_hara()));
+}
+
+#[test]
+fn pool_outcomes_use_distinct_stable_catalogue_entries() {
+    let outcomes = run_trace(
+        0xBACC_10C,
+        [
+            Operation::Allocate(0, Transport::Tcp),
+            Operation::ConnectStart(0),
+            Operation::ConnectOk(0),
+            Operation::Keepalive(0),
+            Operation::Allocate(1, Transport::Tcp),
+            Operation::ConnectStart(1),
+            Operation::ConnectOk(1),
+            Operation::Keepalive(1),
+            Operation::Allocate(2, Transport::Tcp),
+            Operation::ConnectStart(2),
+            Operation::ConnectOk(2),
+            Operation::Keepalive(2),
+            Operation::Allocate(3, Transport::Tcp),
+            Operation::BacklogStart(3),
+            Operation::Allocate(4, Transport::Tcp),
+            Operation::BacklogStart(4),
+            Operation::Allocate(5, Transport::Tcp),
+            Operation::BacklogStart(5),
+            Operation::TimeoutConnect(3),
+        ],
+    );
+    assert!(outcomes.contains(&Outcome::ordinary(
+        OrdinaryError::PoolCapacityUnavailable
+    )));
+    assert!(outcomes.contains(&Outcome::ordinary(
+        OrdinaryError::PoolBacklogOverflow
+    )));
+    assert!(outcomes.contains(&Outcome::ordinary(OrdinaryError::PoolWaitTimeout)));
 }
 
 #[test]

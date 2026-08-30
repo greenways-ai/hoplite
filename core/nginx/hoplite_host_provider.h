@@ -102,6 +102,13 @@ int32_t hoplite_host_request_cleanup_add_v1(
     hoplite_host_request_cleanup_v1_pt cleanup);
 
 /*
+ * Classify a retiring request for provider-internal cleanup only. A non-zero
+ * result means the client connection had already aborted; providers must not
+ * turn either classification into a late application completion.
+ */
+int32_t hoplite_host_request_client_aborted_v1(void *request_context);
+
+/*
  * Read or finish one opaque request-body handle through the exact request and
  * work scope carried by a provider call.
  *

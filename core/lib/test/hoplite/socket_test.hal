@@ -1,4 +1,5 @@
 (ns hoplite.socket-test
+  (:config {})
   (:require [hoplite.socket :as socket]))
 
 (def tcp-socket
@@ -7,26 +8,37 @@
    :kind :tcp
    :handle 17})
 
-(def checks
-  [(socket/socket? tcp-socket)
-   (socket/tcp? tcp-socket)
-   (= :tcp (socket/socket-kind tcp-socket))
-   (= tcp-socket (socket/require-socket tcp-socket))
-   (not (socket/socket? nil))
-   (not (socket/socket? {}))
-   (not
-    (socket/socket?
-     {:hoplite/type :socket
-      :protocol "hoplite.socket/0-alpha"
-      :kind :udp
-      :handle 17}))
-   (not
-    (socket/socket?
-     {:hoplite/type :socket
-      :protocol "hoplite.socket/0-alpha"
-      :kind :tcp
-      :handle 0}))])
+^{:refer hoplite.socket/socket?}
+(Test/run
+ [{:name "accepts only complete TCP socket descriptors"
+   :test (fn []
+           [(socket/socket? tcp-socket)
+            (socket/socket? nil)
+            (socket/socket? {})
+            (socket/socket? {:hoplite/type :socket
+                             :protocol "hoplite.socket/0-alpha"
+                             :kind :udp
+                             :handle 17})
+            (socket/socket? {:hoplite/type :socket
+                             :protocol "hoplite.socket/0-alpha"
+                             :kind :tcp
+                             :handle 0})])
+   :expected [true false false false false]}])
 
-(if (every? identity checks)
-  true
-  (throw "hoplite.socket descriptor tests failed"))
+^{:refer hoplite.socket/tcp?}
+(Test/run
+ [{:name "recognizes validated TCP descriptors"
+   :test (fn [] (socket/tcp? tcp-socket))
+   :expected true}])
+
+^{:refer hoplite.socket/socket-kind}
+(Test/run
+ [{:name "returns the validated descriptor kind"
+   :test (fn [] (socket/socket-kind tcp-socket))
+   :expected :tcp}])
+
+^{:refer hoplite.socket/require-socket}
+(Test/run
+ [{:name "returns the original validated descriptor"
+   :test (fn [] (socket/require-socket tcp-socket))
+   :expected tcp-socket}])

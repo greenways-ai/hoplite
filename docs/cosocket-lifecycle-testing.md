@@ -24,10 +24,13 @@ cargo test --manifest-path core/runtime/Cargo.toml \
   --test cosocket_lifecycle_model -- --ignored --nocapture
 ```
 
-The model treats network outcomes as ordinary results and invalid descriptors,
-foreign ownership, and illegal transitions as structured failures. Teardown is
-checked after every generated trace and after client abort or worker reload:
-native descriptors, timers, resolver contexts, backlog waiters, pool entries,
-cleanup registrations, buffers, and promises must all be retired exactly once.
-The model complements the real-Nginx source-free cosocket fixtures; it does not
+The model reads the machine-readable ordinary-error catalogue and treats network
+outcomes as delivered result vectors. Invalid descriptors, foreign ownership,
+and illegal transitions remain structured failures. `cancelled`, `client
+aborted`, stale callbacks, and worker reload are separate suppressed lifecycle
+outcomes: they retire state without a late Hara callback. Teardown is checked
+after every generated trace and after client abort or worker reload: native
+descriptors, timers, resolver contexts, backlog waiters, pool entries, cleanup
+registrations, buffers, and promises must all be retired exactly once. The
+model complements the real-Nginx source-free cosocket fixtures; it does not
 replace them or alter production socket semantics.

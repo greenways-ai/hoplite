@@ -468,6 +468,7 @@ chmod 0644 "$resolver_config" "$blackhole_config"
 docker run --detach \
   --name "$app_container" \
   --network "$network" \
+  --env HOPLITE_WORKERS=1 \
   --mount "type=volume,source=${socket_volume},target=/cosocket" \
   --mount "type=bind,source=${resolver_config},target=/app/.hoplite/conf/nginx.conf,readonly" \
   -p 127.0.0.1::8080 \
@@ -591,7 +592,7 @@ request_backlog_at "$base" backlog-fifo two normal >"$fifo_third_file" &
 fifo_third_pid=$!
 sleep .10
 fifo_overflow="$(request_backlog_at "$base" backlog-fifo two normal)"
-if [[ "$fifo_overflow" != 'too many waiting connect operations' ]]; then
+if [[ "$fifo_overflow" != 'pool backlog overflow' ]]; then
   echo "bounded backlog did not reject overflow: $fifo_overflow" >&2
   diagnose
   exit 1
@@ -609,7 +610,7 @@ request_backlog_at "$base" backlog-zero zero normal >"$zero_holder_file" &
 zero_holder_pid=$!
 sleep .10
 zero_full="$(request_backlog_at "$base" backlog-zero zero normal)"
-if [[ "$zero_full" != 'connection pool full' ]]; then
+if [[ "$zero_full" != 'pool capacity unavailable' ]]; then
   echo "zero backlog did not reject a full pool: $zero_full" >&2
   diagnose
   exit 1
@@ -621,7 +622,7 @@ request_backlog_at "$base" backlog-timeout one normal >"$timeout_holder_file" &
 timeout_holder_pid=$!
 sleep .10
 timeout_result="$(request_backlog_at "$base" backlog-timeout one short)"
-if [[ "$timeout_result" != timeout ]]; then
+if [[ "$timeout_result" != 'pool wait timeout' ]]; then
   echo "queued connect did not consume its connect timeout: $timeout_result" >&2
   diagnose
   exit 1
@@ -658,6 +659,7 @@ done
 docker run --detach \
   --name "$noresolver_container" \
   --network "$network" \
+  --env HOPLITE_WORKERS=1 \
   --mount "type=volume,source=${socket_volume},target=/cosocket" \
   -p 127.0.0.1::8080 \
   "$image" >/dev/null
@@ -678,6 +680,7 @@ request_expect_at \
 docker run --detach \
   --name "$cancel_container" \
   --network "$network" \
+  --env HOPLITE_WORKERS=1 \
   --mount "type=volume,source=${socket_volume},target=/cosocket" \
   --mount "type=bind,source=${blackhole_config},target=/app/.hoplite/conf/nginx.conf,readonly" \
   -p 127.0.0.1::8080 \

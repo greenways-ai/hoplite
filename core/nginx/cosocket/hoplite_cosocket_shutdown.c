@@ -196,7 +196,8 @@ hoplite_cosocket_shutdown(const hoplite_host_call_v1_t *call,
     }
     if (shutdown(socket->connection->fd, SHUT_WR) == -1) {
         error = ngx_socket_errno;
-        message = hoplite_cosocket_error_text(error, "shutdown failed");
+        message = hoplite_cosocket_error_from_errno(
+            error, HOPLITE_COSOCKET_ERROR_SHUTDOWN_FAILED);
         return hoplite_cosocket_complete_ordinary_call(
             call, 0, 0, message);
     }
@@ -347,7 +348,8 @@ hoplite_cosocket_setoption(const hoplite_host_call_v1_t *call,
                    sizeof(value)) == -1)
     {
         error = ngx_socket_errno;
-        message = hoplite_cosocket_error_text(error, "setsockopt failed");
+        message = hoplite_cosocket_error_from_errno(
+            error, HOPLITE_COSOCKET_ERROR_SOCKET_OPTION_FAILED);
         return hoplite_cosocket_complete_ordinary_call(
             call, 0, 0, message);
     }

@@ -1,5 +1,6 @@
 (ns hoplite.socket
-  (:config {}))
+  (:config {})
+  (:require [std.foundation :refer :all]))
 
 (def protocol
   "hoplite.socket/0-alpha")
@@ -52,7 +53,7 @@
 
 (defn- host-call
   [operation arguments]
-  (std.native.Host/call "hoplite.socket" operation arguments))
+  (Host/call "hoplite.socket" operation arguments))
 
 (defn ^:async tcp
   "Creates one request-scoped TCP cosocket.
@@ -62,7 +63,7 @@
   []
   (socket-value
    :tcp
-   (std.foundation.coroutine/await
+   (Coroutine/await
     (host-call "tcp" []))))
 
 (defn ^:async connect
@@ -75,14 +76,14 @@
   same connect timeout budget. Returns [1 nil] or [nil error], matching
   OpenResty's ordinary cosocket result convention."
   ([socket target]
-   (std.foundation.coroutine/await
+   (Coroutine/await
     (host-call
      "connect"
      [(socket-handle socket) target])))
   ([socket host port]
    (connect socket host port {}))
   ([socket host port options]
-   (std.foundation.coroutine/await
+   (Coroutine/await
     (host-call
      "connect"
      [(socket-handle socket) host port options]))))
@@ -90,7 +91,7 @@
 (defn ^:async send
   "Sends one string or byte value. Returns [bytes-sent nil] or [nil error]."
   [socket value]
-  (std.foundation.coroutine/await
+  (Coroutine/await
    (host-call "send" [(socket-handle socket) value])))
 
 (defn ^:async receive
@@ -99,14 +100,14 @@
   ([socket]
    (receive socket "*l"))
   ([socket pattern]
-   (std.foundation.coroutine/await
+   (Coroutine/await
     (host-call "receive" [(socket-handle socket) pattern]))))
 
 (defn ^:async receiveany
   "Receives as soon as any data is available, up to maximum bytes. Returns
   [data nil nil] or [nil error partial]."
   [socket maximum]
-  (std.foundation.coroutine/await
+  (Coroutine/await
    (host-call "receiveany" [(socket-handle socket) maximum])))
 
 (defn ^:async receiveuntil
@@ -118,7 +119,7 @@
   ([socket pattern options]
    (let [handle (socket-handle socket)
          reader
-         (std.foundation.coroutine/await
+         (Coroutine/await
           (host-call "receiveuntil" [handle pattern options]))]
      (fn [& sizes]
        (if
@@ -128,7 +129,7 @@
              {:phase :socket/invalid-receiveuntil-arity
               :arguments sizes}
              :ex/message "receiveuntil reader accepts at most one size"))
-        (std.foundation.coroutine/await
+        (Coroutine/await
          (host-call
           "receiveuntil-read"
           [handle reader (get sizes 0)])))))))
@@ -138,7 +139,7 @@
   The only supported direction in this slice is the string send. Returns
   [1 nil] or [nil error]."
   [socket direction]
-  (std.foundation.coroutine/await
+  (Coroutine/await
    (host-call
     "shutdown"
     [(socket-handle socket) direction])))
@@ -146,13 +147,13 @@
 (defn ^:async close
   "Closes the native connection. Request cleanup also closes it exactly once."
   [socket]
-  (std.foundation.coroutine/await
+  (Coroutine/await
    (host-call "close" [(socket-handle socket)])))
 
 (defn ^:async settimeout
   "Sets connect, send and read timeouts to the same millisecond value."
   [socket milliseconds]
-  (std.foundation.coroutine/await
+  (Coroutine/await
    (host-call
     "settimeout"
     [(socket-handle socket) milliseconds])))
@@ -160,7 +161,7 @@
 (defn ^:async settimeouts
   "Sets connect, send and read timeouts independently, in milliseconds."
   [socket connect-milliseconds send-milliseconds read-milliseconds]
-  (std.foundation.coroutine/await
+  (Coroutine/await
    (host-call
     "settimeouts"
     [(socket-handle socket)
@@ -173,7 +174,7 @@
   connection. Supported option names are keepalive, reuseaddr, tcp-nodelay,
   sndbuf, and rcvbuf. Returns [1 nil] or [nil error]."
   [socket option value]
-  (std.foundation.coroutine/await
+  (Coroutine/await
    (host-call
     "setoption"
     [(socket-handle socket) option value])))
@@ -184,15 +185,15 @@
   capacity. Returns [1 nil] or [nil error]. The descriptor is closed after a
   successful transfer and must not be used again."
   ([socket]
-   (std.foundation.coroutine/await
+   (Coroutine/await
     (host-call "setkeepalive" [(socket-handle socket)])))
   ([socket idle-timeout-milliseconds]
-   (std.foundation.coroutine/await
+   (Coroutine/await
     (host-call
      "setkeepalive"
      [(socket-handle socket) idle-timeout-milliseconds])))
   ([socket idle-timeout-milliseconds pool-size]
-   (std.foundation.coroutine/await
+   (Coroutine/await
     (host-call
      "setkeepalive"
      [(socket-handle socket) idle-timeout-milliseconds pool-size]))))
@@ -202,5 +203,5 @@
   checkouts for the active connection. A newly established connection reports
   zero."
   [socket]
-  (std.foundation.coroutine/await
+  (Coroutine/await
    (host-call "getreusedtimes" [(socket-handle socket)])))

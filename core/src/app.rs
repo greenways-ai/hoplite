@@ -1541,10 +1541,14 @@ mod tests {
     fn socket_hal_contract_evaluates_from_the_production_registry() {
         let mut runtime = source_runtime();
         register_resources(&mut runtime);
-        assert_eq!(
-            runtime.eval_native_value(SOCKET_TEST_SOURCE).unwrap(),
-            Value::Bool(true)
-        );
+        let value = runtime.eval_native_value(SOCKET_TEST_SOURCE).unwrap();
+        let Value::Vector(results) = value else {
+            panic!("socket contract must return native test results")
+        };
+        assert_eq!(results.len(), 4, "socket contract test count");
+        assert!(results
+            .iter()
+            .all(|result| { matches!(result, Value::Result(result) if result.is_success()) }));
     }
 
     #[test]
@@ -1637,8 +1641,8 @@ mod tests {
         let root = temp_project("deep-source-tree");
         write_project(&root, r#""src""#);
         let mut directory = root.join("src");
-        for index in 0..256 {
-            directory.push(format!("d{index}"));
+        for _ in 0..256 {
+            directory.push("d");
         }
         fs::create_dir_all(&directory).unwrap();
         fs::write(directory.join("deep.hal"), "(ns demo.deep)").unwrap();

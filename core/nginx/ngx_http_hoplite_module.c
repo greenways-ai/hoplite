@@ -483,6 +483,17 @@ ngx_http_hoplite_finish(ngx_http_hoplite_ctx_t *ctx)
     }
 }
 
+int32_t
+hoplite_host_request_client_aborted_v1(void *request_context)
+{
+    ngx_http_hoplite_ctx_t *ctx = request_context;
+
+    return ctx != NULL
+        && ctx->request != NULL
+        && ctx->request->connection != NULL
+        && ctx->request->connection->error;
+}
+
 static ngx_int_t
 ngx_http_hoplite_add_headers(ngx_http_request_t *request,
                              const hoplite_hta_value_t *headers)

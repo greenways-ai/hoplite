@@ -834,7 +834,9 @@ hoplite_cosocket_pool_waiter_timeout(ngx_event_t *event)
     if (state == NULL || state->done || !state->linked) {
         return;
     }
-    (void) hoplite_cosocket_pool_waiter_complete(state, "timeout");
+    (void) hoplite_cosocket_pool_waiter_complete(
+        state, hoplite_cosocket_error_text(
+            HOPLITE_COSOCKET_ERROR_POOL_WAIT_TIMEOUT));
     hoplite_cosocket_pool_wake_waiters();
 }
 
@@ -911,7 +913,9 @@ hoplite_cosocket_pool_waiter_admit(hoplite_cosocket_pool_waiter_t *state,
             if (entry != NULL) {
                 hoplite_cosocket_pool_idle_close(entry);
             }
-            return hoplite_cosocket_pool_waiter_complete(state, "timeout");
+            return hoplite_cosocket_pool_waiter_complete(
+                state, hoplite_cosocket_error_text(
+                    HOPLITE_COSOCKET_ERROR_POOL_WAIT_TIMEOUT));
         }
         remaining -= elapsed;
     }
@@ -1059,7 +1063,8 @@ hoplite_cosocket_pool_wake_waiters(void)
                 elapsed = ngx_current_msec - state->started;
                 if (elapsed >= state->timeout) {
                     (void) hoplite_cosocket_pool_waiter_complete(
-                        state, "timeout");
+                        state, hoplite_cosocket_error_text(
+                            HOPLITE_COSOCKET_ERROR_POOL_WAIT_TIMEOUT));
                     progressed = 1;
                     break;
                 }
