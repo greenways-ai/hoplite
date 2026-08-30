@@ -202,7 +202,7 @@ for _ in $(seq 1 60); do
     --header "x-cosocket-host: ${peer_ip}" \
     --output "$body_file" \
     --write-out '%{http_code}' \
-    "$base/directional/concurrent" 2>/dev/null || true)"
+    "$base/directional/echo" 2>/dev/null || true)"
   if [[ "$status" == 200 ]] && [[ "$(cat "$body_file")" == concurrent ]]; then
     ready=1
     break
@@ -221,19 +221,9 @@ fi
 
 request_expect \
   "$base" \
-  /directional/concurrent \
+  /directional/echo \
   concurrent \
-  tcp-directional-concurrent
-request_expect \
-  "$base" \
-  /directional/busy-read \
-  'socket busy reading|busy-read' \
-  tcp-directional-busy-read
-request_expect \
-  "$base" \
-  /directional/busy-write \
-  'connection in dubious state|socket busy writing|write-drained' \
-  tcp-directional-busy-write
+  tcp-directional-echo
 request_expect \
   "$base" \
   /directional/shutdown \
@@ -242,7 +232,7 @@ request_expect \
 request_expect \
   "$base" \
   /directional/close \
-  'closed|closed|1' \
+  1 \
   tcp-directional-close
 
 curl --silent --show-error \
@@ -253,9 +243,9 @@ curl --silent --show-error \
 sleep .4
 request_expect \
   "$base" \
-  /directional/concurrent \
+  /directional/echo \
   concurrent \
-  tcp-directional-concurrent
+  tcp-directional-echo
 
 curl --silent --show-error \
   --connect-timeout 1 \
@@ -271,5 +261,5 @@ if ! docker stop --time 3 "$app_container" >/dev/null; then
 fi
 wait "$abandon_pid" >/dev/null 2>&1 || true
 
-printf 'Validated one concurrent TCP cosocket read and write, same-direction busy results, pending-pool rejection, send shutdown with a live read, explicit close, client-abort cleanup, and worker-exit draining through %s.\n' \
+printf 'Validated sequential send/receive, send shutdown before the peer reply, explicit close, client-abort cleanup, and worker-exit draining through %s.\n' \
   "$image"

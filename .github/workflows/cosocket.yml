@@ -111,7 +111,7 @@ jobs:
         run: |
           bash hoplite/packaging/scripts/assert-production-image.sh \
             hoplite-cosocket-directional
-      - name: Prove independent read/write state and lifecycle cleanup
+      - name: Prove source-free directional lifecycle cleanup
         run: |
           bash hoplite/packaging/scripts/smoke-cosocket-directional.sh \
             hoplite-cosocket-directional
