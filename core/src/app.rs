@@ -1637,8 +1637,8 @@ mod tests {
         let root = temp_project("deep-source-tree");
         write_project(&root, r#""src""#);
         let mut directory = root.join("src");
-        for index in 0..256 {
-            directory.push(format!("d{index}"));
+        for _ in 0..256 {
+            directory.push("d");
         }
         fs::create_dir_all(&directory).unwrap();
         fs::write(directory.join("deep.hal"), "(ns demo.deep)").unwrap();
