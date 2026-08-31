@@ -160,7 +160,12 @@ fn source_free_bundle() -> Vec<u8> {
     let mut compiler = hoplite::hara_source::compiler_runtime().unwrap();
     compiler.register_resource("hoplite.socket", SOCKET_SOURCE);
     compiler.register_resource("example.socket-application", APPLICATION_SOURCE);
-    let socket = compile_module(&mut compiler, "hoplite.socket", SOCKET_SOURCE, Vec::new());
+    let socket = compile_module(
+        &mut compiler,
+        "hoplite.socket",
+        SOCKET_SOURCE,
+        vec!["std.foundation".into()],
+    );
     let application = compile_module(
         &mut compiler,
         "example.socket-application",
@@ -228,6 +233,12 @@ fn source_free_socket_coroutine_continues_after_synchronous_completions() {
 
     let runtime = RuntimeGuard(hoplite_runtime_new());
     assert!(!runtime.0.is_null(), "runtime allocates");
+    let foundation = hoplite::hara_source::foundation_bytecode_bundle().unwrap();
+    assert_eq!(
+        unsafe { hoplite_bootstrap_bytecode(runtime.0, foundation.as_ptr(), foundation.len()) },
+        0,
+        "Foundation bytecode loads before the application bundle"
+    );
     assert_eq!(
         unsafe { hoplite_bootstrap_bytecode(runtime.0, bundle.as_ptr(), bundle.len()) },
         0,

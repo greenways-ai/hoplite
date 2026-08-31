@@ -128,6 +128,21 @@ DNS, keepalive pools, TLS, Unix sockets, delimiter iterators, simultaneous one
 reader and one writer, and UDP remain experimental stages of the same namespace.
 No incomplete feature is implemented by blocking an Nginx worker.
 
+Ordinary cosocket failures are portable, bounded strings rather than native
+`errno` or `strerror` output. The machine-readable catalogue is
+[`openresty-cosocket-compatibility.json`](openresty-cosocket-compatibility.json).
+The primary classes are `timeout`, `closed`, connection reachability failures,
+resolver failures, `socket busy reading`, `socket busy writing`, and the three
+pool results `pool capacity unavailable`, `pool backlog overflow`, and `pool
+wait timeout`. Receive-side errors retain the existing `[nil error partial]`
+shape. Malformed calls, wrong-owner descriptors, and invalid authority remain
+structured Hoplite exceptions rather than ordinary error vectors.
+
+Request-work cancellation, client abort, stale completions, and worker reload
+are internal suppressed lifecycle outcomes: Hoplite releases all retained
+cosocket state and does not invoke a late Hara callback. A timeout remains an
+ordinary delivered result and is distinct from cancellation.
+
 ### `hoplite.response-source` — experimental
 
 `hoplite.response-source/0-alpha` is a closed descriptor containing exactly

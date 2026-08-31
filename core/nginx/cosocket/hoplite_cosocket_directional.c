@@ -491,8 +491,8 @@ hoplite_cosocket_directional_drive(
         }
         return hoplite_cosocket_directional_fail_connection(
             state,
-            hoplite_cosocket_error_text(
-                ngx_socket_errno, "send failed"));
+            hoplite_cosocket_error_from_errno(
+                ngx_socket_errno, HOPLITE_COSOCKET_ERROR_SEND_FAILED));
     }
     return hoplite_cosocket_directional_complete(
         state, 1, (int64_t) state->len, NULL, 1);

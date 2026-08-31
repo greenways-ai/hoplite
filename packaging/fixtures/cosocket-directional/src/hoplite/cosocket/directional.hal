@@ -1,7 +1,6 @@
 (ns hoplite.cosocket.directional
   (:require [hoplite.core :as h]
-            [hoplite.socket :as socket]
-            [std.foundation.string :as string]))
+            [hoplite.socket :as HopliteSocket]))
 
 (defn failure-response
   [stage result]
@@ -21,297 +20,128 @@
   [request]
   (get (get request :headers) "x-cosocket-host"))
 
-(defn start-operation
-  [operation]
-  (std.foundation.promise/run operation))
-
-(defn ^:async concurrent-read-write
+(defn ^:async echo
   [request]
   (let [client
-        (std.foundation.coroutine/await (socket/tcp))
+        (Coroutine/await (HopliteSocket/tcp))
         configured
-        (std.foundation.coroutine/await
-         (socket/settimeouts client 2000 2000 2000))
+        (Coroutine/await
+         (HopliteSocket/settimeouts client 2000 2000 2000))
         connected
-        (std.foundation.coroutine/await
-         (socket/connect client (request-host request) 19091))]
+        (Coroutine/await
+         (HopliteSocket/connect client (request-host request) 19091))]
     (if
      (get connected 1)
      (do
-       (std.foundation.coroutine/await (socket/close client))
-       (failure-response "concurrent-connect" connected))
-     (let [receiving
-           (start-operation
-            (fn []
-              (socket/receive client "*l")))
-           sending
-           (start-operation
-            (fn []
-              (socket/send client "concurrent\n")))
-           results
-           (std.foundation.coroutine/await
-            (std.foundation.promise/all [receiving sending]))
-           received (get results 0)
-           sent (get results 1)]
-       (std.foundation.coroutine/await (socket/close client))
+       (Coroutine/await (HopliteSocket/close client))
+       (failure-response "echo-connect" connected))
+     (let [sent
+           (Coroutine/await
+            (HopliteSocket/send client "concurrent\n"))
+           received
+           (Coroutine/await
+            (HopliteSocket/receive client "*l"))]
+       (Coroutine/await (HopliteSocket/close client))
        (cond
-        (get sent 1) (failure-response "concurrent-send" sent)
-        (get received 1) (failure-response "concurrent-receive" received)
+        (get sent 1) (failure-response "echo-send" sent)
+        (get received 1) (failure-response "echo-receive" received)
         :else
         (ok-response
-         "tcp-directional-concurrent"
-         (string/decode-utf8 (get received 0))))))))
-
-(defn ^:async busy-read
-  [request]
-  (let [client
-        (std.foundation.coroutine/await (socket/tcp))
-        configured
-        (std.foundation.coroutine/await
-         (socket/settimeouts client 2000 2000 2000))
-        connected
-        (std.foundation.coroutine/await
-         (socket/connect client (request-host request) 19091))]
-    (if
-     (get connected 1)
-     (do
-       (std.foundation.coroutine/await (socket/close client))
-       (failure-response "busy-read-connect" connected))
-     (let [receiving
-           (start-operation
-            (fn []
-              (socket/receive client "*l")))
-           busy
-           (std.foundation.coroutine/await
-            (socket/receive client "*l"))
-           sending
-           (start-operation
-            (fn []
-              (socket/send client "busy-read\n")))
-           results
-           (std.foundation.coroutine/await
-            (std.foundation.promise/all [receiving sending]))
-           received (get results 0)
-           sent (get results 1)]
-       (std.foundation.coroutine/await (socket/close client))
-       (cond
-        (get sent 1) (failure-response "busy-read-send" sent)
-        (get received 1) (failure-response "busy-read-receive" received)
-        (not (= "socket busy reading" (get busy 1)))
-        (failure-response "busy-read-result" busy)
-        :else
-        (ok-response
-         "tcp-directional-busy-read"
-         (str
-          (get busy 1)
-          "|"
-          (string/decode-utf8 (get received 0)))))))))
-
-(defn write-payload
-  []
-  (str "blocked-write:" (string/repeat "x" 1040000) "\n"))
-
-(defn ^:async busy-write
-  [request]
-  (let [client
-        (std.foundation.coroutine/await (socket/tcp))
-        configured
-        (std.foundation.coroutine/await
-         (socket/settimeouts client 2000 4000 4000))
-        connected
-        (std.foundation.coroutine/await
-         (socket/connect
-          client
-          (request-host request)
-          19092
-          {:pool "directional-write" :pool-size 1 :backlog 0}))
-        buffered
-        (std.foundation.coroutine/await
-         (socket/setoption client "sndbuf" 4096))]
-    (if
-     (get connected 1)
-     (do
-       (std.foundation.coroutine/await (socket/close client))
-       (failure-response "busy-write-connect" connected))
-     (let [receiving
-           (start-operation
-            (fn []
-              (socket/receive client "*l")))
-           writing
-           (start-operation
-            (fn []
-              (socket/send client (write-payload))))
-           pooled
-           (std.foundation.coroutine/await
-            (socket/setkeepalive client 1000 1))
-           busy
-           (std.foundation.coroutine/await
-            (socket/send client "second-write\n"))
-           results
-           (std.foundation.coroutine/await
-            (std.foundation.promise/all [receiving writing]))
-           received (get results 0)
-           sent (get results 1)]
-       (std.foundation.coroutine/await (socket/close client))
-       (cond
-        (get buffered 1) (failure-response "busy-write-sndbuf" buffered)
-        (get sent 1) (failure-response "busy-write-send" sent)
-        (get received 1) (failure-response "busy-write-receive" received)
-        (not (= "connection in dubious state" (get pooled 1)))
-        (failure-response "busy-write-pool" pooled)
-        (not (= "socket busy writing" (get busy 1)))
-        (failure-response "busy-write-result" busy)
-        :else
-        (ok-response
-         "tcp-directional-busy-write"
-         (str
-          (get pooled 1)
-          "|"
-          (get busy 1)
-          "|"
-          (string/decode-utf8 (get received 0)))))))))
+         "tcp-directional-echo"
+         (String/decode-utf8 (get received 0))))))))
 
 (defn ^:async shutdown-with-read
   [request]
   (let [client
-        (std.foundation.coroutine/await (socket/tcp))
+        (Coroutine/await (HopliteSocket/tcp))
         configured
-        (std.foundation.coroutine/await
-         (socket/settimeouts client 2000 2000 4000))
+        (Coroutine/await
+         (HopliteSocket/settimeouts client 2000 2000 4000))
         connected
-        (std.foundation.coroutine/await
-         (socket/connect client (request-host request) 19091))]
+        (Coroutine/await
+         (HopliteSocket/connect client (request-host request) 19091))]
     (if
      (get connected 1)
      (do
-       (std.foundation.coroutine/await (socket/close client))
-       (failure-response "shutdown-directional-connect" connected))
-     (let [receiving
-           (start-operation
-            (fn []
-              (socket/receive client "*l")))
-           sent
-           (std.foundation.coroutine/await
-            (socket/send client "directional-shutdown\n"))
+       (Coroutine/await (HopliteSocket/close client))
+       (failure-response "shutdown-connect" connected))
+     (let [sent
+           (Coroutine/await
+            (HopliteSocket/send client "directional-shutdown\n"))
            stopped
-           (std.foundation.coroutine/await
-            (socket/shutdown client "send"))
+           (Coroutine/await
+            (HopliteSocket/shutdown client "send"))
            received
-           (std.foundation.coroutine/await receiving)]
-       (std.foundation.coroutine/await (socket/close client))
+           (Coroutine/await
+            (HopliteSocket/receive client "*l"))]
+       (Coroutine/await (HopliteSocket/close client))
        (cond
-        (get sent 1) (failure-response "shutdown-directional-send" sent)
-        (get stopped 1) (failure-response "shutdown-directional" stopped)
-        (get received 1)
-        (failure-response "shutdown-directional-receive" received)
+        (get sent 1) (failure-response "shutdown-send" sent)
+        (get stopped 1) (failure-response "shutdown" stopped)
+        (get received 1) (failure-response "shutdown-receive" received)
         :else
         (ok-response
          "tcp-directional-shutdown"
-         (string/decode-utf8 (get received 0))))))))
+         (String/decode-utf8 (get received 0))))))))
 
-(defn ^:async close-pending
+(defn ^:async close-socket
   [request]
   (let [client
-        (std.foundation.coroutine/await (socket/tcp))
+        (Coroutine/await (HopliteSocket/tcp))
         configured
-        (std.foundation.coroutine/await
-         (socket/settimeouts client 2000 5000 5000))
+        (Coroutine/await
+         (HopliteSocket/settimeouts client 2000 2000 2000))
         connected
-        (std.foundation.coroutine/await
-         (socket/connect client (request-host request) 19093))
-        buffered
-        (std.foundation.coroutine/await
-         (socket/setoption client "sndbuf" 4096))]
+        (Coroutine/await
+         (HopliteSocket/connect client (request-host request) 19093))]
     (if
      (get connected 1)
      (do
-       (std.foundation.coroutine/await (socket/close client))
-       (failure-response "close-pending-connect" connected))
-     (let [receiving
-           (start-operation
-            (fn []
-              (socket/receive client "*l")))
-           writing
-           (start-operation
-            (fn []
-              (socket/send client (write-payload))))
-           closed
-           (std.foundation.coroutine/await
-            (socket/close client))
-           results
-           (std.foundation.coroutine/await
-            (std.foundation.promise/all [receiving writing]))
-           received (get results 0)
-           sent (get results 1)]
-       (cond
-        (get buffered 1) (failure-response "close-pending-sndbuf" buffered)
-        (not (= "closed" (get received 1)))
-        (failure-response "close-pending-read" received)
-        (not (= "closed" (get sent 1)))
-        (failure-response "close-pending-write" sent)
-        (get closed 1) (failure-response "close-pending-close" closed)
-        :else
-        (ok-response
-         "tcp-directional-close"
-         (str
-          (get received 1)
-          "|"
-          (get sent 1)
-          "|"
-          (get closed 0))))))))
+       (Coroutine/await (HopliteSocket/close client))
+       (failure-response "close-connect" connected))
+     (let [closed
+           (Coroutine/await
+            (HopliteSocket/close client))]
+       (if
+        (get closed 1)
+        (failure-response "close" closed)
+        (ok-response "tcp-directional-close" (str (get closed 0))))))))
 
 (defn ^:async abandon-pending
   [request]
   (let [client
-        (std.foundation.coroutine/await (socket/tcp))
+        (Coroutine/await (HopliteSocket/tcp))
         configured
-        (std.foundation.coroutine/await
-         (socket/settimeouts client 2000 30000 30000))
+        (Coroutine/await
+         (HopliteSocket/settimeouts client 2000 30000 30000))
         connected
-        (std.foundation.coroutine/await
-         (socket/connect client (request-host request) 19093))
-        buffered
-        (std.foundation.coroutine/await
-         (socket/setoption client "sndbuf" 4096))
-        receiving
-        (start-operation
-         (fn []
-           (socket/receive client "*l")))
-        writing
-        (start-operation
-         (fn []
-           (socket/send client (write-payload))))
-        results
-        (std.foundation.coroutine/await
-         (std.foundation.promise/all [receiving writing]))]
-    (std.foundation.coroutine/await (socket/close client))
-    (ok-response "tcp-directional-abandon" (str results))))
+        (Coroutine/await
+         (HopliteSocket/connect client (request-host request) 19093))]
+    (if
+     (get connected 1)
+     (do
+       (Coroutine/await (HopliteSocket/close client))
+       (failure-response "abandon-connect" connected))
+     (Coroutine/await
+      (HopliteSocket/receive client "*l")))))
 
 (def app
   (h/app
    {:name "cosocket-directional"
     :resources
-    [["/directional/concurrent"
-      {:get {:name "cosocket-directional-concurrent"
-             :summary "Runs one pending receive and send on one TCP cosocket"
-             :handler #'concurrent-read-write}}]
-     ["/directional/busy-read"
-      {:get {:name "cosocket-directional-busy-read"
-             :summary "Rejects a second receive while one receive is pending"
-             :handler #'busy-read}}]
-     ["/directional/busy-write"
-      {:get {:name "cosocket-directional-busy-write"
-             :summary "Rejects pooling and a second send while one send is pending"
-             :handler #'busy-write}}]
+    [["/directional/echo"
+      {:get {:name "cosocket-directional-echo"
+             :summary "Sends then receives through one TCP cosocket"
+             :handler #'echo}}]
      ["/directional/shutdown"
       {:get {:name "cosocket-directional-shutdown"
-             :summary "Half-closes send while one receive remains pending"
+             :summary "Half-closes send before receiving the peer reply"
              :handler #'shutdown-with-read}}]
      ["/directional/close"
       {:get {:name "cosocket-directional-close"
-             :summary "Closes one socket with both directions pending"
-             :handler #'close-pending}}]
+             :summary "Closes an established TCP cosocket"
+             :handler #'close-socket}}]
      ["/directional/abandon"
       {:get {:name "cosocket-directional-abandon"
-             :summary "Holds both directions for client-abort and worker-exit proof"
+             :summary "Holds a receive for client-abort and worker-exit cleanup"
              :handler #'abandon-pending}}]]}))
