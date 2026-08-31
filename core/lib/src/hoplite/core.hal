@@ -2,7 +2,7 @@
   (:config {:override [stream]})
   (:require [std.foundation :as foundation]))
 
-(defn- tagged
+(defn tagged
   [kind value]
   (assoc value :hoplite/type kind))
 
@@ -23,7 +23,7 @@
     :status status
     :body body}))
 
-(defn- iterator-stream
+(defn iterator-stream
   [iterator]
   (Stream/generate
    (fn [input]

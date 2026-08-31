@@ -5,8 +5,8 @@ pub struct LockedPackage {
     pub coordinate: String,
     pub version: String,
     pub tap: String,
-    pub registry_commit: String,
-    pub identity_revision: String,
+    pub oci_repository: String,
+    pub oci_manifest: String,
     pub archive_sha256: String,
     pub namespaces: Vec<String>,
 }
@@ -14,9 +14,8 @@ pub struct LockedPackage {
 pub fn catalog_from_lock(source: &str) -> Result<Vec<LockedPackage>, String> {
     let document = parse(source)?;
     let root = map(&document, "project.lock.edn must be an EDN map")?;
-    if !matches!(lookup(root, "lock/format"), Some(Form::String(version)) if version == "0.0.0-alpha")
-    {
-        return Err("project.lock.edn requires :lock/format \"0.0.0-alpha\"".into());
+    if !matches!(lookup(root, "lock/format"), Some(Form::String(version)) if version == "0.0.1") {
+        return Err("project.lock.edn requires :lock/format \"0.0.1\"".into());
     }
     let packages = match lookup(root, "packages") {
         Some(value) => map(value, "project.lock.edn :packages must be a map")?,
@@ -35,16 +34,16 @@ pub fn catalog_from_lock(source: &str) -> Result<Vec<LockedPackage>, String> {
         )?;
         validate_sha256(&archive_sha256)?;
         let tap = string(required(descriptor, "tap")?, "locked package :tap")?;
-        let registry_commit = string(
-            required(descriptor, "registry-commit")?,
-            "locked package :registry-commit",
+        let oci_repository = string(
+            required(descriptor, "oci/repository")?,
+            "locked package :oci/repository",
         )?;
-        validate_commit(&registry_commit, "registry-commit")?;
-        let identity_revision = string(
-            required(descriptor, "identity-revision")?,
-            "locked package :identity-revision",
+        validate_oci_repository(&oci_repository)?;
+        let oci_manifest = string(
+            required(descriptor, "oci/manifest")?,
+            "locked package :oci/manifest",
         )?;
-        validate_commit(&identity_revision, "identity-revision")?;
+        validate_digest(&oci_manifest, "oci/manifest")?;
         let namespaces = symbols(
             required(descriptor, "namespaces")?,
             "locked package :namespaces",
@@ -56,8 +55,8 @@ pub fn catalog_from_lock(source: &str) -> Result<Vec<LockedPackage>, String> {
             coordinate,
             version,
             tap,
-            registry_commit,
-            identity_revision,
+            oci_repository,
+            oci_manifest,
             archive_sha256,
             namespaces,
         });
@@ -122,25 +121,42 @@ fn symbols(form: &Form, label: &str) -> Result<Vec<String>, String> {
 }
 
 fn validate_sha256(value: &str) -> Result<(), String> {
-    let value = value.strip_prefix("sha256:").unwrap_or(value);
-    if value.len() == 64 && value.chars().all(|value| value.is_ascii_hexdigit()) {
-        Ok(())
-    } else {
-        Err("locked package :archive-sha256 must be SHA-256".into())
-    }
+    validate_digest(value, "archive-sha256")
 }
 
-fn validate_commit(value: &str, label: &str) -> Result<(), String> {
-    if value.len() == 40
+fn validate_digest(value: &str, label: &str) -> Result<(), String> {
+    let value = value.strip_prefix("sha256:").unwrap_or(value);
+    if value.len() == 64
         && value
             .chars()
             .all(|value| value.is_ascii_hexdigit() && !value.is_ascii_uppercase())
     {
         Ok(())
     } else {
-        Err(format!(
-            "locked package :{label} must be a lowercase 40-character Git commit"
-        ))
+        Err(format!("locked package :{label} must be SHA-256"))
+    }
+}
+
+fn validate_oci_repository(value: &str) -> Result<(), String> {
+    let Some(name) = value.strip_prefix("ghcr.io/hara-packages/") else {
+        return Err("locked package :oci/repository must be under ghcr.io/hara-packages".into());
+    };
+    if !name.is_empty()
+        && name.chars().all(|value| {
+            value.is_ascii_lowercase() || value.is_ascii_digit() || matches!(value, '.' | '_' | '-')
+        })
+        && name
+            .chars()
+            .next()
+            .is_some_and(|value| value.is_ascii_lowercase() || value.is_ascii_digit())
+        && name
+            .chars()
+            .last()
+            .is_some_and(|value| value.is_ascii_lowercase() || value.is_ascii_digit())
+    {
+        Ok(())
+    } else {
+        Err("locked package :oci/repository is invalid".into())
     }
 }
 
@@ -148,11 +164,10 @@ fn validate_commit(value: &str, label: &str) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    fn package_descriptor(namespace: &str, digest: char, commit: char) -> String {
+    fn package_descriptor(namespace: &str, digest: char, manifest: char) -> String {
         format!(
-            "{{:version \"1.2.3\" :tap \"hara\" :registry-commit \"{}\" :identity-revision \"{}\" :archive-sha256 \"sha256:{}\" :namespaces [{namespace}]}}",
-            commit.to_string().repeat(40),
-            commit.to_string().repeat(40),
+            "{{:version \"1.2.3\" :tap \"hara\" :oci/repository \"ghcr.io/hara-packages/hara-lang.demo\" :oci/manifest \"sha256:{}\" :archive-sha256 \"sha256:{}\" :namespaces [{namespace}]}}",
+            manifest.to_string().repeat(64),
             digest.to_string().repeat(64),
         )
     }
@@ -160,18 +175,26 @@ mod tests {
     #[test]
     fn reads_exact_lock_catalog() {
         let source = format!(
-            "{{:lock/format \"0.0.0-alpha\" :packages {{\"hara:demo/core\" {}}}}}",
+            "{{:lock/format \"0.0.1\" :packages {{\"hara:demo/core\" {}}}}}",
             package_descriptor("demo.core", 'a', 'b')
         );
         let catalog = catalog_from_lock(&source).unwrap();
         assert_eq!(catalog[0].coordinate, "hara:demo/core");
         assert_eq!(catalog[0].namespaces, vec!["demo.core"]);
+        assert_eq!(
+            catalog[0].oci_repository,
+            "ghcr.io/hara-packages/hara-lang.demo"
+        );
+        assert_eq!(
+            catalog[0].oci_manifest,
+            format!("sha256:{}", "b".repeat(64))
+        );
     }
 
     #[test]
     fn rejects_namespace_conflicts() {
         let source = format!(
-            "{{:lock/format \"0.0.0-alpha\" :packages {{\"hara:demo/first\" {} \"hara:demo/second\" {}}}}}",
+            "{{:lock/format \"0.0.1\" :packages {{\"hara:demo/first\" {} \"hara:demo/second\" {}}}}}",
             package_descriptor("demo.core", 'a', 'b'),
             package_descriptor("demo.core", 'c', 'd'),
         );

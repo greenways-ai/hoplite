@@ -22,7 +22,7 @@
   (and (socket? value)
        (= :tcp (get value :kind))))
 
-(defn- invalid-socket
+(defn invalid-socket
   [value]
   (throw
    (ex :hoplite.ex/invalid-socket {:phase :socket/invalid-descriptor
@@ -39,11 +39,11 @@
   [socket]
   (get (require-socket socket) :kind))
 
-(defn- socket-handle
+(defn socket-handle
   [socket]
   (get (require-socket socket) :handle))
 
-(defn- socket-value
+(defn socket-value
   [kind handle]
   (require-socket
    {:hoplite/type :socket
@@ -51,7 +51,7 @@
     :kind kind
     :handle handle}))
 
-(defn- host-call
+(defn host-call
   [operation arguments]
   (Host/call "hoplite.socket" operation arguments))
 

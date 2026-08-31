@@ -133,6 +133,7 @@ pub fn configured_source_root() -> Result<PathBuf, String> {
 
 fn standard_library_root(source_root: &Path) -> Result<PathBuf, String> {
     for candidate in [
+        source_root.join("src"),
         source_root.join("core/rust/hal-src"),
         source_root.join("core/lib/src"),
     ] {
@@ -141,7 +142,7 @@ fn standard_library_root(source_root: &Path) -> Result<PathBuf, String> {
         }
     }
     Err(format!(
-        "Hara source checkout {} has no standard-library source; expected core/rust/hal-src or core/lib/src with std/foundation.hal",
+        "Hara source checkout {} has no standard-library source; expected src, core/rust/hal-src, or core/lib/src with std/foundation.hal",
         source_root.display()
     ))
 }

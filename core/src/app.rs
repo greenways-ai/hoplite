@@ -1479,10 +1479,13 @@ mod tests {
         let mut runtime = source_runtime();
         runtime.register_resource("hoplite.core", CORE_SOURCE);
         runtime.register_resource("hoplite.internal", INTERNAL_SOURCE);
-        assert_eq!(
-            runtime.eval_native_value(CORE_TEST_SOURCE).unwrap(),
-            Value::Bool(true)
-        );
+        let Value::Vector(results) = runtime.eval_native_value(CORE_TEST_SOURCE).unwrap() else {
+            panic!("core contract must return native test results")
+        };
+        assert_eq!(results.len(), 1, "core contract test count");
+        assert!(results
+            .iter()
+            .all(|result| { matches!(result, Value::Result(result) if result.is_success()) }));
     }
 
     #[test]

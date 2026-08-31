@@ -31,6 +31,8 @@
                      {}))
    (= :config (:hoplite/type (internal/config {:apps []})))])
 
-(if (every? identity checks)
-  true
-  (throw "hoplite.core tests failed"))
+^{:refer hoplite.core/tagged}
+(Test/check
+ [{:name "preserves the complete public Hoplite core construction surface"
+   :test (fn [] (every? identity checks))
+   :expected true}])

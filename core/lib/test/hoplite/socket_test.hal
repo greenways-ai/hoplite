@@ -9,7 +9,7 @@
    :handle 17})
 
 ^{:refer hoplite.socket/socket?}
-(Test/run
+(Test/check
  [{:name "accepts only complete TCP socket descriptors"
    :test (fn []
            [(socket/socket? tcp-socket)
@@ -23,22 +23,13 @@
                              :protocol "hoplite.socket/0-alpha"
                              :kind :tcp
                              :handle 0})])
-   :expected [true false false false false]}])
-
-^{:refer hoplite.socket/tcp?}
-(Test/run
- [{:name "recognizes validated TCP descriptors"
+   :expected [true false false false false]}
+  {:name "recognizes validated TCP descriptors"
    :test (fn [] (socket/tcp? tcp-socket))
-   :expected true}])
-
-^{:refer hoplite.socket/socket-kind}
-(Test/run
- [{:name "returns the validated descriptor kind"
+   :expected true}
+  {:name "returns the validated descriptor kind"
    :test (fn [] (socket/socket-kind tcp-socket))
-   :expected :tcp}])
-
-^{:refer hoplite.socket/require-socket}
-(Test/run
- [{:name "returns the original validated descriptor"
+   :expected :tcp}
+  {:name "returns the original validated descriptor"
    :test (fn [] (socket/require-socket tcp-socket))
    :expected tcp-socket}])

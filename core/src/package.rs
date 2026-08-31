@@ -46,7 +46,7 @@ pub fn ensure_locked(package: &crate::package_catalog::LockedPackage) -> Result<
         .unwrap_or_else(|_| "https://packages.hara-lang.org".into())
         .trim_end_matches('/')
         .to_owned();
-    let registry_url = format!("{origin}/v1/registry?ref={}", package.registry_commit);
+    let registry_url = format!("{origin}/v1/registry?ref=main");
     let registry = curl_bytes(&registry_url, None)?;
     verify_registry_release(&registry, package)?;
     let object_url = format!("{origin}/objects/sha256/{expected}");
@@ -130,7 +130,8 @@ fn verify_registry_release(
     };
     for (field, expected) in [
         ("archive-sha256", package.archive_sha256.as_str()),
-        ("identity-revision", package.identity_revision.as_str()),
+        ("oci/repository", package.oci_repository.as_str()),
+        ("oci/manifest", package.oci_manifest.as_str()),
     ] {
         if string_field(descriptor, field).as_deref() != Some(expected) {
             return Err(format!(
@@ -409,19 +410,19 @@ mod tests {
     }
 
     #[test]
-    fn registry_release_must_match_the_locked_digest_and_identity_revision() {
+    fn registry_release_must_match_the_locked_digest_and_oci_locator() {
         let package = crate::package_catalog::LockedPackage {
             coordinate: "gh:greenways-ai:demo".into(),
             version: "1.2.3".into(),
             tap: "hara".into(),
-            registry_commit: "a".repeat(40),
-            identity_revision: "b".repeat(40),
+            oci_repository: "ghcr.io/hara-packages/greenways-ai.demo".into(),
+            oci_manifest: format!("sha256:{}", "b".repeat(64)),
             archive_sha256: format!("sha256:{}", "c".repeat(64)),
             namespaces: vec!["demo.core".into()],
         };
         let registry = format!(
-            "{{:registry/packages {{\"gh:greenways-ai:demo\" {{\"1.2.3\" {{:archive-sha256 \"sha256:{}\" :identity-revision \"{}\"}}}}}}}}",
-            "c".repeat(64), "b".repeat(40)
+            "{{:registry/packages {{\"gh:greenways-ai:demo\" {{\"1.2.3\" {{:archive-sha256 \"sha256:{}\" :oci/repository \"ghcr.io/hara-packages/greenways-ai.demo\" :oci/manifest \"sha256:{}\"}}}}}}}}",
+            "c".repeat(64), "b".repeat(64)
         );
         verify_registry_release(registry.as_bytes(), &package).unwrap();
         assert!(verify_registry_release(
