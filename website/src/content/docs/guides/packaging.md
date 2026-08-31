@@ -80,16 +80,21 @@ make macos
 
 ## Homebrew release
 
-The tagged release workflow:
+Hoplite uses a protected promotion rather than publishing on tag push:
 
-1. Verifies that the Git tag matches `Cargo.toml`.
-2. Builds arm64 and Intel standalone macOS executables.
-3. Publishes both files in a GitHub release.
-4. Calculates SHA-256 checksums.
-5. Generates and publishes `Formula/hoplite.rb`.
-6. Updates `greenways-ai/homebrew-hoplite` when `HOMEBREW_TAP_TOKEN` is available.
+1. A reviewed `main → release` pull request runs full release preflight.
+2. Manual promotion from `release` creates a draft intent for the exact
+   `release/version.json` version and immutable source revisions.
+3. It publishes HARP, macOS and Linux `hoplite`/`hoplite-server` binaries,
+   multi-platform OCI image, `Formula/hoplite.rb`, checksums, and a release
+   manifest.
+4. The workflow pulls and exercises the exact OCI digest and downloads the
+   finalized GitHub assets to verify their checksums.
+5. It updates `greenways-ai/homebrew-tap` only when the protected publishing
+   environment provides `HOMEBREW_TAP_TOKEN`.
 
-The formula renderer lives under `scripts/`, and local tap instructions are in `packaging/homebrew/README.md`.
+The formula renderer lives under `packaging/scripts/`, and local tap
+instructions are in `packaging/homebrew/README.md`.
 
 ## Benchmark
 

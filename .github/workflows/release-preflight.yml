@@ -1,0 +1,165 @@
+name: Release preflight
+
+on:
+  workflow_call:
+  pull_request:
+    branches: [release]
+  push:
+    branches: [release]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hoplite-release-preflight-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-origin:
+    name: release origin and lineage
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Require release pull requests to promote main
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != pull_request ]; then
+            exit 0
+          fi
+          test "${{ github.event.pull_request.head.repo.full_name }}" = "$GITHUB_REPOSITORY"
+          test "${{ github.event.pull_request.head.ref }}" = main
+
+  validate:
+    needs: release-origin
+    uses: ./.github/workflows/ci.yml
+
+  release-contract:
+    name: release contract
+    needs: release-origin
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Require canonical release inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(jq -r '.format' release/version.json)" = hoplite/release-version-v1
+          version="$(jq -er '.version' release/version.json)"
+          node -e 'const version = process.argv[1]; if (!/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(version)) process.exit(1)' "$version"
+          crate_version="$(cargo metadata --manifest-path core/Cargo.toml --locked --no-deps --format-version 1 | jq -er '.packages[] | select(.name == "hoplite") | .version')"
+          test "$crate_version" = "$version"
+          bash packaging/scripts/hara-revision.sh >/dev/null
+          bash packaging/scripts/hara-native-revision.sh >/dev/null
+          jq -e '.format == "hoplite.public-surfaces/0-alpha"' docs/public-surfaces.json >/dev/null
+          jq -e '.format == "hoplite.core-boundary/0-alpha"' docs/core-boundary.json >/dev/null
+          bash packaging/scripts/verify-alpha-versioning.sh
+          test -n "$(sed -n 's/^NGINX_VERSION := //p' core/Makefile)"
+          test -n "$(sed -n 's/^NGINX_SHA256 := //p' core/Makefile)"
+          test -n "$(sed -n 's/^NCHAN_VERSION := //p' core/Makefile)"
+          test -n "$(sed -n 's/^NCHAN_SHA256 := //p' core/Makefile)"
+
+  harp-package:
+    name: HARP package
+    needs: release-contract
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+      - name: Resolve the reviewed Hara source revision
+        id: hara_source
+        working-directory: hoplite
+        run: echo "revision=$(bash packaging/scripts/hara-revision.sh)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ steps.hara_source.outputs.revision }}
+          path: hara
+          submodules: recursive
+      - name: Resolve the reviewed Hara Native revision
+        id: hara_native
+        working-directory: hoplite
+        run: echo "revision=$(bash packaging/scripts/hara-native-revision.sh)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara-native
+          ref: ${{ steps.hara_native.outputs.revision }}
+          path: hara-native
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build and inspect the deterministic HARP package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(jq -er '.version' hoplite/release/version.json)"
+          cargo run --locked --manifest-path hara/core/rust/Cargo.toml --bin hara -- \
+            package build hoplite/core --output "hoplite-${version}.harp"
+          cargo run --locked --manifest-path hara/core/rust/Cargo.toml --bin hara -- \
+            package inspect "hoplite-${version}.harp"
+          sha256sum "hoplite-${version}.harp"
+
+  container-package:
+    name: container package
+    needs: release-contract
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: hoplite
+      - name: Resolve the reviewed Hara source revision
+        id: hara_source
+        working-directory: hoplite
+        run: echo "revision=$(bash packaging/scripts/hara-revision.sh)" >> "$GITHUB_OUTPUT"
+      - name: Resolve the reviewed Hara Native revision
+        id: hara_native
+        working-directory: hoplite
+        run: echo "revision=$(bash packaging/scripts/hara-native-revision.sh)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara
+          ref: ${{ steps.hara_source.outputs.revision }}
+          path: hara
+          submodules: recursive
+      - uses: actions/checkout@v5
+        with:
+          repository: hara-lang/hara-native
+          ref: ${{ steps.hara_native.outputs.revision }}
+          path: hara-native
+      - uses: docker/setup-buildx-action@v3
+      - name: Check the production container build
+        run: docker buildx build --check --file hoplite/packaging/docker/Dockerfile .
+
+  homebrew-formula:
+    name: Homebrew formula
+    needs: release-contract
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Render and syntax-check the immutable formula
+        shell: bash
+        run: |
+          set -euo pipefail
+          make -C packaging/homebrew check \
+            HOPLITE_REVISION="$GITHUB_SHA" \
+            HARA_REVISION="$(bash packaging/scripts/hara-revision.sh)" \
+            HARA_NATIVE_REVISION="$(bash packaging/scripts/hara-native-revision.sh)"
+
+  release-ready:
+    name: release ready
+    if: always()
+    needs: [release-origin, validate, release-contract, harp-package, container-package, homebrew-formula]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every release gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test '${{ needs.release-origin.result }}' = success
+          test '${{ needs.validate.result }}' = success
+          test '${{ needs.release-contract.result }}' = success
+          test '${{ needs.harp-package.result }}' = success
+          test '${{ needs.container-package.result }}' = success
+          test '${{ needs.homebrew-formula.result }}' = success
